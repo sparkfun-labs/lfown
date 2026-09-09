@@ -1,0 +1,14 @@
+node_modules/
+.wrangler/
+.dev.vars
+.DS_Store
+
+# local test keypairs — never commit
+.keys/
+
+# bundled output — rebuilt by `npm run build`
+public/app/
+
+# per-machine Claude Code permissions; launch.json is shared on purpose
+.claude/settings.local.json
+*.log

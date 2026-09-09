@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "lfown",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8794"],
+      "port": 8794
+    }
+  ]
+}

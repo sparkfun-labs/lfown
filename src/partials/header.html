@@ -1,0 +1,99 @@
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
+    <nav class="nav-centre">
+      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/launch">Launch</a>
+    </nav>
+    <nav class="nav-actions">
+      <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      </button>
+      <!--ACTION-->
+      <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </div>
+
+</header>
+
+<!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
+     filter makes an element the containing block for any position:fixed descendant
+     — the drawer inherited the header's 68 pixels of height and stopped there. -->
+<div class="scrim" id="menuScrim" hidden></div>
+<aside class="drawer" id="menu" hidden aria-label="Menu">
+    <div class="drawer-head">
+      <span class="mono">Menu</span>
+      <button class="drawer-close" type="button" id="menuClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </div>
+    <nav class="drawer-nav">
+      <a href="/coins">Coins</a>
+      <a href="/launch">Launch</a>
+    </nav>
+    <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
+      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      <span class="mono">Theme</span>
+    </button>
+    <a class="drawer-x" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      <span class="mono">@LFOWNDOTFUN</span>
+    </a>
+  </aside>
+
+<script>
+  // The theme lives here rather than in each page's bundle: there are two toggles
+  // now, one in the bar and one in the drawer, and the landing ships no bundle at all.
+  (function () {
+    var root = document.documentElement
+    var toggles = document.querySelectorAll('.theme-toggle')
+    function label(theme) {
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme')
+      }
+    }
+    label(root.getAttribute('data-theme'))
+    function flip() {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('lfown-theme', next) } catch (e) {}
+      label(next)
+      // The landing listens for this to repaint its embedded tweet, which carries
+      // its own theme baked into the markup.
+      document.dispatchEvent(new CustomEvent('lfown:theme', { detail: next }))
+    }
+    for (var i = 0; i < toggles.length; i++) toggles[i].addEventListener('click', flip)
+
+    var burger = document.getElementById('menuToggle')
+    var drawer = document.getElementById('menu')
+    var scrim = document.getElementById('menuScrim')
+    function show(on) {
+      drawer.hidden = !on
+      scrim.hidden = !on
+      burger.setAttribute('aria-expanded', String(on))
+      // The page behind must not scroll under the drawer.
+      document.body.classList.toggle('menu-open', on)
+    }
+    burger.addEventListener('click', function () { show(drawer.hidden) })
+    scrim.addEventListener('click', function () { show(false) })
+    document.getElementById('menuClose').addEventListener('click', function () { show(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') show(false) })
+    // Rotating a phone, or dragging a window past the breakpoint, hides the drawer
+    // by CSS — but the scroll lock behind it would survive, leaving the page frozen
+    // with nothing on screen to explain it or undo it.
+    var wide = window.matchMedia('(min-width: 861px)')
+    var onWide = function (e) { if (e.matches) show(false) }
+    if (wide.addEventListener) wide.addEventListener('change', onWide)
+    else if (wide.addListener) wide.addListener(onWide)
+
+    // Coins links are handled by the router without a page load, so the drawer would
+    // otherwise still be sitting open over the page it just navigated to.
+    var links = drawer.querySelectorAll('a')
+    for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+<!--/lfown-header-->

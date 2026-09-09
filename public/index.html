@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LFOwn — Memecoin launcher paired with ownership coins</title>
+<meta name="description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+
+<!-- Shared links. The worker rewrites these per coin under /coins/<mint>; every
+     other page keeps the banner, so a link to the site looks like the site. -->
+<meta property="og:site_name" content="LFOwn" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://letsfuckingown.fun/" />
+<meta property="og:title" content="LFOwn — Memecoin launcher paired with ownership coins" />
+<meta property="og:description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+<meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="LFOwn — Memecoin launcher paired with ownership coins" />
+<meta name="twitter:description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<link rel="icon" href="/favicon.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-512.png" sizes="512x512">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script>
+(function(){
+  var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
+  var dark = saved ? saved==='dark'
+                   : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+})();
+</script>
+<link rel="stylesheet" href="/assets/lfown.css">
+<style>
+
+/* ── hero ──────────────────────────── */
+.hero{position:relative;padding-top:clamp(46px,8vw,92px);padding-bottom:clamp(30px,5vw,58px)}
+.hero .eyebrow{color:var(--red);margin-bottom:clamp(22px,3vw,34px)}
+.hero-grid{display:grid;grid-template-columns:1.4fr .9fr;gap:clamp(26px,4vw,60px);align-items:end}
+@media(max-width:920px){.hero-grid{grid-template-columns:1fr}}
+h1{
+  font-family:var(--display);font-weight:800;margin:0;
+  font-size:clamp(2.9rem,7vw,6.2rem);line-height:.88;letter-spacing:-.045em;text-transform:uppercase;
+}
+h1 em{font-style:normal;color:var(--red);position:relative;display:inline-block}
+h1 em::after{
+  content:"";position:absolute;left:-.02em;right:-.02em;bottom:.08em;height:.10em;background:var(--red);
+  transform:rotate(-.8deg);opacity:.28;
+}
+.hero p.lede{font-size:clamp(1.05rem,1.55vw,1.35rem);max-width:46ch;color:var(--ink-soft);margin:0 0 26px}
+.hero p.lede b{color:var(--ink);font-weight:500}
+.cta-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
+
+
+/* board — the three coins that have raised the most */
+.board{margin:clamp(34px,5vw,64px) 0 0}
+.board-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:13px}
+.board-head .mono{color:var(--ink-soft)}
+.board-head a{color:var(--red);text-decoration:none}
+.board-head a:hover{color:var(--ink)}
+.board-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media(max-width:760px){.board-grid{grid-template-columns:1fr}}
+.tc{display:block;border:1.5px solid var(--ink);background:var(--card);padding:16px 18px;
+  text-decoration:none;color:inherit;box-shadow:6px 6px 0 var(--ink);
+  transition:transform .14s ease, box-shadow .14s ease}
+.tc:hover{transform:translate(-3px,-3px);box-shadow:9px 9px 0 var(--red)}
+.tc.lead{box-shadow:6px 6px 0 var(--red)}
+.tc.skel{min-height:150px;box-shadow:none;opacity:.45}
+.tc-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.tc-top img{width:40px;height:40px;object-fit:cover;border:1.5px solid var(--ink);flex:0 0 auto}
+.tc-sym{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:1.25rem;line-height:1}
+.tc-pair{font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:5px}
+.tc-usd{font-family:var(--display);font-weight:800;font-size:1.6rem;letter-spacing:-.02em;line-height:1;margin-bottom:12px}
+.tc-bar{height:8px;border:1.5px solid var(--ink);background:var(--paper);overflow:hidden}
+.tc-bar i{display:block;height:100%;background:var(--red)}
+.tc-meta{display:flex;justify-content:space-between;gap:10px;margin-top:9px;
+  font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.board-empty{font-size:.95rem;color:var(--ink-soft);margin:0;grid-column:1/-1}
+
+/* banner */
+.banner{margin:clamp(34px,5vw,64px) 0 0;border:1.5px solid var(--ink);background:var(--card);position:relative;overflow:hidden;padding:clamp(26px,5vw,62px) clamp(20px,5vw,70px)}
+.banner img{width:100%}
+.banner .fallback{
+  padding:clamp(38px,8vw,86px) 20px;text-align:center;
+}
+.banner .fallback .word{font-family:"Permanent Marker",cursive;color:var(--red);font-size:clamp(3.4rem,15vw,10rem);line-height:.9;transform:skewX(-9deg);}
+.banner .fallback .sub{font-family:var(--mono);font-size:clamp(.55rem,1.35vw,.82rem);letter-spacing:.3em;text-transform:uppercase;color:var(--red);margin-top:.6em}
+
+/* ── marquee ───────────────────────── */
+.marquee-wrap{overflow:hidden;padding:0;margin-top:clamp(34px,5vw,60px)}
+.marquee{background:var(--red);color:#fff;
+  border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);
+  overflow:hidden;white-space:nowrap;
+}
+.marquee .track{display:flex;width:max-content;animation:slide 42s linear infinite;will-change:transform}
+.marquee .grp{display:flex;flex:0 0 auto}
+.marquee span{
+  font-family:var(--mono);font-weight:600;font-size:clamp(.68rem,1.1vw,.85rem);letter-spacing:.22em;
+  text-transform:uppercase;padding:14px 26px;display:block;white-space:nowrap;
+}
+.marquee span::after{content:"◆";margin-left:26px;opacity:.6}
+@keyframes slide{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+@media(prefers-reduced-motion:reduce){.marquee .track{animation:none}}
+
+/* ── sections ──────────────────────── */
+section{padding-top:clamp(56px,9vw,120px);padding-bottom:clamp(56px,9vw,120px);position:relative;scroll-margin-top:86px}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:clamp(24px,3.5vw,44px);border-bottom:1.5px solid var(--ink);padding-bottom:12px}
+.sec-head .num{font-family:var(--mono);font-weight:600;font-size:.7rem;color:var(--red);letter-spacing:.2em}
+.sec-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.035em;font-size:clamp(1.6rem,4.4vw,3.2rem);line-height:1;margin:0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,64px)}
+@media(max-width:860px){.two{grid-template-columns:1fr}}
+p.body{font-size:clamp(1rem,1.25vw,1.16rem);color:var(--ink-soft);max-width:60ch}
+p.body b{color:var(--ink);font-weight:500}
+.mark{background:linear-gradient(transparent 62%, var(--mark) 62%);padding:0 .08em}
+
+blockquote{
+  margin:0;font-family:var(--serif);font-style:italic;font-size:clamp(1.5rem,3.6vw,2.6rem);
+  line-height:1.15;letter-spacing:-.01em;border-left:5px solid var(--red);padding-left:clamp(16px,2.5vw,28px);
+}
+blockquote cite{
+  display:block;font-style:normal;font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--ink-soft);margin-top:18px;
+}
+blockquote cite a{color:var(--red);text-decoration:none;border-bottom:1px solid rgba(240,20,20,.4)}
+blockquote cite a:hover{background:var(--red);color:#fff}
+
+/* idea grid + embedded post */
+.idea-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(26px,4vw,60px);align-items:start}
+@media(max-width:940px){.idea-grid{grid-template-columns:1fr}}
+.tweet-card{border:1.5px solid var(--ink);background:var(--card);box-shadow:9px 9px 0 var(--red);padding:14px}
+.tweet-label{color:var(--red);padding:4px 4px 12px;border-bottom:1px dashed var(--rule);margin-bottom:10px}
+.tweet-embed{min-height:120px}
+.tweet-embed .twitter-tweet{margin:0 auto!important}
+.tweet-embed blockquote:not(.twitter-tweet-rendered){
+  font-family:var(--serif);font-size:1.02rem;line-height:1.5;margin:0;padding:4px 6px 10px;color:var(--ink)
+}
+.tweet-embed blockquote:not(.twitter-tweet-rendered) a{color:var(--red)}
+
+/* prior art cards */
+.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(18px,2.4vw,28px)}
+@media(max-width:760px){.cards{grid-template-columns:1fr}}
+.card{
+  border:1.5px solid var(--ink);background:var(--card);padding:clamp(20px,2.6vw,32px);
+  display:flex;flex-direction:column;gap:12px;min-height:100%;
+  transition:background .2s ease,color .2s ease,transform .2s ease,box-shadow .2s ease;
+}
+.card:hover{background:var(--red);color:#fff;transform:translateY(-4px);box-shadow:0 14px 0 -4px var(--ink)}
+.card:hover .card-meta,.card:hover p{color:rgba(255,255,255,.9)}
+.card:hover a{color:#fff}
+.card h3{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.3rem,2.4vw,1.9rem);margin:0;line-height:1}
+.card-meta{font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--red);transition:color .2s}
+.card p{margin:0;color:var(--ink-soft);font-size:1rem}
+.card a{margin-top:auto;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;border-bottom:1.5px solid currentColor;align-self:flex-start;padding-bottom:2px}
+
+/* gap block */
+.gap-layout{display:grid;grid-template-columns:1.02fr .98fr;gap:clamp(22px,3vw,38px);align-items:start}
+@media(max-width:900px){.gap-layout{grid-template-columns:1fr}}
+.gapwrap{border:1.5px solid var(--ink);background:var(--card);box-shadow:10px 10px 0 var(--red)}
+.gapwrap .tickers{padding:clamp(20px,2.6vw,30px);border-bottom:1.5px solid var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px}
+.tick{display:flex;align-items:center;gap:12px}
+.tick .sym{font-family:var(--display);font-weight:800;font-size:clamp(1.5rem,3.2vw,2.3rem);letter-spacing:-.03em;color:var(--red)}
+.tick .flag{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;border:1.5px solid var(--red);color:var(--red);padding:4px 8px}
+.gapwrap .txt{padding:clamp(22px,3vw,34px)}
+.reasons{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:12px}
+.reasons li{display:flex;gap:12px;font-size:.98rem;color:var(--ink-soft);align-items:flex-start}
+.reasons li b{color:var(--ink);font-weight:500}
+.reasons li::before{content:"✕";color:var(--red);font-family:var(--mono);font-size:.8rem;line-height:1.5}
+
+/* exhibit: the screenshot, framed like evidence */
+.exhibit{margin:0;border:1.5px solid var(--ink);background:#0d1216;box-shadow:10px 10px 0 var(--ink)}
+.exhibit figcaption{
+  background:var(--red);color:#fff;padding:11px 14px;border-bottom:1.5px solid var(--ink);
+  display:flex;justify-content:space-between;align-items:center;gap:14px;
+}
+.exhibit figcaption a{color:#fff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.55);white-space:nowrap}
+.exhibit figcaption a:hover{border-bottom-color:#fff}
+.exhibit .shot{display:block}
+.exhibit img{display:block;width:100%}
+
+/* goal */
+.goal{background:var(--red);color:#fff;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink)}
+.goal .sec-head{border-color:rgba(255,255,255,.45)}
+.goal .sec-head .num{color:#fff;opacity:.75}
+.goal p.body{color:rgba(255,255,255,.92)}
+.goal p.body b{color:#fff}
+.goal .big{
+  font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+  font-size:clamp(1.8rem,5.4vw,4rem);line-height:.94;margin:0 0 24px;max-width:20ch;
+}
+.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,22px);margin-top:clamp(28px,4vw,48px)}
+@media(max-width:760px){.pillars{grid-template-columns:1fr}}
+.pillar{border:1.5px solid rgba(255,255,255,.55);padding:20px}
+.pillar .mono{color:rgba(255,255,255,.75);display:block;margin-bottom:8px}
+.pillar p{margin:0;font-size:.98rem;color:#fff}
+
+/* footer cta */
+.end{padding-top:clamp(64px,10vw,130px);padding-bottom:clamp(30px,5vw,50px);text-align:center}
+.end h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.045em;line-height:.88;font-size:clamp(2.6rem,10vw,7rem);margin:0 0 18px}
+.end h2 span{color:var(--red)}
+.end p{max-width:52ch;margin:0 auto 30px;color:var(--ink-soft);font-size:clamp(1rem,1.3vw,1.18rem)}
+footer{border-top:1.5px solid var(--ink);padding:22px var(--pad);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
+footer .links{display:flex;flex-wrap:wrap;gap:18px}
+footer a{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;color:var(--ink-soft)}
+footer a:hover{color:var(--red)}
+footer .x-link{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
+footer .x-link svg{width:13px;height:13px;fill:currentColor}
+footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* ── motion: entrance + scroll reveals (CSS only, content never depends on JS) */
+@keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
+.load{animation:rise .85s cubic-bezier(.2,.7,.3,1) both}
+@supports (animation-timeline: view()){
+  .rv{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
+}
+@media(prefers-reduced-motion:reduce){
+  .load,.rv{animation:none}
+}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
+    <nav class="nav-centre">
+      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/launch">Launch</a>
+    </nav>
+    <nav class="nav-actions">
+      <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      </button>
+      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </div>
+
+</header>
+
+<!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
+     filter makes an element the containing block for any position:fixed descendant
+     — the drawer inherited the header's 68 pixels of height and stopped there. -->
+<div class="scrim" id="menuScrim" hidden></div>
+<aside class="drawer" id="menu" hidden aria-label="Menu">
+    <div class="drawer-head">
+      <span class="mono">Menu</span>
+      <button class="drawer-close" type="button" id="menuClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </div>
+    <nav class="drawer-nav">
+      <a href="/coins">Coins</a>
+      <a href="/launch">Launch</a>
+    </nav>
+    <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
+      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      <span class="mono">Theme</span>
+    </button>
+    <a class="drawer-x" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      <span class="mono">@LFOWNDOTFUN</span>
+    </a>
+  </aside>
+
+<script>
+  // The theme lives here rather than in each page's bundle: there are two toggles
+  // now, one in the bar and one in the drawer, and the landing ships no bundle at all.
+  (function () {
+    var root = document.documentElement
+    var toggles = document.querySelectorAll('.theme-toggle')
+    function label(theme) {
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme')
+      }
+    }
+    label(root.getAttribute('data-theme'))
+    function flip() {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('lfown-theme', next) } catch (e) {}
+      label(next)
+      // The landing listens for this to repaint its embedded tweet, which carries
+      // its own theme baked into the markup.
+      document.dispatchEvent(new CustomEvent('lfown:theme', { detail: next }))
+    }
+    for (var i = 0; i < toggles.length; i++) toggles[i].addEventListener('click', flip)
+
+    var burger = document.getElementById('menuToggle')
+    var drawer = document.getElementById('menu')
+    var scrim = document.getElementById('menuScrim')
+    function show(on) {
+      drawer.hidden = !on
+      scrim.hidden = !on
+      burger.setAttribute('aria-expanded', String(on))
+      // The page behind must not scroll under the drawer.
+      document.body.classList.toggle('menu-open', on)
+    }
+    burger.addEventListener('click', function () { show(drawer.hidden) })
+    scrim.addEventListener('click', function () { show(false) })
+    document.getElementById('menuClose').addEventListener('click', function () { show(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') show(false) })
+    // Rotating a phone, or dragging a window past the breakpoint, hides the drawer
+    // by CSS — but the scroll lock behind it would survive, leaving the page frozen
+    // with nothing on screen to explain it or undo it.
+    var wide = window.matchMedia('(min-width: 861px)')
+    var onWide = function (e) { if (e.matches) show(false) }
+    if (wide.addEventListener) wide.addEventListener('change', onWide)
+    else if (wide.addListener) wide.addListener(onWide)
+
+    // Coins links are handled by the router without a page load, so the drawer would
+    // otherwise still be sitting open over the page it just navigated to.
+    var links = drawer.querySelectorAll('a')
+    for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+<!--/lfown-header-->
+
+<main id="top">
+
+  <!-- HERO -->
+  <div class="hero wrap">
+    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; Idea looking for a team</div>
+    <div class="hero-grid">
+      <div class="load">
+        <h1>Memecoins<br>paired with<br><em>ownership</em><br>coins.</h1>
+      </div>
+      <div class="load" style="animation-delay:.14s">
+        <p class="lede">LFOwn is a memecoin launchpad where the pair asset is an <b>ownership coin from MetaDAO</b> — not SOL, not a tokenized stock. The other side of every pool has a redeemable treasury behind it.</p>
+        <div class="cta-row">
+          <a class="btn" href="/launch">Launch Ownership Memes</a>
+          <a class="btn ghost" href="/coins">See launched coins</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="board load" style="animation-delay:.26s">
+      <div class="board-head">
+        <span class="mono">Leading the board</span>
+        <a class="mono" href="/coins">All coins →</a>
+      </div>
+      <div class="board-grid" id="board">
+        <div class="tc skel"></div><div class="tc skel"></div><div class="tc skel"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="marquee-wrap"><div class="marquee" aria-hidden="true">
+    <div class="track">
+      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span></div>
+    </div>
+  </div></div>
+
+  <!-- IDEA -->
+  <section id="idea" class="wrap">
+    <div class="sec-head"><span class="num">01</span><h2>The idea</h2></div>
+    <div class="idea-grid">
+      <div class="rv">
+        <blockquote>
+          “Solana will win paired memecoins”
+          <cite>Vibhu — <a href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">6 Sep 2026 ↗</a></cite>
+        </blockquote>
+        <p class="body">His argument: the chain wins this meta if the community leans into its <b>structural advantages</b> — more assets with more liquidity, pairing not only against stocks but against other tokens (BTC, ZEC, AI coins, prediction positions… <b>MetaDAO tokens included</b>), more builders running experiments, and a market structure that lets coins sustain momentum instead of getting thrashed by arb.</p>
+        <p class="body">LFOwn is that argument turned into a product. Pick an ownership coin. Launch a meme against it. The pool's reserve asset stops being a volatile ticker and becomes <span class="mark">a claim on a real treasury</span>.</p>
+      </div>
+      <aside class="tweet-card rv" style="animation-delay:.1s">
+        <div class="tweet-label mono">The original post</div>
+        <div class="tweet-embed">
+          <blockquote class="twitter-tweet" data-theme="light" data-dnt="true" data-conversation="none" data-align="center">
+            <p lang="en" dir="ltr">Solana will win paired memecoins if the community leans into its structural advantages.</p>
+            &mdash; Vibhu (@vibhu) <a href="https://twitter.com/vibhu/status/2096426899828269561?ref_src=twsrc%5Etfw">September 6, 2026</a>
+          </blockquote>
+        </div>
+        <script>
+          (function(){
+            var box=document.currentScript.parentNode.querySelector('.tweet-embed');
+            window.__tweetTpl=box.innerHTML;
+            if(document.documentElement.getAttribute('data-theme')==='dark'){
+              box.innerHTML=window.__tweetTpl.replace('data-theme="light"','data-theme="dark"');
+            }
+          })();
+        </script>
+      </aside>
+    </div>
+  </section>
+
+  <!-- PRIOR ART -->
+  <section id="priorart" class="wrap">
+    <div class="sec-head"><span class="num">02</span><h2>Prior art</h2></div>
+    <p class="body rv" style="margin-bottom:clamp(24px,3vw,38px)">Two projects are already running the meme-on-equity meta. Neither points at ownership coins.</p>
+    <div class="cards">
+      <article class="card rv">
+        <div class="card-meta">Robinhood Chain</div>
+        <h3>Pons</h3>
+        <p>Memecoins paired against tokenized stocks instead of ETH.</p>
+        <a href="https://x.com/ponsdotfamily" target="_blank" rel="noopener">@ponsdotfamily ↗</a>
+      </article>
+      <article class="card rv" style="animation-delay:.1s">
+        <div class="card-meta">Solana</div>
+        <h3>StonkFun</h3>
+        <p>Coins paired with virtually any asset: stocks, commodities, currencies, other memes — but no ownership coins, except $META itself.</p>
+        <a href="https://x.com/launchonsf" target="_blank" rel="noopener">@launchonsf ↗</a>
+      </article>
+    </div>
+  </section>
+
+  <!-- GAP -->
+  <section id="gap" class="wrap">
+    <div class="sec-head"><span class="num">03</span><h2>The gap</h2></div>
+    <div class="gap-layout">
+      <div class="gapwrap rv">
+        <div class="tickers">
+          <div class="tick"><span class="sym">$RAWR</span><span class="flag">Flagged</span></div>
+          <div class="tick"><span class="sym">$AVICI</span><span class="flag">Flagged</span></div>
+        </div>
+        <div class="txt">
+          <p class="body" style="margin-top:0">StonkFun's risk engine doesn't recognise the <b>futarchy mint mechanism</b> behind ownership coins, so it refuses them as a quote token.</p>
+          <ul class="reasons">
+            <li><span><b>Mint authority revoked — fail.</b> The futarchy mint reads as an open faucet: “can still mint unlimited new supply”.</span></li>
+            <li><span><b>Liquidity locked — fail.</b> 0% of LP measured as burned or locked, against a 50% minimum.</span></li>
+            <li><span><b>No flagged risks — fail.</b> Third-party flags pile on the thin liquidity typical of a futard.io launch.</span></li>
+          </ul>
+          <div class="mono" style="color:var(--ink-soft);margin-top:20px">Case in point — and others like them</div>
+        </div>
+      </div>
+      <figure class="exhibit rv" style="animation-delay:.1s">
+        <figcaption class="mono">
+          <span>Exhibit — StonkFun importer</span>
+          <a href="assets/stonk-screen.png" target="_blank" rel="noopener">Full size ↗</a>
+        </figcaption>
+        <a class="shot" href="assets/stonk-screen.png" target="_blank" rel="noopener">
+          <img src="assets/stonk-screen.png" alt="StonkFun's importer refusing a token as a quote token: mint authority revoked, liquidity locked and no flagged risks all fail.">
+        </a>
+      </figure>
+    </div>
+  </section>
+
+  <!-- GOAL -->
+  <section id="goal" class="goal">
+    <div class="wrap">
+      <div class="sec-head"><span class="num">04</span><h2>The goal</h2></div>
+      <p class="big rv">Take the same primitive and point it at ownership coins.</p>
+      <p class="body rv" style="animation-delay:.08s">A launchpad built for futarchy from the first line: one that understands how ownership coins are minted, how their liquidity is locked, and how thin the book is on day one — instead of treating all of it as risk.</p>
+      <div class="pillars">
+        <div class="pillar rv"><span class="mono">Pair asset</span><p>Ownership coins from MetaDAO, with a redeemable treasury behind them.</p></div>
+        <div class="pillar rv" style="animation-delay:.08s"><span class="mono">Risk engine</span><p>Futarchy-native: mint mechanism, liquidity locks and thin books understood, not flagged.</p></div>
+        <div class="pillar rv" style="animation-delay:.16s"><span class="mono">Upside</span><p>Meme volume flows back to the assets that fund real projects.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA -->
+  <section id="lead" class="end wrap">
+    <h2 class="rv">Come take<br>the <span>lead.</span></h2>
+    <p class="rv" style="animation-delay:.08s">The idea is funded. The team isn't built. If you want to run a launchpad where memes are paired with ownership, this is the seat.</p>
+    <div class="cta-row rv" style="justify-content:center;animation-delay:.14s">
+      <a class="btn" href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">Read the original post ↗</a>
+      <a class="btn ghost" href="https://futard.io" target="_blank" rel="noopener">futard.io ↗</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="sig">LFOwn — Memecoin launcher paired with ownership coins</div>
+  <div class="links">
+    <a href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">Vibhu's post</a>
+    <a href="https://x.com/ponsdotfamily" target="_blank" rel="noopener">Pons</a>
+    <a href="https://x.com/launchonsf" target="_blank" rel="noopener">StonkFun</a>
+    <a href="https://futard.io" target="_blank" rel="noopener">futard.io</a>
+    <a class="x-link" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@LFOWNDOTFUN</a>
+  </div>
+  <div class="sig">Powered by Spark</div>
+</footer>
+
+<script>
+// The header owns the theme now — there are two toggles and this page has no bundle.
+// All that is left here is the embedded tweet, whose theme is baked into its markup
+// and so has to be rebuilt whenever the page's own theme changes.
+(function(){
+  document.addEventListener('lfown:theme', function(e){
+    var box=document.querySelector('.tweet-embed');
+    if(!box||!window.__tweetTpl) return;
+    box.innerHTML=window.__tweetTpl.replace('data-theme="light"','data-theme="'+e.detail+'"');
+    if(window.twttr&&window.twttr.widgets) window.twttr.widgets.load(box);
+  });
+})();
+</script>
+<script>
+// The three coins that have raised the most, in dollars. This page ships no bundle,
+// so it asks the API itself — and escapes everything, because a coin's symbol and
+// name are whatever its creator wrote into its metadata.
+(function () {
+  var board = document.getElementById('board')
+  if (!board) return
+  var MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
+  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return MAP[c] }) }
+  function safe(u) {
+    try { var x = new URL(u); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : '' }
+    catch (e) { return '' }
+  }
+  function usd(n) { return '$' + Math.round(n).toLocaleString('en-US') }
+
+  fetch('/api/launches').then(function (r) { return r.json() }).then(function (body) {
+    var top = (body.launches || []).map(function (c) {
+      var raised = Number(c.quoteReserve) / 1e6
+      return { c: c, raised: raised, usd: raised * (c.quoteUsdPrice || 0) }
+    }).sort(function (a, b) { return b.usd - a.usd }).slice(0, 3)
+
+    if (!top.length) {
+      board.innerHTML = '<p class="board-empty">Nothing launched yet. <a href="/launch">Be the first</a>.</p>'
+      return
+    }
+
+    board.innerHTML = top.map(function (x, i) {
+      var c = x.c
+      var pct = c.isMigrated ? 100 : (c.threshold ? Math.min(100, (x.raised / c.threshold) * 100) : 0)
+      return '<a class="tc' + (i === 0 ? ' lead' : '') + '" href="/coins/' + esc(c.baseMint) + '">' +
+        '<div class="tc-top"><img alt="" hidden data-uri="' + esc(c.uri || '') + '">' +
+          '<div><div class="tc-sym">' + esc(c.symbol || '\u2014') + '</div>' +
+          '<div class="tc-pair">paired with ' + esc(c.quoteSymbol) + '</div></div></div>' +
+        '<div class="tc-usd">' + usd(x.usd) + '</div>' +
+        '<div class="tc-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
+        '<div class="tc-meta">' +
+          '<span>' + esc(x.raised.toLocaleString('en-US', { maximumFractionDigits: 0 })) + ' ' + esc(c.quoteSymbol) + ' raised</span>' +
+          '<span>' + (c.isMigrated ? 'graduated' : 'on curve') + '</span>' +
+        '</div></a>'
+    }).join('')
+
+    // The picture lives in the metadata JSON each launch published, not on chain.
+    var imgs = board.querySelectorAll('img[data-uri]')
+    for (var k = 0; k < imgs.length; k++) (function (img) {
+      var uri = safe(img.getAttribute('data-uri'))
+      if (!uri) return
+      fetch(uri).then(function (r) { return r.json() }).then(function (meta) {
+        var src = safe(meta && meta.image)
+        if (src) { img.src = src; img.hidden = false }
+      }).catch(function () { /* a dead uri is not worth a broken card */ })
+    })(imgs[k])
+  }).catch(function () {
+    board.innerHTML = '<p class="board-empty"><a href="/coins">See the coins launched so far \u2192</a></p>'
+  })
+})()
+</script>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+</body>
+</html>
