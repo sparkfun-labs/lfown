@@ -13,6 +13,12 @@
     "not_found_handling": "404-page",
     "run_worker_first": [
       "/api/*",
+      // Uploaded images and the token metadata JSON beside them. These live in R2,
+      // never in ./public, so the assets handler has nothing to match and would
+      // answer every one of them with the 404 page above rather than falling
+      // through — which is what it did, killing every token image on the site and
+      // every metadata document already written on chain.
+      "/i/*",
       "/launch",
       "/launch/*",
       "/coins",
