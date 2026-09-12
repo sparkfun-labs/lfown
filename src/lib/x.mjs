@@ -152,9 +152,7 @@ const coinUrl = (coin, origin) => `${origin}/coins/${coin.baseMint}`
  * X counts every link as 23 characters however long it is, so the budget is 257 for
  * the words.
  *
- * Lines marked droppable go first when a long symbol overflows; the rest stay. The
- * contract address is never droppable — it is the one thing people come to a launch
- * post for, and a post without it gets "CA?" as its first reply.
+ * Lines marked droppable go first when a long symbol overflows; the rest stay.
  */
 function fit(lines, url) {
   const kept = lines.filter((l) => (typeof l === 'string' ? l : l.text))
@@ -167,6 +165,21 @@ function fit(lines, url) {
   return `${kept.map((l) => (typeof l === 'string' ? l : l.text)).join('\n')}\n\n${url}`
 }
 
+// The contract address is out of the posts for now.
+//
+// X refuses any post from a token authenticated less than seven days ago if it
+// carries a crypto address: "Crypto addresses are prohibited for the first 7 days
+// after authentication." The access token was regenerated on 12 Sep 2026 at 11:31
+// UTC, so the window runs to about 19 Sep — regenerating again would restart it.
+//
+// Nothing was lost while it was refused: a refused post is not written to
+// `announced:v2`, so the minute cron kept retrying it rather than marking it said.
+// The coin link still carries the mint in its path; whether X reads an address inside
+// a url is untested, so if posts are still refused that is the next thing to try.
+//
+// Put `\nCA: ${coin.baseMint}` back as the last line of both messages after the
+// window closes — it is the first reply a launch post gets without it.
+
 /** A coin has opened. */
 export function launchedMessage(coin, origin) {
   const symbol = coin.symbol || '?'
@@ -175,7 +188,6 @@ export function launchedMessage(coin, origin) {
     `🚀 ${symbol} just launched`,
     { text: `Paired with ${quote}, a MetaDAO ownership coin.`, drop: true },
     { text: coin.threshold ? `Graduates at ${money(coin.threshold)} ${quote}.` : '', drop: true },
-    `\nCA: ${coin.baseMint}`,
   ], coinUrl(coin, origin))
 }
 
@@ -188,6 +200,5 @@ export function graduatedMessage(coin, origin) {
     `🎓 ${symbol} graduated`,
     { text: `Raised ${money(raised)} ${quote} and moved to its Meteora pool.`, drop: true },
     { text: 'Liquidity locked for good; fees keep flowing to the creator and the LFOwn DAO.', drop: true },
-    `\nCA: ${coin.baseMint}`,
   ], coinUrl(coin, origin))
 }

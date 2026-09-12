@@ -353,8 +353,13 @@ next pass rather than marked as delivered and lost.
 
 280 characters, no markup, and the picture uploaded rather than linked. The lines
 marked droppable in `launchedMessage` and `graduatedMessage` go first when a long
-symbol overflows the budget; the contract address never does, because it is what
-people come to a launch post for.
+symbol overflows the budget.
+
+The contract address is **out of the posts for now**, and the comment above
+`launchedMessage` says when to put it back. X refuses any post carrying a crypto
+address from a token authenticated less than seven days ago — regenerating the access
+token restarts that week, so the fix for a refusal is to wait, never to regenerate.
+The coin link still has the mint in its path, which may or may not count.
 
 The image goes to `POST https://api.x.com/2/media/upload` — v1.1 on
 `upload.twitter.com` has been retired — as multipart, which keeps the bytes out of
