@@ -6,12 +6,19 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
+    // Unknown paths get public/404.html with a 404 status. The status matters: the
+    // worker's section loop tells "no such asset" from "here it is" by reading it,
+    // and a 200 would make every unknown coin page serve the dead end instead of
+    // the shell that looks the coin up on chain.
+    "not_found_handling": "404-page",
     "run_worker_first": [
       "/api/*",
       "/launch",
       "/launch/*",
       "/coins",
-      "/coins/*"
+      "/coins/*",
+      "/creator",
+      "/creator/*"
     ]
   },
   "observability": {

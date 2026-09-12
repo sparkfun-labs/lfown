@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Creator — LFOwn</title>
+<meta name="description" content="What this wallet has launched on LFOwn, and what those coins have earned." />
+
+<meta property="og:site_name" content="LFOwn" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://letsfuckingown.fun/creator" />
+<meta property="og:title" content="Creator — LFOwn" />
+<meta property="og:description" content="What this wallet has launched on LFOwn, and what those coins have earned." />
+<meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="Creator — LFOwn" />
+<meta name="twitter:description" content="What this wallet has launched on LFOwn, and what those coins have earned." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<link rel="icon" href="/favicon.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-512.png" sizes="512x512">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script>
+(function(){
+  var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
+  var dark = saved ? saved==='dark'
+                   : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+})();
+</script>
+<link rel="stylesheet" href="/assets/lfown.css">
+<style>
+main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+   font-size:clamp(1.9rem,5vw,3.2rem);line-height:.92;margin:0 0 8px;word-break:break-word}
+.who{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;color:var(--ink-soft);word-break:break-all;margin:0 0 6px}
+.who a{color:var(--red);text-decoration:none}
+.who a:hover{text-decoration:underline}
+.lede{color:var(--ink-soft);max-width:58ch;margin:0 0 clamp(26px,4vw,44px);font-size:1.05rem}
+.skel{color:var(--ink-soft);font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
+.back{display:inline-block;margin-bottom:22px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);text-decoration:none}
+.back:hover{color:var(--red)}
+
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border:1.5px solid var(--ink);margin:0 0 clamp(24px,3.4vw,36px)}
+.totals .tot{padding:16px 18px;border-right:1.5px solid var(--ink)}
+.totals .tot:last-child{border-right:0}
+@media(max-width:640px){.totals .tot{border-right:0;border-bottom:1.5px solid var(--ink)}.totals .tot:last-child{border-bottom:0}}
+.totals .lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+.totals .big{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em}
+
+.sec-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:12px;margin-bottom:clamp(16px,2.4vw,22px);border-bottom:1.5px solid var(--ink)}
+.sec-head h2{font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
+  font-weight:600;margin:0;display:flex;align-items:center;gap:9px}
+.sec-head .count{background:var(--red);color:#fff;font-size:.58rem;letter-spacing:.1em;padding:3px 7px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:clamp(14px,2vw,20px)}
+.coin{border:1.5px solid var(--ink);background:var(--card);padding:18px;display:flex;flex-direction:column;gap:14px;
+  text-decoration:none;color:inherit;transition:transform .16s ease,box-shadow .16s ease}
+.coin:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--red)}
+.coin .top{display:flex;align-items:center;gap:12px}
+.coin img{width:42px;height:42px;object-fit:cover;border:1.5px solid var(--ink);background:var(--paper)}
+.coin .nm{font-family:var(--display);font-weight:800;font-size:1.25rem;letter-spacing:-.02em;line-height:1}
+.coin .pair{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:5px}
+.progress{height:8px;border:1.5px solid var(--ink);background:var(--paper);position:relative;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--red)}
+.meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.earned{border-top:1px dashed var(--rule);padding-top:8px;color:var(--red)}
+.foot-note{margin:clamp(20px,3vw,30px) 0 0;font-size:.9rem;color:var(--ink-soft);max-width:64ch}
+.foot-note a{color:var(--red)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
+    <nav class="nav-centre">
+      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
+    </nav>
+    <nav class="nav-actions">
+      <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      </button>
+      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </div>
+
+</header>
+
+<!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
+     filter makes an element the containing block for any position:fixed descendant
+     — the drawer inherited the header's 68 pixels of height and stopped there. -->
+<div class="scrim" id="menuScrim" hidden></div>
+<aside class="drawer" id="menu" hidden aria-label="Menu">
+    <div class="drawer-head">
+      <span class="mono">Menu</span>
+      <button class="drawer-close" type="button" id="menuClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </div>
+    <nav class="drawer-nav">
+      <a href="/coins">Coins</a>
+      <a href="/launch">Launch</a>
+      <a href="/leaderboard">Leaderboard</a>
+    </nav>
+    <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
+      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      <span class="mono">Theme</span>
+    </button>
+    <a class="drawer-x" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      <span class="mono">@LFOWNDOTFUN</span>
+    </a>
+  </aside>
+
+<script>
+  // The theme lives here rather than in each page's bundle: there are two toggles
+  // now, one in the bar and one in the drawer, and the landing ships no bundle at all.
+  (function () {
+    var root = document.documentElement
+    var toggles = document.querySelectorAll('.theme-toggle')
+    function label(theme) {
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme')
+      }
+    }
+    label(root.getAttribute('data-theme'))
+    function flip() {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('lfown-theme', next) } catch (e) {}
+      label(next)
+      // The landing listens for this to repaint its embedded tweet, which carries
+      // its own theme baked into the markup.
+      document.dispatchEvent(new CustomEvent('lfown:theme', { detail: next }))
+    }
+    for (var i = 0; i < toggles.length; i++) toggles[i].addEventListener('click', flip)
+
+    var burger = document.getElementById('menuToggle')
+    var drawer = document.getElementById('menu')
+    var scrim = document.getElementById('menuScrim')
+    function show(on) {
+      drawer.hidden = !on
+      scrim.hidden = !on
+      burger.setAttribute('aria-expanded', String(on))
+      // The page behind must not scroll under the drawer.
+      document.body.classList.toggle('menu-open', on)
+    }
+    burger.addEventListener('click', function () { show(drawer.hidden) })
+    scrim.addEventListener('click', function () { show(false) })
+    document.getElementById('menuClose').addEventListener('click', function () { show(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') show(false) })
+    // Rotating a phone, or dragging a window past the breakpoint, hides the drawer
+    // by CSS — but the scroll lock behind it would survive, leaving the page frozen
+    // with nothing on screen to explain it or undo it.
+    var wide = window.matchMedia('(min-width: 861px)')
+    var onWide = function (e) { if (e.matches) show(false) }
+    if (wide.addEventListener) wide.addEventListener('change', onWide)
+    else if (wide.addListener) wide.addListener(onWide)
+
+    // Coins links are handled by the router without a page load, so the drawer would
+    // otherwise still be sitting open over the page it just navigated to.
+    var links = drawer.querySelectorAll('a')
+    for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+
+<!--/lfown-header-->
+
+<main class="wrap" id="view"><p class="skel">Loading…</p></main>
+
+<script type="module" src="/app/creator.js"></script>
+</body>
+</html>

@@ -1,3 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Not found — LFOwn</title>
+<meta name="description" content="That page does not exist." />
+
+<meta property="og:site_name" content="LFOwn" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://letsfuckingown.fun/" />
+<meta property="og:title" content="Not found — LFOwn" />
+<meta property="og:description" content="That page does not exist." />
+<meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="Not found — LFOwn" />
+<meta name="twitter:description" content="That page does not exist." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-512.png" sizes="512x512">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script>
+(function(){
+  var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
+  var dark = saved ? saved==='dark'
+                   : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+})();
+</script>
+<link rel="stylesheet" href="/assets/lfown.css">
+<style>
+main{padding-top:clamp(50px,10vw,120px);padding-bottom:clamp(60px,10vw,140px);text-align:center}
+.code{font-family:var(--display);font-weight:800;letter-spacing:-.06em;line-height:.82;
+  font-size:clamp(6rem,22vw,16rem);color:var(--red);margin:0 0 clamp(10px,2vw,20px)}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+  font-size:clamp(1.6rem,4.4vw,2.8rem);line-height:.95;margin:0 0 14px}
+.lede{color:var(--ink-soft);max-width:46ch;margin:0 auto clamp(30px,5vw,48px);font-size:1.05rem}
+.ways{display:flex;gap:clamp(12px,2vw,18px);justify-content:center;flex-wrap:wrap}
+.ways a{font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;
+  text-decoration:none;color:var(--ink);border:1.5px solid var(--ink);background:var(--card);
+  padding:13px 20px;transition:background .15s,color .15s,transform .14s ease,box-shadow .14s ease;
+  box-shadow:5px 5px 0 var(--ink)}
+.ways a:hover{background:var(--red);color:#fff;transform:translate(3px,3px);box-shadow:2px 2px 0 var(--ink)}
+</style>
+</head>
+<body>
+
 <header class="top">
   <div class="bar">
     <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
@@ -11,7 +65,7 @@
         <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
         <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
       </button>
-      <!--ACTION-->
+      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
       <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
         <span></span><span></span><span></span>
       </button>
@@ -98,5 +152,20 @@
     for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
   })()
 </script>
-<!--BEACON-->
+
 <!--/lfown-header-->
+
+<main class="wrap">
+  <p class="code">404</p>
+  <h1>Nothing at this address.</h1>
+  <p class="lede">A coin that never launched, a wallet that never did, or a link that lost a
+    character on the way here.</p>
+  <div class="ways">
+    <a href="/coins">See the coins</a>
+    <a href="/launch">Launch one</a>
+    <a href="/leaderboard">Leaderboard</a>
+  </div>
+</main>
+
+</body>
+</html>

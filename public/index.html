@@ -41,6 +41,8 @@
 /* ── hero ──────────────────────────── */
 .hero{position:relative;padding-top:clamp(46px,8vw,92px);padding-bottom:clamp(30px,5vw,58px)}
 .hero .eyebrow{color:var(--red);margin-bottom:clamp(22px,3vw,34px)}
+.hero .eyebrow a{text-decoration:none}
+.hero .eyebrow a:hover{color:var(--ink)}
 .hero-grid{display:grid;grid-template-columns:1.4fr .9fr;gap:clamp(26px,4vw,60px);align-items:end}
 @media(max-width:920px){.hero-grid{grid-template-columns:1fr}}
 h1{
@@ -230,6 +232,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     <nav class="nav-centre">
       <a class="mono hide-s" href="/coins">Coins</a>
       <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
     </nav>
     <nav class="nav-actions">
       <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
@@ -259,6 +262,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     <nav class="drawer-nav">
       <a href="/coins">Coins</a>
       <a href="/launch">Launch</a>
+      <a href="/leaderboard">Leaderboard</a>
     </nav>
     <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
       <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
@@ -322,19 +326,20 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
   })()
 </script>
+
 <!--/lfown-header-->
 
 <main id="top">
 
   <!-- HERO -->
   <div class="hero wrap">
-    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; Idea looking for a team</div>
+    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; <a href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">$LFOWN</a></div>
     <div class="hero-grid">
       <div class="load">
         <h1>Memecoins<br>paired with<br><em>ownership</em><br>coins.</h1>
       </div>
       <div class="load" style="animation-delay:.14s">
-        <p class="lede">LFOwn is a memecoin launchpad where the pair asset is an <b>ownership coin from MetaDAO</b> — not SOL, not a tokenized stock. The other side of every pool has a redeemable treasury behind it.</p>
+        <p class="lede">LFOwn is a memecoin launchpad where the pair asset is an <b>ownership coin launched on MetaDAO</b> — not SOL, not a tokenized stock. Every one of them has a treasury behind it, and we show you how big.</p>
         <div class="cta-row">
           <a class="btn" href="/launch">Launch Ownership Memes</a>
           <a class="btn ghost" href="/coins">See launched coins</a>
@@ -355,7 +360,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
 
   <div class="marquee-wrap"><div class="marquee" aria-hidden="true">
     <div class="track">
-      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span><span>Memecoin launcher paired with ownership coins</span><span>Funded before a team exists</span><span>Powered by Spark</span></div>
+      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div>
     </div>
   </div></div>
 
@@ -369,7 +374,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
           <cite>Vibhu — <a href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">6 Sep 2026 ↗</a></cite>
         </blockquote>
         <p class="body">His argument: the chain wins this meta if the community leans into its <b>structural advantages</b> — more assets with more liquidity, pairing not only against stocks but against other tokens (BTC, ZEC, AI coins, prediction positions… <b>MetaDAO tokens included</b>), more builders running experiments, and a market structure that lets coins sustain momentum instead of getting thrashed by arb.</p>
-        <p class="body">LFOwn is that argument turned into a product. Pick an ownership coin. Launch a meme against it. The pool's reserve asset stops being a volatile ticker and becomes <span class="mark">a claim on a real treasury</span>.</p>
+        <p class="body">LFOwn is that argument turned into a product. Pick an ownership coin. Launch a meme against it. The pool's reserve asset stops being a bare ticker and becomes <span class="mark">a coin with a treasury behind it</span>.</p>
       </div>
       <aside class="tweet-card rv" style="animation-delay:.1s">
         <div class="tweet-label mono">The original post</div>
@@ -450,7 +455,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
       <p class="big rv">Take the same primitive and point it at ownership coins.</p>
       <p class="body rv" style="animation-delay:.08s">A launchpad built for futarchy from the first line: one that understands how ownership coins are minted, how their liquidity is locked, and how thin the book is on day one — instead of treating all of it as risk.</p>
       <div class="pillars">
-        <div class="pillar rv"><span class="mono">Pair asset</span><p>Ownership coins from MetaDAO, with a redeemable treasury behind them.</p></div>
+        <div class="pillar rv"><span class="mono">Pair asset</span><p>Ownership coins launched on MetaDAO, each with a treasury behind it.</p></div>
         <div class="pillar rv" style="animation-delay:.08s"><span class="mono">Risk engine</span><p>Futarchy-native: mint mechanism, liquidity locks and thin books understood, not flagged.</p></div>
         <div class="pillar rv" style="animation-delay:.16s"><span class="mono">Upside</span><p>Meme volume flows back to the assets that fund real projects.</p></div>
       </div>
@@ -458,23 +463,20 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
   </section>
 
   <!-- CTA -->
-  <section id="lead" class="end wrap">
-    <h2 class="rv">Come take<br>the <span>lead.</span></h2>
-    <p class="rv" style="animation-delay:.08s">The idea is funded. The team isn't built. If you want to run a launchpad where memes are paired with ownership, this is the seat.</p>
+  <section id="community" class="end wrap">
+    <h2 class="rv">Come talk<br>in the <span>group.</span></h2>
+    <p class="rv" style="animation-delay:.08s">LFOwn is built in the open on the Spark Telegram — every launch, every graduation, and whatever you want to argue about.</p>
     <div class="cta-row rv" style="justify-content:center;animation-delay:.14s">
-      <a class="btn" href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">Read the original post ↗</a>
-      <a class="btn ghost" href="https://futard.io" target="_blank" rel="noopener">futard.io ↗</a>
+      <a class="btn" href="https://t.me/sparkdotfun/9868" target="_blank" rel="noopener">Join the Telegram ↗</a>
+      <a class="btn ghost" href="https://www.futard.io/launch/5Lfuib2f4NRqxRkqXDpuokbAbchxY947CRtjxZoawWm" target="_blank" rel="noopener">futard.io ↗</a>
     </div>
   </section>
 </main>
 
 <footer>
-  <div class="sig">LFOwn — Memecoin launcher paired with ownership coins</div>
+  <div class="sig">$LFOwn — Memecoin launcher paired with ownership coins</div>
   <div class="links">
-    <a href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">Vibhu's post</a>
-    <a href="https://x.com/ponsdotfamily" target="_blank" rel="noopener">Pons</a>
-    <a href="https://x.com/launchonsf" target="_blank" rel="noopener">StonkFun</a>
-    <a href="https://futard.io" target="_blank" rel="noopener">futard.io</a>
+    <a href="https://www.futard.io/launch/5Lfuib2f4NRqxRkqXDpuokbAbchxY947CRtjxZoawWm" target="_blank" rel="noopener">futard.io</a>
     <a class="x-link" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@LFOWNDOTFUN</a>
   </div>
@@ -548,6 +550,30 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
   }).catch(function () {
     board.innerHTML = '<p class="board-empty"><a href="/coins">See the coins launched so far \u2192</a></p>'
   })
+})()
+</script>
+<script>
+// The two figures in the scrolling bar, from the same report /coins and /leaderboard
+// print. The markup carries a plausible number so the bar reads properly before this
+// lands (and if it never does); these only ever overwrite it with the real one.
+// Its own block, like every other script here: the one above ends without a
+// semicolon, so a second IIFE underneath it was read as a call on its result.
+(function () {
+  function usd(n) { return '$' + Math.round(n).toLocaleString('en-US') }
+  function put(sel, text) {
+    var all = document.querySelectorAll(sel)
+    for (var i = 0; i < all.length; i++) all[i].textContent = text
+  }
+  fetch('/api/fees').then(function (r) { return r.json() }).then(function (report) {
+    var t = (report && report.totals) || {}
+    // Rounded before they are added, so the bar cannot state a total its own parts
+    // contradict — the same rule the coins page follows.
+    var creator = Math.round(t.creatorUsd || 0)
+    var dao = Math.round(t.lfownUsd || 0)
+    if (!creator && !dao) return
+    put('.mq-fees', 'Total fees ' + usd(creator + dao))
+    put('.mq-dao', usd(dao) + ' to LFOwn DAO')
+  }).catch(function () { /* the bar keeps the figure already in the markup */ })
 })()
 </script>
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>

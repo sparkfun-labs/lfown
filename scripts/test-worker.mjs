@@ -9,8 +9,22 @@
 // dropping the cache, and the misses remembered for chart, graduate and launch.
 import http from 'node:http'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 const WORKER = new URL('../src/worker.mjs', import.meta.url).href
+
+// The cache keys carry a version, and bumping one is how a record's shape changes.
+// These assertions used to spell the version out, so a bump turned a healthy worker
+// into a failing test that pointed at the wrong thing. Read them from the source
+// instead: the test then checks that a key is written, which is what it means.
+const KEYS = Object.fromEntries(
+  [...readFileSync(new URL(WORKER), 'utf8')
+    .matchAll(/^const (LAUNCHES_KEY|FEES_KEY) = '([^']+)'/gm)]
+    .map(([, name, key]) => [name, key]),
+)
+for (const name of ['LAUNCHES_KEY', 'FEES_KEY']) {
+  if (!KEYS[name]) throw new Error(`could not read ${name} out of the worker`)
+}
 
 // ── a JSON-RPC server that counts what it is asked ─────────────────────────
 const rpcCalls = {}
@@ -148,7 +162,7 @@ await test('exit: a second spelling of the same request is served from the edge'
 })
 
 await test('launches: one cold request builds the list (measures the cost of one lookup)', async () => {
-  assert.equal(kv.has('launches:v2'), false)
+  assert.equal(kv.has(KEYS.LAUNCHES_KEY), false)
   const before = scans()
   const r = await call('/api/launches')
   assert.equal(r.status, 200)
@@ -159,30 +173,30 @@ await test('launches: one cold request builds the list (measures the cost of one
 })
 
 await test('launches: six concurrent cold requests cost one lookup, not six', async () => {
-  kv.delete('launches:v2')
+  kv.delete(KEYS.LAUNCHES_KEY)
   const before = scans()
   const all = await Promise.all(Array.from({ length: 6 }, () => call('/api/launches')))
   for (const r of all) { assert.equal(r.status, 200); assert.equal(r.body.count, 0); assert.equal(r.body.pending, undefined) }
   assert.equal(scans() - before, UNIT)
-  assert.equal(kv.has('launches:v2'), true)
+  assert.equal(kv.has(KEYS.LAUNCHES_KEY), true)
   assert.equal(kv.has('rebuilding:launches'), false)
 })
 
 await test('launches: an old list is served at once and rebuilt behind the response', async () => {
-  const stored = JSON.parse(kv.get('launches:v2'))
+  const stored = JSON.parse(kv.get(KEYS.LAUNCHES_KEY))
   stored.updatedAt = new Date(Date.now() - 3_600_000).toISOString()
-  kv.set('launches:v2', JSON.stringify(stored))
+  kv.set(KEYS.LAUNCHES_KEY, JSON.stringify(stored))
   const before = scans()
   const r = await call('/api/launches')
   assert.equal(r.status, 200)
   assert.equal(scans() - before, UNIT)
-  assert.ok(Date.now() - Date.parse(JSON.parse(kv.get('launches:v2')).updatedAt) < 5_000)
+  assert.ok(Date.now() - Date.parse(JSON.parse(kv.get(KEYS.LAUNCHES_KEY)).updatedAt) < 5_000)
 })
 
 await test('metadata: a post no longer drops the launches list, and links are http(s) or nothing', async () => {
   const r = await post('/api/metadata', { name: 'X', symbol: 'X', image: 'javascript:alert(1)', website: 'https://ok.example/', twitter: '@x' })
   assert.equal(r.status, 200)
-  assert.equal(kv.has('launches:v2'), true)
+  assert.equal(kv.has(KEYS.LAUNCHES_KEY), true)
   const stored = JSON.parse([...r2.values()][0])
   assert.equal(stored.image, '')
   assert.equal(stored.external_url, 'https://ok.example/')
@@ -225,13 +239,13 @@ await test('launch/:mint: a miss is kept at the edge', async () => {
 })
 
 await test('fees: four concurrent cold requests all answer, one build is stored', async () => {
-  assert.equal(kv.has('fees:v4'), false)
-  kv.delete('launches:v2') // so the report has to rebuild the list too, once
+  assert.equal(kv.has(KEYS.FEES_KEY), false)
+  kv.delete(KEYS.LAUNCHES_KEY) // so the report has to rebuild the list too, once
   const before = scans()
   const all = await Promise.all(Array.from({ length: 4 }, () => call('/api/fees')))
   for (const r of all) { assert.equal(r.status, 200); assert.deepEqual(r.body.coins, []) }
   assert.equal(scans() - before, UNIT)
-  assert.equal(kv.has('fees:v4'), true)
+  assert.equal(kv.has(KEYS.FEES_KEY), true)
   assert.equal(kv.has('rebuilding:fees'), false)
 })
 

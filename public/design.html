@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Design system — LFOwn</title>
+<meta name="description" content="The palette, type and components LFOwn is built from — read live from the stylesheet the site actually ships." />
+
+<meta property="og:site_name" content="LFOwn" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://letsfuckingown.fun/design" />
+<meta property="og:title" content="Design system — LFOwn" />
+<meta property="og:description" content="The palette, type and components LFOwn is built from." />
+<meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="Design system — LFOwn" />
+<meta name="twitter:description" content="The palette, type and components LFOwn is built from." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<link rel="icon" href="/favicon.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-512.png" sizes="512x512">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script>
+(function(){
+  var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
+  var dark = saved ? saved==='dark'
+                   : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+})();
+</script>
+<link rel="stylesheet" href="/assets/lfown.css">
+<style>
+main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+   font-size:clamp(2rem,5.4vw,3.6rem);line-height:.92;margin:0 0 10px}
+.lede{color:var(--ink-soft);max-width:62ch;margin:0 0 clamp(30px,4vw,48px);font-size:1.05rem}
+.lede code{font-family:var(--mono);font-size:.8em;background:var(--card);border:1px solid var(--rule);padding:1px 5px}
+
+/* ── a section, and the note that explains it ── */
+.sec{margin-top:clamp(44px,6vw,76px);scroll-margin-top:96px}
+.sec-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:12px;margin-bottom:clamp(18px,2.6vw,26px);border-bottom:1.5px solid var(--ink)}
+.sec-head h2{font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
+  font-weight:600;margin:0;display:flex;align-items:center;gap:9px}
+.sec-head .n{background:var(--red);color:#fff;font-size:.58rem;letter-spacing:.1em;padding:3px 7px}
+.sec-head p{margin:0;font-size:.92rem;color:var(--ink-soft);max-width:56ch}
+.why{font-size:.92rem;color:var(--ink-soft);max-width:64ch;margin:14px 0 0;border-left:1.5px solid var(--red);padding-left:14px}
+.why b{color:var(--ink);font-weight:500}
+
+/* ── the swatches ── */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:clamp(12px,1.6vw,18px)}
+.sw{border:1.5px solid var(--ink);background:var(--card)}
+/* Every chip sits over a paper/ink split. An opaque token covers it and reads solid;
+   a translucent one (--rule, --bar, --glow, --mark) shows its alpha over both, which
+   is the only way to judge it. */
+.sw .chip{height:78px;border-bottom:1.5px solid var(--ink);position:relative;
+  background-image:linear-gradient(90deg,var(--paper) 50%,var(--ink) 50%)}
+.sw .chip i{position:absolute;inset:0;display:block}
+.sw .meta{padding:11px 13px}
+.sw .name{font-family:var(--mono);font-size:.58rem;letter-spacing:.1em;display:block}
+.sw .val{font-family:var(--mono);font-size:.56rem;letter-spacing:.04em;color:var(--ink-soft);display:block;margin-top:5px;text-transform:uppercase}
+.sw .use{font-size:.84rem;color:var(--ink-soft);margin-top:7px;line-height:1.45}
+.sw.on-ink .chip{background:var(--ink)}
+
+/* ── type ── */
+.type-row{border-bottom:1px dashed var(--rule);padding:clamp(18px,2.4vw,26px) 0;display:grid;
+  grid-template-columns:190px 1fr;gap:clamp(16px,2.4vw,32px);align-items:baseline}
+@media(max-width:760px){.type-row{grid-template-columns:1fr;gap:12px}}
+.type-row:last-child{border-bottom:0}
+.type-key{font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);line-height:1.7}
+.type-key b{display:block;color:var(--ink);font-size:.62rem;letter-spacing:.14em;margin-bottom:6px}
+.spec-display{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+  font-size:clamp(2rem,5vw,3.2rem);line-height:.92}
+.spec-display em{font-style:normal;color:var(--red)}
+.spec-serif{font-family:var(--serif);font-size:1.12rem;line-height:1.6;max-width:52ch;margin:0}
+.spec-mono{font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
+.spec-marker{font-family:"Permanent Marker",cursive;color:var(--red);font-size:2rem;line-height:1;
+  transform:skewX(-9deg);display:inline-block}
+
+/* ── component specimens ── */
+.specimens{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:clamp(16px,2.2vw,24px)}
+.spec{border:1.5px solid var(--ink);background:var(--card);display:flex;flex-direction:column}
+.spec > .stage{padding:clamp(18px,2.4vw,26px);display:flex;flex-direction:column;gap:14px;align-items:flex-start;flex:1}
+.spec > .stage.centre{align-items:stretch}
+.spec > .foot{border-top:1px dashed var(--rule);padding:11px 14px;display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.spec > .foot code{font-family:var(--mono);font-size:.56rem;letter-spacing:.06em;color:var(--red)}
+.spec > .foot span{font-size:.84rem;color:var(--ink-soft)}
+
+/* Copied from the coins page, which is where these live. Kept to the few rules each
+   specimen needs — the source of truth is named under every one. */
+.panel{border:1.5px solid var(--ink);background:var(--card);padding:20px}
+.panel.accent{box-shadow:10px 10px 0 var(--red)}
+.progress{height:8px;border:1.5px solid var(--ink);background:var(--paper);position:relative;overflow:hidden;width:100%}
+.progress i{display:block;height:100%;background:var(--red)}
+.badge{border:1.5px solid var(--red);color:var(--red);padding:3px 7px;font-family:var(--mono);font-size:.52rem;letter-spacing:.12em;text-transform:uppercase}
+.tabs{display:flex;border:1.5px solid var(--ink);width:100%}
+.tabs button{flex:1;padding:11px;background:transparent;border:0;border-right:1.5px solid var(--ink);cursor:pointer;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.tabs button:last-child{border-right:0}
+.tabs button[aria-pressed="true"]{background:var(--red);color:#fff}
+.pay{display:flex;border:1.5px solid var(--ink);flex-wrap:wrap;width:100%}
+.pay button{flex:1 1 0;min-width:80px;padding:10px 8px;background:transparent;border:0;border-right:1.5px solid var(--ink);cursor:pointer;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.pay button:last-child{border-right:0}
+.pay button[aria-pressed="true"]{background:var(--red);color:#fff}
+.amount-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:7px;width:100%}
+.amount-head .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.held{font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);font-variant-numeric:tabular-nums}
+.amount-field{position:relative;width:100%}
+.amount-field input{width:100%;font:inherit;font-size:1.05rem;color:var(--ink);background:var(--paper);
+  border:1.5px solid var(--ink);padding:11px 13px;padding-right:76px}
+.amount-field input:focus{outline:2px solid var(--red);outline-offset:-1px}
+.max{position:absolute;top:50%;right:6px;transform:translateY(-50%);background:transparent;border:0;cursor:pointer;
+  padding:8px 10px;font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.max:hover{color:var(--red)}
+.quote{border-top:1px dashed var(--rule);padding-top:14px;width:100%;color:var(--ink-soft)}
+.quote .line{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.quote .line + .line{margin-top:7px}
+.quote .line span{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase}
+.quote .line b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.quote b.warn-text{color:var(--red)}
+.totals{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid var(--ink);width:100%}
+.totals .tot{padding:14px 16px;border-right:1.5px solid var(--ink)}
+.totals .tot:last-child{border-right:0}
+.totals .lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+.totals .big{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips a{font-family:var(--mono);font-size:.52rem;letter-spacing:.12em;text-transform:uppercase;
+  border:1.5px solid var(--rule);padding:4px 8px;text-decoration:none;color:var(--ink-soft)}
+.chips a.grad{border-color:var(--ink);background:var(--red);color:#fff}
+
+/* ── shadow + rule specimens ── */
+.boxes{display:flex;flex-wrap:wrap;gap:clamp(18px,3vw,34px)}
+.box{width:132px;height:78px;border:1.5px solid var(--ink);background:var(--card);
+  display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:.52rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+.box.s5{box-shadow:5px 5px 0 var(--ink)}
+.box.s6{box-shadow:6px 6px 0 var(--red)}
+.box.s10{box-shadow:10px 10px 0 var(--red)}
+
+/* ── the rules table ── */
+.rules{width:100%;border-collapse:collapse;border:1.5px solid var(--ink);background:var(--card)}
+.rules th{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);
+  text-align:left;font-weight:600;padding:12px 16px;border-bottom:1.5px solid var(--ink)}
+.rules td{padding:13px 16px;border-bottom:1px dashed var(--rule);vertical-align:top;font-size:.95rem}
+.rules tr:last-child td{border-bottom:0}
+.rules td:first-child{font-family:var(--mono);font-size:.6rem;letter-spacing:.06em;white-space:nowrap;color:var(--ink)}
+.rules td.no{color:var(--ink-soft);text-decoration:line-through}
+.table-wrap{overflow-x:auto}
+.rules{min-width:560px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
+    <nav class="nav-centre">
+      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
+    </nav>
+    <nav class="nav-actions">
+      <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      </button>
+      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </div>
+
+</header>
+
+<!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
+     filter makes an element the containing block for any position:fixed descendant
+     — the drawer inherited the header's 68 pixels of height and stopped there. -->
+<div class="scrim" id="menuScrim" hidden></div>
+<aside class="drawer" id="menu" hidden aria-label="Menu">
+    <div class="drawer-head">
+      <span class="mono">Menu</span>
+      <button class="drawer-close" type="button" id="menuClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </div>
+    <nav class="drawer-nav">
+      <a href="/coins">Coins</a>
+      <a href="/launch">Launch</a>
+      <a href="/leaderboard">Leaderboard</a>
+    </nav>
+    <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
+      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      <span class="mono">Theme</span>
+    </button>
+    <a class="drawer-x" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      <span class="mono">@LFOWNDOTFUN</span>
+    </a>
+  </aside>
+
+<script>
+  // The theme lives here rather than in each page's bundle: there are two toggles
+  // now, one in the bar and one in the drawer, and the landing ships no bundle at all.
+  (function () {
+    var root = document.documentElement
+    var toggles = document.querySelectorAll('.theme-toggle')
+    function label(theme) {
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme')
+      }
+    }
+    label(root.getAttribute('data-theme'))
+    function flip() {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('lfown-theme', next) } catch (e) {}
+      label(next)
+      // The landing listens for this to repaint its embedded tweet, which carries
+      // its own theme baked into the markup.
+      document.dispatchEvent(new CustomEvent('lfown:theme', { detail: next }))
+    }
+    for (var i = 0; i < toggles.length; i++) toggles[i].addEventListener('click', flip)
+
+    var burger = document.getElementById('menuToggle')
+    var drawer = document.getElementById('menu')
+    var scrim = document.getElementById('menuScrim')
+    function show(on) {
+      drawer.hidden = !on
+      scrim.hidden = !on
+      burger.setAttribute('aria-expanded', String(on))
+      // The page behind must not scroll under the drawer.
+      document.body.classList.toggle('menu-open', on)
+    }
+    burger.addEventListener('click', function () { show(drawer.hidden) })
+    scrim.addEventListener('click', function () { show(false) })
+    document.getElementById('menuClose').addEventListener('click', function () { show(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') show(false) })
+    // Rotating a phone, or dragging a window past the breakpoint, hides the drawer
+    // by CSS — but the scroll lock behind it would survive, leaving the page frozen
+    // with nothing on screen to explain it or undo it.
+    var wide = window.matchMedia('(min-width: 861px)')
+    var onWide = function (e) { if (e.matches) show(false) }
+    if (wide.addEventListener) wide.addEventListener('change', onWide)
+    else if (wide.addListener) wide.addListener(onWide)
+
+    // Coins links are handled by the router without a page load, so the drawer would
+    // otherwise still be sitting open over the page it just navigated to.
+    var links = drawer.querySelectorAll('a')
+    for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+
+<!--/lfown-header-->
+
+<main class="wrap">
+  <h1>Design system</h1>
+  <p class="lede">Everything LFOwn is drawn with. The colours below are read out of
+    <code>/assets/lfown.css</code> as the page loads rather than written down here, so this
+    sheet cannot quietly fall out of step with the site — flip the theme and watch them change.</p>
+
+  <section class="sec" id="colour">
+    <div class="sec-head">
+      <h2>Colour <span class="n">01</span></h2>
+      <p>Two roles do the work: ink on paper, and one red that means <em>act</em> or <em>attend</em>. Nothing else is coloured.</p>
+    </div>
+    <div class="swatches" id="swatches"></div>
+    <p class="why">Red is never decoration. It marks the thing you can press, the figure that
+      should worry you, and the current page — <b>so a screen with three red things has three
+      claims on your attention, and that is a design bug</b>. The trade panel earns exactly one:
+      price impact.</p>
+  </section>
+
+  <section class="sec" id="type">
+    <div class="sec-head">
+      <h2>Type <span class="n">02</span></h2>
+      <p>Three families, each with one job. A fourth, Permanent Marker, exists only as the logo's fallback.</p>
+    </div>
+
+    <div class="type-row">
+      <div class="type-key"><b>Display</b>Bricolage Grotesque<br>800 · uppercase<br>tracking −.04em</div>
+      <div><div class="spec-display">Memecoins paired with <em>ownership</em> coins.</div></div>
+    </div>
+    <div class="type-row">
+      <div class="type-key"><b>Body</b>Newsreader<br>400 / 500<br>line-height 1.6</div>
+      <div><p class="spec-serif">LFOwn is a memecoin launchpad where the pair asset is an ownership coin
+        from MetaDAO — not SOL, not a tokenized stock. Every one of them has a treasury behind it, and we show
+        you how big.</p></div>
+    </div>
+    <div class="type-row">
+      <div class="type-key"><b>Label</b>Martian Mono<br>600 · uppercase<br>tracking .18em</div>
+      <div><span class="spec-mono">Fees generated · to the creator · to the LFOwn DAO</span></div>
+    </div>
+    <div class="type-row">
+      <div class="type-key"><b>Mark</b>Permanent Marker<br>skewX(−9deg)<br>logo fallback only</div>
+      <div><span class="spec-marker">LFOwn</span></div>
+    </div>
+
+    <p class="why">Numbers are <b>tabular</b> wherever a column of them can be compared, and money
+      is grouped so the parts always add up to the total shown above them — <b>$0.84 and $0.85 under
+      a total of $2 is the bug that rule exists to prevent</b>.</p>
+  </section>
+
+  <section class="sec" id="edges">
+    <div class="sec-head">
+      <h2>Edges <span class="n">03</span></h2>
+      <p>A 1.5px border and a hard offset shadow. No blur, no radius, no gradients on anything you can click.</p>
+    </div>
+    <div class="boxes">
+      <div class="box s5">5px ink</div>
+      <div class="box s6">6px red</div>
+      <div class="box s10">10px red</div>
+      <div class="box">flat</div>
+    </div>
+    <p class="why">Depth is a fixed offset, not a light source. <b>5px ink</b> is a control,
+      <b>6px red</b> is a card lifting under the cursor, <b>10px red</b> is the one panel on a page
+      that matters most. Pressing a button moves it 3px into its own shadow.</p>
+  </section>
+
+  <section class="sec" id="components">
+    <div class="sec-head">
+      <h2>Components <span class="n">04</span></h2>
+      <p>Live markup, not screenshots. The buttons, drawer and chrome come from the shared stylesheet; the rest is named under each specimen.</p>
+    </div>
+    <div class="specimens">
+
+      <div class="spec">
+        <div class="stage">
+          <a class="btn" href="#0">Launch ownership memes</a>
+          <a class="btn ghost" href="#0">See launched coins ↗</a>
+          <button class="btn" type="button" disabled style="width:100%;justify-content:center">Buy fire</button>
+        </div>
+        <div class="foot"><code>.btn · .btn.ghost</code><span>lfown.css</span></div>
+      </div>
+
+      <div class="spec">
+        <div class="stage centre">
+          <div class="tabs">
+            <button type="button" aria-pressed="true">Buy</button>
+            <button type="button" aria-pressed="false">Sell</button>
+          </div>
+          <div class="pay">
+            <button type="button" aria-pressed="false">CARS</button>
+            <button type="button" aria-pressed="true">SOL</button>
+            <button type="button" aria-pressed="false">USDC</button>
+          </div>
+        </div>
+        <div class="foot"><code>.tabs · .pay</code><span>coins/index.html</span></div>
+      </div>
+
+      <div class="spec">
+        <div class="stage centre">
+          <div class="amount-head">
+            <span class="lab">Amount in SOL</span>
+            <span class="held">0.978343 SOL</span>
+          </div>
+          <div class="amount-field">
+            <input type="text" value="0.968343" aria-label="Amount">
+            <button class="max" type="button">Max</button>
+          </div>
+        </div>
+        <div class="foot"><code>.amount-head · .max</code><span>coins/index.html</span></div>
+      </div>
+
+      <div class="spec">
+        <div class="stage centre">
+          <div class="quote">
+            <div class="line"><span>To receive</span><b>1,925,773 MOTORS</b></div>
+            <div class="line"><span>Max slippage</span><b>1%</b></div>
+            <div class="line"><span>Price impact</span><b class="warn-text">3.76%</b></div>
+          </div>
+        </div>
+        <div class="foot"><code>.quote .line</code><span>coins/index.html</span></div>
+      </div>
+
+      <div class="spec">
+        <div class="stage centre">
+          <div class="totals">
+            <div class="tot"><span class="lab">Fees generated</span><span class="big">$1,254</span></div>
+            <div class="tot"><span class="lab">To the LFOwn DAO</span><span class="big">$627</span></div>
+          </div>
+          <div class="progress"><i style="width:62%"></i></div>
+          <div class="chips">
+            <a href="#0" class="grad">CHADICI</a><a href="#0">MOTORS</a><a href="#0">AVICII</a>
+          </div>
+          <span class="badge">Graduated</span>
+        </div>
+        <div class="foot"><code>.totals · .progress · .chips · .badge</code><span>coins · leaderboard</span></div>
+      </div>
+
+      <div class="spec">
+        <div class="stage centre">
+          <div class="panel accent" style="padding:16px">
+            <span class="mono" style="color:var(--ink-soft);font-size:.54rem">The panel that matters</span>
+            <p style="margin:10px 0 0;font-size:.95rem">10px of red behind it, once per page.</p>
+          </div>
+          <div class="panel" style="padding:16px">
+            <span class="mono" style="color:var(--ink-soft);font-size:.54rem">Everything else</span>
+            <p style="margin:10px 0 0;font-size:.95rem">Border only, flat on the paper.</p>
+          </div>
+        </div>
+        <div class="foot"><code>.panel · .panel.accent</code><span>coins/index.html</span></div>
+      </div>
+
+    </div>
+  </section>
+
+  <section class="sec" id="writing">
+    <div class="sec-head">
+      <h2>Writing <span class="n">05</span></h2>
+      <p>The conventions the copy on this site actually follows. They are as much a part of the system as the red.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="rules">
+        <thead><tr><th>Rule</th><th>Yes</th><th>No</th></tr></thead>
+        <tbody>
+          <tr><td>Money</td><td>$1,254 · $0.84 · &lt;$0.01</td><td class="no">$1253.9012 · $0.00</td></tr>
+          <tr><td>Precision</td><td>518,907 FIRE</td><td class="no">518907.524609</td></tr>
+          <tr><td>Rounding</td><td>Down, always</td><td class="no">Up, on a balance</td></tr>
+          <tr><td>Labels</td><td>Sentence case, uppercased by CSS</td><td class="no">SHOUTED IN THE MARKUP</td></tr>
+          <tr><td>Failure</td><td>What happened, then what to do</td><td class="no">“Something went wrong”</td></tr>
+          <tr><td>Our take</td><td>Published beside the creator's</td><td class="no">Hidden, or rolled into a total</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="why">The last one is the point of the whole thing. <b>A launchpad that shows creators
+      their fees while hiding its own is choosing which truths to tell</b>, so every figure LFOwn
+      earns is on the page next to the figure the creator earns.</p>
+  </section>
+
+  <section class="sec" id="layout">
+    <div class="sec-head">
+      <h2>Layout <span class="n">06</span></h2>
+      <p>One container, one fluid gutter, one breakpoint that matters.</p>
+    </div>
+    <div class="table-wrap">
+      <table class="rules">
+        <thead><tr><th>Token</th><th>Value</th><th>Where</th></tr></thead>
+        <tbody>
+          <tr><td>.wrap</td><td>max-width 1240px, centred</td><td>Every page's main column</td></tr>
+          <tr><td>--pad</td><td>clamp(20px, 5vw, 72px)</td><td>Gutter, and the header's own padding</td></tr>
+          <tr><td>860px</td><td>Nav collapses into the drawer</td><td>The only breakpoint in the chrome</td></tr>
+          <tr><td>Grain</td><td>SVG turbulence, fixed, multiply / screen</td><td>Over the whole page, both themes</td></tr>
+          <tr><td>Grid</td><td>Hairline verticals, clamp(60px, 9vw, 140px)</td><td>Behind everything, under a red glow</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+// The palette is read out of the live stylesheet rather than written into this page.
+// A design sheet that keeps its own copy of the hex values is wrong the first time
+// anybody edits the real one, and nothing on screen says so.
+(function () {
+  var TOKENS = [
+    ['--red',      'Anything you can press, anything that should worry you, the current page.'],
+    ['--red-deep', 'A button under the cursor. Never used on its own.'],
+    ['--ink',      'Text, borders, and the hard shadow behind a control.'],
+    ['--ink-soft', 'Labels, captions and figures that support another figure.'],
+    ['--paper',    'The page itself.'],
+    ['--card',     'Anything that sits on the page: panel, card, drawer, menu.'],
+    ['--rule',     'Hairlines and dashed dividers. Ink at low alpha, so it follows the theme.'],
+    ['--bar',      'The sticky header, behind an 8px blur.'],
+    ['--glow',     'One red wash at the top of the page, under the grid.'],
+    ['--mark',     'The highlighter behind a marked phrase on the landing.']
+  ]
+  var box = document.getElementById('swatches')
+  var css = getComputedStyle(document.documentElement)
+
+  box.innerHTML = TOKENS.map(function (t) {
+    return '<div class="sw">' +
+      '<div class="chip"><i style="background:var(' + t[0] + ')"></i></div>' +
+      '<div class="meta"><span class="name">' + t[0] + '</span>' +
+      '<span class="val" data-token="' + t[0] + '"></span>' +
+      '<span class="use">' + t[1] + '</span></div></div>'
+  }).join('')
+
+  function readValues() {
+    var live = getComputedStyle(document.documentElement)
+    var cells = box.querySelectorAll('[data-token]')
+    for (var i = 0; i < cells.length; i++) {
+      cells[i].textContent = live.getPropertyValue(cells[i].getAttribute('data-token')).trim() || '—'
+    }
+  }
+  readValues()
+  // The header's toggle announces the change; the custom properties have already
+  // swapped by the time it fires.
+  document.addEventListener('lfown:theme', readValues)
+})()
+</script>
+</body>
+</html>

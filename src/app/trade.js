@@ -136,9 +136,13 @@ export async function buildCreatorClaim({ address, pool }, { creator }) {
  * Empty legs are left out rather than claimed for zero: an instruction that moves
  * nothing still costs space and still has to be simulated.
  */
-export async function buildClaimAll({ address, pool }, { creator, lp }) {
+/**
+ * Everything one coin owes its creator, as instructions rather than a transaction —
+ * so several coins can be weighed together before any of them is committed to one.
+ */
+export async function claimInstructions({ address, pool }, { creator, lp }) {
   const owner = new PublicKey(creator)
-  const tx = new Transaction()
+  const out = []
 
   const onCurve = Number(pool.creatorQuoteFee.toString()) > 0 || Number(pool.creatorBaseFee.toString()) > 0
   if (onCurve) {
@@ -146,20 +150,77 @@ export async function buildClaimAll({ address, pool }, { creator, lp }) {
       creator: owner, payer: owner, pool: address,
       maxBaseAmount: pool.creatorBaseFee, maxQuoteAmount: pool.creatorQuoteFee, receiver: owner,
     })
-    tx.add(...curve.instructions)
+    out.push(...curve.instructions)
   }
 
   if (lp && (lp.feeA || lp.feeB)) {
     const { buildLpClaim } = await import('../lib/lp-fees.mjs')
     const claim = await buildLpClaim(connection, lp, { owner: creator })
-    tx.add(...claim.instructions)
+    out.push(...claim.instructions)
   }
+  return out
+}
 
-  if (!tx.instructions.length) throw new Error('There is nothing to claim right now.')
+export async function buildClaimAll(state, { creator, lp }) {
+  const ixs = await claimInstructions(state, { creator, lp })
+  if (!ixs.length) throw new Error('There is nothing to claim right now.')
+  const tx = new Transaction().add(...ixs)
   const { blockhash } = await connection.getLatestBlockhash('confirmed')
   tx.recentBlockhash = blockhash
-  tx.feePayer = owner
+  tx.feePayer = new PublicKey(creator)
   return tx
+}
+
+/**
+ * Claims for several coins, packed into as few transactions as will hold them.
+ *
+ * By measured size, not by a count. Three curve claims fit in the 1232-byte limit
+ * and a fourth does not — 526 bytes for the first, 264 for each after it — but a
+ * graduated coin also claims from its locked position, which is 660 bytes on its
+ * own and 892 beside a curve claim. A fixed "three per transaction" would be wrong
+ * for any creator whose coins are a mixture, so each one is added only once the
+ * whole thing has been serialised and found to still fit.
+ *
+ * An address lookup table would take the marginal cost to 47 bytes and hold around
+ * twenty — measured — but it has to be created, funded and extended with every new
+ * coin, and it is not worth that until creators are launching far more than this.
+ */
+export async function packClaims(entries, { creator }) {
+  const owner = new PublicKey(creator)
+  // Any blockhash serialises to the same 32 bytes; this one is only for weighing.
+  // Each transaction is given a fresh one immediately before it is signed.
+  const { blockhash } = await connection.getLatestBlockhash('confirmed')
+
+  const weigh = (ixs) => {
+    const tx = new Transaction().add(...ixs)
+    tx.recentBlockhash = blockhash
+    tx.feePayer = owner
+    try {
+      tx.serialize({ requireAllSignatures: false, verifySignatures: false })
+      return tx
+    } catch {
+      return null // over the limit; web3 says so by refusing to serialise
+    }
+  }
+
+  const batches = []
+  for (const entry of entries) {
+    const ixs = await claimInstructions(entry.state, { creator, lp: entry.lp })
+    if (!ixs.length) continue
+
+    const last = batches[batches.length - 1]
+    const merged = last && weigh([...last.ixs, ...ixs])
+    if (merged) {
+      last.ixs.push(...ixs)
+      last.coins.push(entry)
+      last.transaction = merged
+      continue
+    }
+    // On its own now. A single claim too large to serialise even alone cannot be
+    // helped by splitting further, so it is kept and allowed to fail out loud.
+    batches.push({ ixs, coins: [entry], transaction: weigh(ixs) ?? new Transaction().add(...ixs) })
+  }
+  return batches
 }
 
 /** Builds the swap for the wallet to sign. */

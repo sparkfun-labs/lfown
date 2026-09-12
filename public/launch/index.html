@@ -86,6 +86,18 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .qcard dd{margin:2px 0 0;font-size:.95rem;font-variant-numeric:tabular-nums}
 .qcard .treasury dd{color:var(--red);font-weight:500}
 
+/* The draw. Red-on-paper rather than a card of figures, because it has none to show
+   — and it has to read as a different kind of thing from the coins beside it. */
+.qcard.wild{justify-content:space-between;border-style:dashed}
+.qcard.wild[aria-pressed="true"]{border-style:solid}
+.qcard.wild .dice{
+  width:34px;height:34px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;
+  border:1.5px solid var(--red);color:var(--red);
+  font-family:var(--display);font-weight:800;font-size:1.25rem;line-height:1;
+}
+.qcard.wild .sym{color:var(--red)}
+.qcard.wild .wild-note{margin:0;font-size:.85rem;color:var(--ink-soft);line-height:1.45}
+
 .cost{font-weight:500}
 .cost.ok{color:var(--ink)}
 .cost.warn{color:#C77A00}
@@ -154,17 +166,19 @@ textarea{min-height:96px;resize:vertical}
   position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:230px;
   border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red);
 }
-.wallet-addr{
-  padding:11px 14px;border-bottom:1px dashed var(--rule);word-break:break-all;
-  font-family:var(--mono);font-size:.58rem;letter-spacing:.06em;color:var(--ink-soft);line-height:1.5
-}
-.wallet-menu button{
+/* One rule for the anchor and the buttons: they are three entries of one menu and
+   any difference between them reads as a mistake. */
+/* Addressed by id, not class. `.top nav a:hover{color:var(--red)}` in lfown.css
+   scores higher than `.wallet-menu a:hover`, so Profile was painted red on the red
+   hover background and vanished. An id outranks any number of classes. */
+#wallet-menu a,#wallet-menu button{
   display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;
-  padding:11px 14px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;
+  padding:11px 14px;text-decoration:none;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;
   color:var(--ink);transition:background .15s,color .15s
 }
-.wallet-menu button:hover{background:var(--red);color:#fff}
-.wallet-menu button+button{border-top:1px dashed var(--rule)}
+#wallet-menu a:hover,#wallet-menu button:hover{background:var(--red);color:#fff}
+#wallet-menu a+button,#wallet-menu button+button{border-top:1px dashed var(--rule)}
 
 dialog#wallet-picker{
   border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:0;max-width:340px;width:calc(100% - 40px);
@@ -211,6 +225,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     <nav class="nav-centre">
       <a class="mono hide-s" href="/coins">Coins</a>
       <a class="mono hide-s" href="/launch" aria-current="page">Launch</a>
+      <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
     </nav>
     <nav class="nav-actions">
       <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
@@ -220,7 +235,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
       <span class="wallet-slot">
         <button class="btn" type="button" id="connect">Connect wallet</button>
         <div class="wallet-menu" id="wallet-menu" hidden>
-          <div class="wallet-addr" id="wallet-addr"></div>
+          <a href="/profile">Profile</a>
           <button type="button" data-act="copy">Copy address</button>
           <button type="button" data-act="disconnect">Disconnect</button>
         </div>
@@ -247,6 +262,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     <nav class="drawer-nav">
       <a href="/coins">Coins</a>
       <a href="/launch">Launch</a>
+      <a href="/leaderboard">Leaderboard</a>
     </nav>
     <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
       <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
@@ -310,6 +326,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
   })()
 </script>
+
 <!--/lfown-header-->
 
 <main class="wrap">
@@ -383,16 +400,12 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
       <div>
         <span class="lab">Raise target</span>
         <div class="tiers" id="tiers"></div>
-        <p class="hint" id="tier-hint">The raise is also the entire liquidity your coin graduates into, so it is a tier rather than a free number — and the threshold is fixed in the shared config for this backing coin.</p>
-      </div>
-      <div class="note" id="float-note">
-        The target is a fixed number of <b>backing coins</b>, set when this coin was opened.
-        If the backing coin moves 40% before you graduate, the dollars you raise move with it —
-        in both directions.
+        <p class="hint" id="tier-hint">This raise becomes your pool's entire liquidity. The target is a fixed number of backing coins, so the dollar figure moves with them.</p>
       </div>
       <label>
-        <span class="lab">Dev buy</span>
-        <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" value="0"><span class="unit">% supply</span></span>
+        <span class="lab">Dev buy (max 50%)</span>
+        <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" placeholder="0"><span class="unit">% supply</span></span>
+        <p class="hint warn-text" id="devbuy-cap" hidden>Capped at 50% — that is what will be priced and launched.</p>
         <p class="hint" id="devbuy-cost">Bought atomically with the launch, so nobody can front-run you.</p>
       </label>
     <div class="actions">

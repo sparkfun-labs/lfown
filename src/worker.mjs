@@ -12,7 +12,8 @@ import { feeReport } from './lib/fee-report.mjs'
 import { readyToGraduate, graduate } from './lib/graduate.mjs'
 import { sendAndConfirm } from './lib/confirm.mjs'
 import { tradeHistory, ammLeg } from './lib/chart.mjs'
-import { announce, launchedMessage, graduatedMessage } from './lib/telegram.mjs'
+import * as telegram from './lib/telegram.mjs'
+import * as x from './lib/x.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
@@ -29,7 +30,10 @@ const LAUNCHES_FRESH = 15 * 60_000
 const LAUNCHES_TTL = 86_400
 // v4: "generated" no longer counts Meteora's cut, so a stored v3 report holds the
 // same fields with different meanings — which is exactly what a bump is for.
-const FEES_KEY = 'fees:v4'
+// v5: every row now carries the wallet that launched it. A deploy does not clear KV,
+// so without a bump the leaderboard would have read a day of rows with no wallet on
+// them and shown nothing at all.
+const FEES_KEY = 'fees:v5'
 // How old the fee report may be before a request also triggers a rebuild behind it.
 // The stored copy outlives this by a long way, so an expiry never lands on a visitor.
 const FEES_FRESH = 60_000
@@ -42,7 +46,11 @@ const CHART_KEY = (mint) => `chart:v3:${mint}`
 const CHART_TTL = 30 * 86_400
 // Which coins the Telegram group has already heard about, so a restart or a cache
 // rebuild does not replay the whole catalogue into the chat.
-const ANNOUNCED_KEY = 'announced:v1'
+// v2: one record per channel. A coin can reach Telegram and fail on X, and a single
+// shared list could only ever be wrong one way or the other — either X never retries
+// or Telegram posts twice. Migrated on read, so nothing is re-announced on deploy.
+const ANNOUNCED_KEY = 'announced:v2'
+const ANNOUNCED_KEY_V1 = 'announced:v1'
 // A chart just rebuilt is not rebuilt again for a page view a second later. Short,
 // because the redraw after someone's own trade has to be able to show it.
 const CHART_COOLDOWN = 10_000
@@ -493,61 +501,155 @@ function httpUrl(value) {
 const cardImage = (value) => httpUrl(value) || null
 
 /**
- * Posts new coins to Telegram, once each.
- *
- * The record is written even when nothing is announced, and the very first run only
- * writes it — otherwise switching the bot on would fire every coin ever launched
- * into the chat at once.
+ * Where the news goes. Each is silent unless its own credentials are set, so adding
+ * one never disturbs the other — and neither disturbs a site running without both.
  */
-async function announceLaunches(env, launches) {
-  if (!env.REGISTRY || !env.TELEGRAM_BOT_TOKEN) return
-  const origin = env.PUBLIC_ORIGIN || 'https://letsfuckingown.fun'
-  const seen = await env.REGISTRY.get(ANNOUNCED_KEY, 'json')
-  const known = new Set(seen?.launched ?? [])
-  const fresh = launches.filter((l) => !known.has(l.baseMint))
-  if (!fresh.length) return
+const CHANNELS = [
+  {
+    id: 'telegram',
+    ready: (env) => Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
+    launched: (env, coin, origin, image) => telegram.announce(env, {
+      text: telegram.launchedMessage(coin, origin), photo: image, preview: telegram.coinUrl(coin, origin),
+    }),
+    graduated: (env, coin, origin, image) => telegram.announce(env, {
+      text: telegram.graduatedMessage(coin, origin), photo: image, preview: telegram.coinUrl(coin, origin),
+    }),
+  },
+  {
+    id: 'x',
+    ready: (env) => Boolean(env.X_CONSUMER_KEY && env.X_CONSUMER_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
+    launched: async (env, coin, origin, image) =>
+      x.announce(env, { text: x.launchedMessage(coin, origin), image: await imageBytes(env, image) }),
+    graduated: async (env, coin, origin, image) =>
+      x.announce(env, { text: x.graduatedMessage(coin, origin), image: await imageBytes(env, image) }),
+  },
+]
 
-  // No record yet means the bot has just been switched on. Learn the state, say
-  // nothing, and start announcing from the next coin.
-  const posted = []
-  if (seen) {
-    for (const coin of fresh) {
-      let photo = null
-      try { photo = cardImage((await launchMetadata(env, coin.uri))?.image) } catch { /* the words matter more */ }
-      // Written down only once the group has actually heard it. A wrong token or a
-      // brief outage then retries on the next pass, rather than marking the news as
-      // delivered and losing it — which is what a misconfigured bot would do to
-      // every coin launched while it was misconfigured.
-      if ((await announce(env, { text: launchedMessage(coin, origin), photo }))?.ok) {
-        posted.push(coin.baseMint)
-      }
-    }
-  } else {
-    posted.push(...fresh.map((l) => l.baseMint))
-    console.log(`telegram: first run, remembering ${launches.length} coin(s) without announcing`)
-  }
-  if (!posted.length) return
-
-  await env.REGISTRY.put(ANNOUNCED_KEY, JSON.stringify({
-    launched: [...known, ...posted].slice(-500),
-    graduated: seen?.graduated ?? [],
-  }))
+/**
+ * What each channel has already said, migrating the single-channel record.
+ *
+ * The old list becomes Telegram's, because that is whose it was. X gets nothing,
+ * which its first run reads as "learn the state and say nothing" — the alternative
+ * is thirty-six coins arriving on the timeline at once.
+ */
+async function announcedSoFar(env) {
+  const v2 = await env.REGISTRY.get(ANNOUNCED_KEY, 'json')
+  if (v2) return v2
+  const v1 = await env.REGISTRY.get(ANNOUNCED_KEY_V1, 'json')
+  return v1 ? { telegram: { launched: v1.launched ?? [], graduated: v1.graduated ?? [] } } : {}
 }
 
-/** Posts one graduation, unless the group has already been told about it. */
-async function announceGraduation(env, coin) {
-  if (!env.REGISTRY || !env.TELEGRAM_BOT_TOKEN) return
-  const seen = await env.REGISTRY.get(ANNOUNCED_KEY, 'json')
-  const graduated = new Set(seen?.graduated ?? [])
-  if (graduated.has(coin.baseMint)) return
-  graduated.add(coin.baseMint)
+/** The coin's artwork as a url, for a channel that fetches it itself. */
+async function coinArtwork(env, coin) {
+  try { return cardImage((await launchMetadata(env, coin.uri))?.image) } catch { return null }
+}
 
-  const sent = await announce(env, { text: graduatedMessage(coin, env.PUBLIC_ORIGIN || 'https://letsfuckingown.fun') })
-  if (!sent?.ok) return // retried on the next pass rather than silently dropped
-  await env.REGISTRY.put(ANNOUNCED_KEY, JSON.stringify({
-    launched: seen?.launched ?? [],
-    graduated: [...graduated].slice(-500),
-  }))
+/**
+ * The same artwork as bytes, for a channel that needs us to upload it.
+ *
+ * Read straight out of R2 when the url is one of ours: a Worker fetching a url it
+ * serves itself never gets an answer — the subrequest loops back and times out at
+ * 522. Anything hosted elsewhere is fetched normally, with a ceiling, because
+ * whoever launched the coin chose where "elsewhere" is.
+ */
+async function imageBytes(env, url) {
+  if (!url) return null
+  try {
+    const key = String(url).match(/\/i\/([^/?#]+)$/)?.[1]
+    if (key && env.IMAGES) {
+      const object = await env.IMAGES.get(key)
+      if (!object) return null
+      return { bytes: await object.arrayBuffer(), type: object.httpMetadata?.contentType ?? 'image/png' }
+    }
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    const bytes = await res.arrayBuffer()
+    return bytes.byteLength > 5_000_000 ? null : { bytes, type: res.headers.get('content-type') ?? 'image/png' }
+  } catch (e) {
+    console.error(`artwork bytes unavailable: ${e.message}`)
+    return null
+  }
+}
+
+/**
+ * Posts new coins, once each, to every channel that is configured.
+ *
+ * The record is written even when nothing is announced, and a channel's very first
+ * run only writes it — otherwise switching one on would fire every coin ever
+ * launched into it at once.
+ */
+async function announceLaunches(env, launches) {
+  if (!env.REGISTRY) return
+  const live = CHANNELS.filter((c) => c.ready(env))
+  if (!live.length) return
+
+  const origin = env.PUBLIC_ORIGIN || 'https://letsfuckingown.fun'
+  const seen = await announcedSoFar(env)
+  const next = { ...seen }
+  // Fetched once and shared: two channels want the same picture, and the metadata
+  // lives behind a request to whatever uri the creator published.
+  const artwork = new Map()
+  let changed = false
+
+  for (const channel of live) {
+    const record = seen[channel.id]
+    const known = new Set(record?.launched ?? [])
+    const fresh = launches.filter((l) => !known.has(l.baseMint))
+    if (!fresh.length) continue
+
+    const posted = []
+    if (record) {
+      for (const coin of fresh) {
+        if (!artwork.has(coin.baseMint)) artwork.set(coin.baseMint, await coinArtwork(env, coin))
+        // Written down only once the channel has actually heard it. A wrong token or
+        // a brief outage then retries on the next pass, rather than marking the news
+        // as delivered and losing it.
+        if ((await channel.launched(env, coin, origin, artwork.get(coin.baseMint)))?.ok) {
+          posted.push(coin.baseMint)
+        }
+      }
+    } else {
+      posted.push(...fresh.map((l) => l.baseMint))
+      console.log(`${channel.id}: first run, remembering ${launches.length} coin(s) without announcing`)
+    }
+    if (!posted.length) continue
+
+    next[channel.id] = {
+      launched: [...known, ...posted].slice(-500),
+      graduated: record?.graduated ?? [],
+    }
+    changed = true
+  }
+
+  if (changed) await env.REGISTRY.put(ANNOUNCED_KEY, JSON.stringify(next))
+}
+
+/** Posts one graduation to every channel that has not already said it. */
+async function announceGraduation(env, coin) {
+  if (!env.REGISTRY) return
+  const live = CHANNELS.filter((c) => c.ready(env))
+  if (!live.length) return
+
+  const origin = env.PUBLIC_ORIGIN || 'https://letsfuckingown.fun'
+  const seen = await announcedSoFar(env)
+  const next = { ...seen }
+  let image
+  let changed = false
+
+  for (const channel of live) {
+    const record = seen[channel.id]
+    const graduated = new Set(record?.graduated ?? [])
+    if (graduated.has(coin.baseMint)) continue
+    if (image === undefined) image = await coinArtwork(env, coin)
+
+    // Retried on the next pass rather than silently dropped.
+    if (!(await channel.graduated(env, coin, origin, image))?.ok) continue
+    graduated.add(coin.baseMint)
+    next[channel.id] = { launched: record?.launched ?? [], graduated: [...graduated].slice(-500) }
+    changed = true
+  }
+
+  if (changed) await env.REGISTRY.put(ANNOUNCED_KEY, JSON.stringify(next))
 }
 
 // A metadata document is a few hundred bytes of JSON. A uri that answers with
@@ -612,7 +714,7 @@ async function coinCard(env, mint, origin) {
 
   return {
     title: `${symbol} — paired with ${quote} · LFOwn`,
-    description: `${name} is a memecoin on LFOwn, paired with ${quote}, a MetaDAO ownership coin with a redeemable treasury behind it. ${progress}`,
+    description: `${name} is a memecoin on LFOwn, paired with ${quote}, an ownership coin launched on MetaDAO with a treasury behind it. ${progress}`,
     url: `${origin}/coins/${mint}`,
     image,
   }
@@ -631,6 +733,56 @@ const CARD_TAGS = {
 }
 
 /**
+ * One creator's card: what they have launched, and what it has taken.
+ *
+ * The picture is their best-earning coin's artwork. A wallet has no image of its
+ * own, and a generic banner tells a reader nothing about whose page they are being
+ * shown — whereas the coin they are best known for does.
+ */
+async function creatorCard(env, wallet, origin) {
+  const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
+  const mine = (cached?.launches ?? []).filter((l) => l.creator === wallet)
+  if (!mine.length) return null
+
+  const report = env.REGISTRY ? (await env.REGISTRY.get(FEES_KEY, 'json'))?.report : null
+  const earned = new Map((report?.coins ?? []).map((c) => [c.baseMint, c]))
+  const best = [...mine].sort(
+    (a, b) => (earned.get(b.baseMint)?.totalUsd ?? 0) - (earned.get(a.baseMint)?.totalUsd ?? 0))[0]
+
+  const generated = mine.reduce((t, c) => t + (earned.get(c.baseMint)?.totalUsd ?? 0), 0)
+  const graduated = mine.filter((c) => c.isMigrated).length
+
+  let image = null
+  if (best?.uri) {
+    try { image = cardImage((await launchMetadata(env, best.uri))?.image) }
+    catch (e) { console.error(`creator card ${wallet}: metadata unreadable: ${e.message}`) }
+  }
+
+  const money = generated >= 1
+    ? `$${Math.round(generated).toLocaleString('en-US')}`
+    : `$${generated.toFixed(2)}`
+  const coins = `${mine.length} coin${mine.length > 1 ? 's' : ''}`
+  const grad = graduated ? `, ${graduated} graduated` : ''
+
+  return {
+    title: `${wallet.slice(0, 4)}…${wallet.slice(-4)} — ${coins} on LFOwn`,
+    description: `This wallet has launched ${coins} on LFOwn${grad}. Together they have taken ${money} in trading fees, split between the creator and the LFOwn DAO.`,
+    url: `${origin}/creator/${wallet}`,
+    image,
+  }
+}
+
+/** The creator shell, with its card rewritten for this one wallet. */
+async function creatorShell(wallet, url, request, env) {
+  const page = await shell('/creator', url, request, env)
+  const card = await creatorCard(env, wallet, env.PUBLIC_ORIGIN || url.origin).catch((e) => {
+    console.error(`card for ${wallet} failed: ${e.message}`)
+    return null
+  })
+  return card ? rewriteCard(page, card) : page
+}
+
+/**
  * The coins shell, with its card rewritten for this one coin.
  *
  * Crawlers do not run JavaScript, so this has to happen on the way out. HTMLRewriter
@@ -643,7 +795,14 @@ async function coinShell(mint, url, request, env) {
     return null
   })
   if (!card) return page
+  return rewriteCard(page, card)
+}
 
+/**
+ * Stamps one card onto a shell on the way out. Crawlers do not run JavaScript, so
+ * this has to happen here rather than in the page's own script.
+ */
+function rewriteCard(page, card) {
   return new HTMLRewriter()
     .on('title', { element: (el) => el.setInnerContent(card.title) })
     .on('meta', {
@@ -1142,14 +1301,17 @@ export default {
     // The launch app is a single page. Real files under /launch (its script, any
     // future chunk) must still be served as themselves — only unknown paths fall
     // through to the shell, so client-side routes survive a reload.
-    for (const section of ['/launch', '/coins']) {
+    for (const section of ['/launch', '/coins', '/creator']) {
       if (url.pathname !== section && !url.pathname.startsWith(`${section}/`)) continue
       if (url.pathname === section || url.pathname === `${section}/`) return shell(section, url, request, env)
       const asset = await env.ASSETS.fetch(request)
       if (asset.status !== 404) return asset
       // A coin's own page carries its own card.
-      const mint = section === '/coins' ? url.pathname.slice('/coins/'.length) : ''
-      if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(mint)) return coinShell(mint, url, request, env)
+      const tail = url.pathname.slice(section.length + 1)
+      if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tail)) {
+        if (section === '/coins') return coinShell(tail, url, request, env)
+        if (section === '/creator') return creatorShell(tail, url, request, env)
+      }
       return shell(section, url, request, env)
     }
 

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Leaderboard — LFOwn</title>
+<meta name="description" content="The wallets whose coins have generated the most trading fees on LFOwn." />
+
+<meta property="og:site_name" content="LFOwn" />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://letsfuckingown.fun/leaderboard" />
+<meta property="og:title" content="Leaderboard — LFOwn" />
+<meta property="og:description" content="The wallets whose coins have generated the most trading fees on LFOwn." />
+<meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="Leaderboard — LFOwn" />
+<meta name="twitter:description" content="The wallets whose coins have generated the most trading fees on LFOwn." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<link rel="icon" href="/favicon.png" sizes="32x32">
+<link rel="icon" href="/assets/icon-512.png" sizes="512x512">
+<link rel="apple-touch-icon" href="/assets/icon-180.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<script>
+(function(){
+  var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
+  var dark = saved ? saved==='dark'
+                   : window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+})();
+</script>
+<link rel="stylesheet" href="/assets/lfown.css">
+<style>
+main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+   font-size:clamp(2rem,5.4vw,3.6rem);line-height:.92;margin:0 0 10px}
+.lede{color:var(--ink-soft);max-width:60ch;margin:0 0 clamp(26px,4vw,44px);font-size:1.05rem}
+.skel{color:var(--ink-soft);font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
+.lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+
+/* Same strip as /coins, so the two pages state the same totals the same way. */
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border:1.5px solid var(--ink);margin:0 0 clamp(24px,3.4vw,36px)}
+.totals .tot{padding:16px 18px;border-right:1.5px solid var(--ink)}
+.totals .tot:last-child{border-right:0}
+@media(max-width:640px){.totals .tot{border-right:0;border-bottom:1.5px solid var(--ink)}.totals .tot:last-child{border-bottom:0}}
+.totals .lab{margin-bottom:6px}
+/* One tile of the strip is a link. It keeps the grid cell exactly — a link that
+   changed the row's height on hover would make the whole strip twitch. */
+.totals .tot.link{text-decoration:none;color:inherit;display:block;transition:background .15s}
+.totals .tot.link:hover{background:color-mix(in srgb,var(--red) 8%,transparent)}
+.totals .tot.link:hover .lab,.totals .tot.link:hover .big{color:var(--red)}
+.totals .big{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em}
+
+/* ── the podium ─────────────────────── */
+/* The winner takes the full width and the runners-up share the row underneath:
+   three equal columns made first place look like a third of the story. */
+.podium{list-style:none;margin:0 0 clamp(34px,5vw,54px);padding:0;
+  display:grid;grid-template-columns:1fr 1fr;gap:clamp(14px,2vw,20px)}
+.podium .seat:first-child{grid-column:1/-1}
+@media(max-width:700px){.podium{grid-template-columns:1fr}}
+.seat{position:relative;border:1.5px solid var(--ink);background:var(--card);
+  padding:clamp(18px,2.4vw,26px);box-shadow:5px 5px 0 var(--ink);
+  display:flex;flex-direction:column;gap:14px}
+.seat:first-child{box-shadow:10px 10px 0 var(--red)}
+.rk{position:absolute;top:-2px;right:14px;font-family:var(--display);font-weight:800;
+  font-size:clamp(3.2rem,7vw,5rem);line-height:1;letter-spacing:-.06em;
+  color:var(--red);opacity:.16;pointer-events:none;user-select:none}
+.seat .who{display:inline-flex;align-items:baseline;gap:10px;text-decoration:none;color:inherit;position:relative}
+.seat .addr{font-family:var(--display);font-weight:800;letter-spacing:-.02em;font-size:1.5rem;line-height:1}
+.seat:first-child .addr{font-size:clamp(1.7rem,3.6vw,2.4rem)}
+.seat .who:hover .addr{color:var(--red)}
+.seat .gen{font-family:var(--display);font-weight:800;letter-spacing:-.03em;line-height:1;
+  font-size:clamp(2rem,4.6vw,3.2rem);font-variant-numeric:tabular-nums}
+.seat:not(:first-child) .gen{font-size:clamp(1.7rem,3.4vw,2.2rem)}
+.split{display:flex;flex-wrap:wrap;gap:10px 28px;margin:0;padding-top:14px;border-top:1px dashed var(--rule)}
+.split dt{margin:0}
+.split dd{margin:3px 0 0;font-size:1.02rem;font-variant-numeric:tabular-nums}
+
+/* ── the chips ──────────────────────── */
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips a{font-family:var(--mono);font-size:.52rem;letter-spacing:.12em;text-transform:uppercase;
+  border:1.5px solid var(--rule);padding:4px 8px;text-decoration:none;color:var(--ink-soft);transition:color .15s,border-color .15s}
+.chips a:hover{border-color:var(--red);color:var(--red)}
+/* Graduated coins are the ones still earning; they are worth spotting in a row. */
+.chips a.grad{border-color:var(--ink);background:var(--red);color:#fff}
+.chips a.grad:hover{background:var(--red-deep);border-color:var(--ink);color:#fff}
+
+/* ── the rest of the field ──────────── */
+.rest-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:12px;margin-bottom:clamp(16px,2.4vw,22px);border-bottom:1.5px solid var(--ink)}
+.rest-head h2{font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
+  font-weight:600;margin:0;display:flex;align-items:center;gap:9px}
+.rest-head .count{background:var(--red);color:#fff;font-size:.58rem;letter-spacing:.1em;padding:3px 7px}
+.rest-head p{margin:0;font-size:.92rem;color:var(--ink-soft)}
+/* A table is the honest shape for a ranking; it only has to survive a narrow screen. */
+.board-wrap{overflow-x:auto;border:1.5px solid var(--ink);background:var(--card)}
+.board{width:100%;border-collapse:collapse;min-width:660px}
+.board th{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-soft);text-align:left;font-weight:600;padding:12px 16px;border-bottom:1.5px solid var(--ink);white-space:nowrap}
+.board td{padding:14px 16px;border-bottom:1px dashed var(--rule);vertical-align:top}
+.board tr:last-child td{border-bottom:0}
+.board tbody tr:hover td{background:color-mix(in srgb,var(--red) 6%,transparent)}
+.board .n{font-family:var(--mono);font-size:.62rem;color:var(--ink-soft);width:1%;white-space:nowrap}
+.board .who{font-family:var(--mono);font-size:.66rem;letter-spacing:.04em;text-decoration:none;color:var(--ink)}
+.board .who:hover{color:var(--red)}
+.board .chips{margin-top:8px}
+.board .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.board .num b{font-family:var(--display);font-weight:800;font-size:1.15rem;letter-spacing:-.02em}
+.board .num .sub{display:block;font-size:.82rem;color:var(--ink-soft);margin-top:3px}
+.foot-note{margin:clamp(20px,3vw,30px) 0 0;font-size:.9rem;color:var(--ink-soft);max-width:64ch}
+.foot-note a{color:var(--red)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="bar">
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
+    <nav class="nav-centre">
+      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/leaderboard" aria-current="page">Leaderboard</a>
+    </nav>
+    <nav class="nav-actions">
+      <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
+        <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+        <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      </button>
+      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
+        <span></span><span></span><span></span>
+      </button>
+    </nav>
+  </div>
+
+</header>
+
+<!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
+     filter makes an element the containing block for any position:fixed descendant
+     — the drawer inherited the header's 68 pixels of height and stopped there. -->
+<div class="scrim" id="menuScrim" hidden></div>
+<aside class="drawer" id="menu" hidden aria-label="Menu">
+    <div class="drawer-head">
+      <span class="mono">Menu</span>
+      <button class="drawer-close" type="button" id="menuClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5l14 14M19 5L5 19"/></svg>
+      </button>
+    </div>
+    <nav class="drawer-nav">
+      <a href="/coins">Coins</a>
+      <a href="/launch">Launch</a>
+      <a href="/leaderboard">Leaderboard</a>
+    </nav>
+    <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
+      <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+      <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
+      <span class="mono">Theme</span>
+    </button>
+    <a class="drawer-x" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+      <span class="mono">@LFOWNDOTFUN</span>
+    </a>
+  </aside>
+
+<script>
+  // The theme lives here rather than in each page's bundle: there are two toggles
+  // now, one in the bar and one in the drawer, and the landing ships no bundle at all.
+  (function () {
+    var root = document.documentElement
+    var toggles = document.querySelectorAll('.theme-toggle')
+    function label(theme) {
+      for (var i = 0; i < toggles.length; i++) {
+        toggles[i].setAttribute('aria-label', theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme')
+      }
+    }
+    label(root.getAttribute('data-theme'))
+    function flip() {
+      var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+      root.setAttribute('data-theme', next)
+      try { localStorage.setItem('lfown-theme', next) } catch (e) {}
+      label(next)
+      // The landing listens for this to repaint its embedded tweet, which carries
+      // its own theme baked into the markup.
+      document.dispatchEvent(new CustomEvent('lfown:theme', { detail: next }))
+    }
+    for (var i = 0; i < toggles.length; i++) toggles[i].addEventListener('click', flip)
+
+    var burger = document.getElementById('menuToggle')
+    var drawer = document.getElementById('menu')
+    var scrim = document.getElementById('menuScrim')
+    function show(on) {
+      drawer.hidden = !on
+      scrim.hidden = !on
+      burger.setAttribute('aria-expanded', String(on))
+      // The page behind must not scroll under the drawer.
+      document.body.classList.toggle('menu-open', on)
+    }
+    burger.addEventListener('click', function () { show(drawer.hidden) })
+    scrim.addEventListener('click', function () { show(false) })
+    document.getElementById('menuClose').addEventListener('click', function () { show(false) })
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') show(false) })
+    // Rotating a phone, or dragging a window past the breakpoint, hides the drawer
+    // by CSS — but the scroll lock behind it would survive, leaving the page frozen
+    // with nothing on screen to explain it or undo it.
+    var wide = window.matchMedia('(min-width: 861px)')
+    var onWide = function (e) { if (e.matches) show(false) }
+    if (wide.addEventListener) wide.addEventListener('change', onWide)
+    else if (wide.addListener) wide.addListener(onWide)
+
+    // Coins links are handled by the router without a page load, so the drawer would
+    // otherwise still be sitting open over the page it just navigated to.
+    var links = drawer.querySelectorAll('a')
+    for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+
+<!--/lfown-header-->
+
+<main class="wrap" id="view"><p class="skel">Loading the leaderboard…</p></main>
+
+<script type="module" src="/app/leaderboard.js"></script>
+</body>
+</html>

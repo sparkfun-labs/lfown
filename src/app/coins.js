@@ -3,6 +3,7 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
+import { TREASURY } from './treasury.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -17,7 +18,7 @@ const fmt = (n, d = 2) => n.toLocaleString('en-US', { maximumFractionDigits: d }
 const usd = (n) => {
   const v = Number(n) || 0
   if (v && Math.abs(v) < 0.005) return '<$0.01'
-  return '$' + fmt(v, Math.abs(v) < 1 ? 2 : 0)
+  return Math.abs(v) < 1 ? '$' + v.toFixed(2) : '$' + fmt(v, 0)
 }
 
 /**
@@ -30,7 +31,7 @@ const usd = (n) => {
 function usdGroup(parts) {
   const cents = parts.some((v) => Math.abs(Number(v) || 0) < 1)
   const round = (v) => (cents ? Math.round((Number(v) || 0) * 100) / 100 : Math.round(Number(v) || 0))
-  return { round, show: (v) => '$' + fmt(round(v), cents ? 2 : 0) }
+  return { round, show: (v) => (cents ? '$' + round(v).toFixed(2) : '$' + fmt(round(v), 0)) }
 }
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
 
@@ -97,7 +98,6 @@ function paintConnect() {
   if (session) {
     connectBtn.textContent = short(session.address)
     connectBtn.title = `${session.name} — ${session.address}`
-    $('#wallet-addr').textContent = session.address
     connectBtn.disabled = false
     return
   }
@@ -184,18 +184,117 @@ function coinCard(c) {
 }
 
 /** A titled block of cards, or nothing at all when there are none to show. */
-function section(parent, title, blurb, coins) {
-  if (!coins.length) return
+/**
+ * How each sort key reads a coin. `fees` comes from the report, which lands after
+ * the cards do — the list re-sorts itself when it arrives.
+ */
+const SORTS = {
+  new: { label: 'Newest', of: (c) => c.activationPoint ?? 0 },
+  fees: { label: 'Fees', of: (c) => feesByMint.get(c.baseMint)?.totalUsd ?? 0 },
+  raised: { label: 'Raised', of: (c) => (Number(c.quoteReserve) / 1e6) * (c.quoteUsdPrice ?? 0) },
+  progress: {
+    label: 'Progress',
+    of: (c) => (c.isMigrated ? 1 : c.threshold ? Math.min(1, Number(c.quoteReserve) / 1e6 / c.threshold) : 0),
+  },
+}
+
+// One set of controls for the whole page, so the state lives here rather than in
+// either section. Kept outside the render: the fee report repaints the list, and
+// sorting it should not come undone underneath the person who did it.
+const listState = { pair: '', key: 'new', desc: true }
+
+/**
+ * A dropdown in the site's own clothes.
+ *
+ * A native `<select>` draws its open list with the operating system — rounded,
+ * blue, ticked — and no stylesheet can reach inside it. The closed control looked
+ * right and the open one looked like it belonged to another site, so the list is
+ * built here instead: same border, same hard shadow, same red hover as the wallet
+ * menu it sits under.
+ */
+function dropdown({ value, options, label, onPick }) {
+  const el = document.createElement('div')
+  el.className = 'drop'
+  const chosen = options.find((o) => o.value === value) ?? options[0]
+  el.innerHTML = `
+    <button class="drop-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="${esc(label)}">
+      <span>${esc(chosen.label)}</span><i>▾</i>
+    </button>
+    <ul class="drop-list" role="listbox" hidden>
+      ${options.map((o) => `<li><button type="button" role="option" data-value="${esc(o.value)}"
+        aria-selected="${String(o.value === value)}">${esc(o.label)}</button></li>`).join('')}
+    </ul>`
+
+  const btn = el.querySelector('.drop-btn')
+  const list = el.querySelector('.drop-list')
+  const open = (on) => { list.hidden = !on; btn.setAttribute('aria-expanded', String(on)) }
+
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation()
+    // Only one open at a time, or two lists overlap and neither can be read.
+    document.querySelectorAll('.drop-list').forEach((other) => { if (other !== list) other.hidden = true })
+    open(list.hidden)
+  })
+  list.addEventListener('click', (e) => {
+    const pick = e.target.closest('button[data-value]')
+    if (!pick) return
+    open(false)
+    onPick(pick.dataset.value)
+  })
+  return el
+}
+document.addEventListener('click', () => document.querySelectorAll('.drop-list').forEach((l) => { l.hidden = true }))
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.querySelectorAll('.drop-list').forEach((l) => { l.hidden = true })
+})
+
+/** The one control bar: what to show, in what order. */
+function controls(coins, onChange) {
+  const pairs = [...new Set(coins.map((c) => c.quoteSymbol))].sort()
+  const bar = document.createElement('div')
+  bar.className = 'list-controls'
+
+  bar.appendChild(dropdown({
+    value: listState.pair, label: 'Filter by the coin it is paired with',
+    options: [{ value: '', label: 'All pairs' }, ...pairs.map((p) => ({ value: p, label: p }))],
+    onPick: (v) => { listState.pair = v; onChange() },
+  }))
+
+  const sorter = document.createElement('div')
+  sorter.className = 'sorter'
+  sorter.appendChild(dropdown({
+    value: listState.key, label: 'Sort by',
+    options: Object.entries(SORTS).map(([value, s]) => ({ value, label: s.label })),
+    onPick: (v) => { listState.key = v; onChange() },
+  }))
+  const dir = document.createElement('button')
+  dir.type = 'button'
+  dir.className = 'sort-dir'
+  dir.setAttribute('aria-label', 'Reverse the order')
+  dir.textContent = listState.desc ? '▼' : '▲'
+  dir.addEventListener('click', () => { listState.desc = !listState.desc; onChange() })
+  sorter.appendChild(dir)
+  bar.appendChild(sorter)
+  return bar
+}
+
+/** A titled block of cards, ordered and filtered by the shared controls. */
+function section(parent, title, coins) {
+  const of = SORTS[listState.key].of
+  const shown = coins
+    .filter((c) => !listState.pair || c.quoteSymbol === listState.pair)
+    .sort((a, b) => (listState.desc ? of(b) - of(a) : of(a) - of(b)))
+  if (!shown.length) return
+
   const wrap = document.createElement('section')
   wrap.className = 'coin-section'
   wrap.innerHTML = `
     <div class="section-head">
-      <h2>${esc(title)} <span class="count">${coins.length}</span></h2>
-      <p>${esc(blurb)}</p>
+      <h2>${esc(title)} <span class="count">${shown.length}</span></h2>
     </div>
     <div class="grid"></div>`
   const grid = wrap.querySelector('.grid')
-  for (const c of coins) grid.appendChild(coinCard(c))
+  for (const c of shown) grid.appendChild(coinCard(c))
   parent.appendChild(wrap)
 }
 
@@ -218,11 +317,19 @@ async function renderList() {
   // Two different things wearing the same card. One is still being bought on its
   // curve and its bar means something; the other filled its bar days ago and now
   // trades somewhere else entirely. Mixed together, a full bar read as a live coin.
-  box.innerHTML = ''
-  section(box, 'Graduated', 'Filled their curve and moved to a Meteora pool, liquidity locked for good.',
-    coins.filter((c) => c.isMigrated))
-  section(box, 'On the curve', 'Still raising. Buy and sell against the curve, right here.',
-    coins.filter((c) => !c.isMigrated))
+  // Two different things wearing the same card, so they keep their own headings —
+  // but one set of controls above both, because filtering to a pair and then having
+  // to do it twice is not a filter, it is two.
+  paintSections = () => {
+    box.innerHTML = ''
+    box.appendChild(controls(coins, () => paintSections()))
+    section(box, 'Graduated', coins.filter((c) => c.isMigrated))
+    section(box, 'On the curve', coins.filter((c) => !c.isMigrated))
+    if (!box.querySelector('.coin')) {
+      box.insertAdjacentHTML('beforeend', `<p class="skel">Nothing paired with ${esc(listState.pair)}.</p>`)
+    }
+  }
+  paintSections()
 }
 
 /**
@@ -244,16 +351,20 @@ async function paintTotals() {
   box.innerHTML = `
     <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(lfownUsd))}</span></div>
     <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(creatorUsd)}</span></div>
-    <div class="tot"><span class="lab">To the LFOwn DAO</span><span class="big">${money.show(lfownUsd)}</span></div>`
+    <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOwn DAO ↗</span><span class="big">${money.show(lfownUsd)}</span></a>`
 
   // The report lands after the cards are drawn, so fill in the lines it feeds.
   for (const [mint, earned] of feesByMint) {
     const slot = document.querySelector(`.earned[data-mint="${CSS.escape(mint)}"]`)
     if (slot) slot.innerHTML = `<span>${usd(earned.totalUsd)} in fees</span><span>${usd(earned.lfownUsd)} to the DAO</span>`
   }
+  // And a list ordered by a figure that did not exist yet was ordered on zeroes.
+  if (listState.key === 'fees') paintSections?.()
 }
 
 let feesByMint = new Map()
+// Set by renderList, so the fee report can reorder what it just filled in.
+let paintSections = null
 
 // ── detail ───────────────────────────────────────────────────────────────────
 async function renderCoin(mint) {
@@ -295,7 +406,8 @@ async function renderCoin(mint) {
     return
   }
 
-  const { PAY_WITH, payWith, quoteInto, topUp, balanceOf, GAS_RESERVE } = await money
+  const { PAY_WITH, payWith, quoteSwap, buildSwapTx, balanceOf,
+          GAS_RESERVE, COIN_DECIMALS } = await money
   view.innerHTML = `
     <a class="back" href="/coins">← All coins</a>
     <div class="detail">
@@ -325,16 +437,20 @@ async function renderCoin(mint) {
           <button type="button" data-side="buy" aria-pressed="true">Buy</button>
           <button type="button" data-side="sell" aria-pressed="false">Sell</button>
         </div>
+        <span class="lab pay-lab" id="pay-lab" hidden>Receive in</span>
         <div class="pay" id="pay-with" hidden></div>
-        <p class="payline" id="pay-line" hidden></p>
-        <label>
-          <span class="lab" id="amount-label">Amount in ${esc(coin.quoteSymbol)}</span>
+        <div class="amount-head">
+          <label class="lab" id="amount-label" for="amount">Amount in ${esc(coin.quoteSymbol)}</label>
+          <span class="held" id="pay-line" hidden></span>
+        </div>
+        <div class="amount-field">
           <input id="amount" type="number" min="0" step="any" placeholder="0.0">
-        </label>
+          <button class="max" type="button" id="amount-max" hidden>Max</button>
+        </div>
         <div class="quote" id="quote-out">Enter an amount.</div>
         <button class="btn" id="do-trade" disabled>Buy ${esc(coin.symbol)}</button>
         <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
-        <a class="btn ghost jup" href="https://jup.ag/swap?sell=${esc(coin.quoteMint)}&buy=${esc(coin.baseMint)}" target="_blank" rel="noopener">Buy on Jupiter ↗</a>
+        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/swap?sell=${esc(coin.quoteMint)}&buy=${esc(coin.baseMint)}" target="_blank" rel="noopener">Buy on Jupiter ↗</a>
       </section>
     </div>
 
@@ -424,55 +540,112 @@ async function renderCoin(mint) {
   const action = $('#do-trade')
   const status = $('#trade-status')
   const payBox = $('#pay-with')
+  const payLab = $('#pay-lab')
   const payLine = $('#pay-line')
+  const maxBtn = $('#amount-max')
   let latest = null
-  let swapPlan = null
+  // The Jupiter route, when the trade is against SOL or USDC rather than the
+  // ownership coin. Null means the curve is being traded directly.
+  let jupPlan = null
 
   const spending = () => (side === 'sell'
     ? coin.symbol
     : payVia === coin.quoteMint ? coin.quoteSymbol : payWith(payVia).symbol)
 
+  /** The pair, in the order Jupiter takes it: what leaves the wallet, then what enters. */
+  const jupSwap = (from, to) =>
+    `https://jup.ag/swap?sell=${encodeURIComponent(from)}&buy=${encodeURIComponent(to)}`
+
   function syncLabels() {
     $('#amount-label').textContent = `Amount in ${spending()}`
     action.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${coin.symbol}`
+    // The Jupiter link follows the tab. Fixed on "buy", it sat under the Sell panel
+    // offering the opposite trade to the one being made — and, followed, it would
+    // have bought more of the coin somebody was trying to get out of.
+    const jup = $('#jup-link')
+    jup.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} on Jupiter ↗`
+    jup.href = side === 'buy'
+      ? jupSwap(coin.quoteMint, coin.baseMint)
+      : jupSwap(coin.baseMint, coin.quoteMint)
   }
+
+  /** The asset being spent: whatever was picked to buy with, or the coin being sold. */
+  const spendingMint = () => (side === 'sell' ? coin.baseMint : payVia)
+  /** Set only when spending one of SOL or USDC — the quote coin and the base are ours. */
+  const spendingVia = () => (side === 'buy' ? payWith(payVia) : null)
 
   let payRun = 0
   function paintPay() {
-    if (side !== 'buy') { payBox.hidden = true; payLine.hidden = true; return }
+    // The same three buttons on both sides, meaning opposite things: what is spent
+    // on a buy, what is received on a sell. Only the sale needs saying out loud —
+    // on the buy side the amount box underneath already reads "Amount in CARS".
+    payLab.hidden = side !== 'sell'
     payBox.hidden = false
     const options = [{ mint: coin.quoteMint, symbol: coin.quoteSymbol }, ...PAY_WITH]
     payBox.innerHTML = options.map((o) =>
       `<button type="button" data-mint="${esc(o.mint)}" aria-pressed="${String(o.mint === payVia)}">${esc(o.symbol)}</button>`).join('')
     payBox.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
       payVia = b.dataset.mint
-      swapPlan = null
+      jupPlan = null
       paintPay()
       syncLabels()
       amount.dispatchEvent(new Event('input'))
     }))
+    paintHeld()
+  }
 
-    // What they hold, so a swap is not proposed against an empty wallet.
+  /**
+   * How many decimals a figure of this size deserves. Half a million memecoins do not
+   * need six, and Max used to drop the whole tail into the field: `518907.524609`,
+   * which the browser then drew with the locale's decimal comma, directly under a
+   * balance whose comma was a thousands separator. Two commas, opposite meanings.
+   */
+  const places = (n) => (n >= 1000 ? 0 : n >= 1 ? 4 : 6)
+  /** Always down. A balance rounded up claims tokens the wallet does not hold. */
+  const trunc = (n, d) => Math.floor(n * 10 ** d) / 10 ** d
+
+  // What they hold of whatever is being spent, so a trade is not proposed against an
+  // empty wallet — and so Max has a number to fill in. Shown while selling too: that
+  // is where "all of it" is the amount most people actually want.
+  let heldNow = 0
+  function paintHeld() {
     const run = ++payRun
-    if (!session) { payLine.hidden = true; return }
-    const pay = payVia === coin.quoteMint ? null : payWith(payVia)
-    balanceOf(connection, session.address, payVia, { native: Boolean(pay?.native) })
+    payLine.hidden = true
+    maxBtn.hidden = true
+    if (!session) return
+    const pay = spendingVia()
+    balanceOf(connection, session.address, spendingMint(), { native: Boolean(pay?.native) })
       .then((held) => {
         if (run !== payRun) return
-        const dp = pay?.native ? 4 : payVia === coin.quoteMint ? 4 : 2
+        heldNow = held
         payLine.hidden = false
-        payLine.innerHTML = `You hold <b>${fmt(held, dp)} ${esc(spending())}</b>` + (pay?.native
-          ? ` — keep about ${GAS_RESERVE.trade} back for fees.` : '.')
+        payLine.textContent = `${fmt(trunc(held, places(held)), places(held))} ${spending()}`
+        maxBtn.hidden = !held
       })
       .catch((e) => console.error('balance unavailable:', e.message))
   }
+
+  // Native SOL has to keep enough back to pay for the transaction it is funding;
+  // floored at the token's own precision, because a float that rounds up spends
+  // one unit more than the wallet holds and the whole thing simply fails.
+  maxBtn.addEventListener('click', () => {
+    const pay = spendingVia()
+    const decimals = pay?.decimals ?? COIN_DECIMALS
+    const spendable = Math.max(0, trunc(heldNow - (pay?.native ? GAS_RESERVE.trade : 0), decimals))
+    // Trimmed to the same precision the balance is shown at, so the field holds a
+    // number somebody can read back rather than a six-decimal tail.
+    const value = trunc(spendable, places(spendable))
+    amount.value = value ? String(value) : ''
+    amount.dispatchEvent(new Event('input'))
+  })
+
   paintPay()
   onSession('pay', paintPay)
 
   document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
     side = b.dataset.side
     document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
-    swapPlan = null
+    jupPlan = null
     paintPay()
     syncLabels()
     amount.dispatchEvent(new Event('input'))
@@ -487,33 +660,45 @@ async function renderCoin(mint) {
     action.disabled = true
     timer = setTimeout(async () => {
       try {
-        swapPlan = null
-        let curveIn = value
-        if (side === 'buy' && payVia !== coin.quoteMint) {
-          const pay = payWith(payVia)
-          out.textContent = `Pricing ${pay.symbol} → ${coin.quoteSymbol}…`
-          swapPlan = await quoteInto({ pay, coinMint: coin.quoteMint, uiAmount: value })
-          // The curve leg is priced on the swap's *minimum* output, so the figure on
-          // screen is the one that survives a poor fill rather than the one that
-          // flatters it.
-          curveIn = swapPlan.minimumOut
+        jupPlan = null
+        latest = null
+        const via = payWith(payVia)
+        let receiving, symbol
+
+        if (via) {
+          // One route, one transaction. Jupiter goes through this very curve, so the
+          // pool still charges its fees — and a single end-to-end quote applies the
+          // slippage allowance once rather than stacking it across two hops.
+          jupPlan = await quoteSwap(side === 'buy'
+            ? { inMint: via.mint, inDecimals: via.decimals, outMint: coin.baseMint, outDecimals: COIN_DECIMALS, uiAmount: value }
+            : { inMint: coin.baseMint, inDecimals: COIN_DECIMALS, outMint: via.mint, outDecimals: via.decimals, uiAmount: value })
+          receiving = jupPlan.out
+          symbol = side === 'buy' ? coin.symbol : via.symbol
+          if (!receiving) {
+            out.innerHTML = `<span class="warn-text">No route for that amount right now.</span>`
+            return
+          }
+        } else {
+          latest = await quote(state, { amountIn: value, sellingBase: side === 'sell' })
+          receiving = latest.out
+          symbol = side === 'buy' ? coin.symbol : coin.quoteSymbol
+          if (!receiving) {
+            // Selling into an empty curve: honest zero rather than a confusing one.
+            out.innerHTML = side === 'sell'
+              ? `<span class="warn-text">Nothing to sell against yet — the curve holds no ${esc(coin.quoteSymbol)}.</span>`
+              : '<span class="warn-text">That amount is too small to buy anything.</span>'
+            return
+          }
         }
-        latest = await quote(state, { amountIn: curveIn, sellingBase: side === 'sell' })
-        const unit = side === 'buy' ? coin.symbol : coin.quoteSymbol
-        if (!latest.out) {
-          // Selling into an empty curve: honest zero rather than a confusing one.
-          out.innerHTML = side === 'sell'
-            ? `<span class="warn-text">Nothing to sell against yet — the curve holds no ${esc(coin.quoteSymbol)}.</span>`
-            : '<span class="warn-text">That amount is too small to buy anything.</span>'
-          return
-        }
-        out.innerHTML =
-          (swapPlan ? `<span style="font-size:.85rem">${fmt(swapPlan.in, swapPlan.pay.native ? 4 : 2)} ${esc(swapPlan.pay.symbol)}
-             → about ${fmt(swapPlan.out, 4)} ${esc(coin.quoteSymbol)} via ${esc(swapPlan.route || 'Jupiter')}${
-               swapPlan.impactPct >= 0.5 ? ` (${swapPlan.impactPct.toFixed(2)}% impact)` : ''}, then</span><br>` : '') +
-          `You receive at least <b>${fmt(latest.out, 4)} ${esc(unit)}</b><br>
-          <span style="font-size:.85rem">minimum ${fmt(latest.minimumOut, 4)} ${esc(unit)} after 1% slippage${
-            swapPlan ? ' — two signatures: the swap, then the buy' : ''}</span>`
+
+        // Price impact is not shown when there is nothing to say, and is not hidden
+        // when there is: a route can cost several percent on a thin coin, and that is
+        // real money leaving the wallet quietly.
+        const impact = jupPlan?.impactPct ?? 0
+        out.innerHTML = `
+          <div class="line"><span>To receive</span><b>${fmt(receiving, places(receiving))} ${esc(symbol)}</b></div>
+          <div class="line"><span>Max slippage</span><b>1%</b></div>` +
+          (impact >= 1 ? `<div class="line"><span>Price impact</span><b class="warn-text">${impact.toFixed(2)}%</b></div>` : '')
         action.disabled = false
       } catch (e) {
         out.innerHTML = `<span class="warn-text">${esc(explain(e, 'quote'))}</span>`
@@ -527,43 +712,27 @@ async function renderCoin(mint) {
       status.textContent = 'Connecting wallet…'
       const wallet = await ensureWallet()
 
-      let amountIn = Number(amount.value)
-      if (side === 'buy' && payVia !== coin.quoteMint) {
-        const pay = payWith(payVia)
-        status.textContent = `Pricing the ${pay.symbol} swap…`
-        const priced = await quoteInto({ pay, coinMint: coin.quoteMint, uiAmount: amountIn })
-        const { received } = await topUp({
-          connection, wallet, coinMint: coin.quoteMint, priced,
-          say: (m) => { status.textContent = m },
-        })
-        if (!received) throw new Error(`The swap landed but no ${coin.quoteSymbol} arrived — check your wallet.`)
-        // Buy with exactly what turned up, not with what was quoted: a route fills
-        // where it fills, and anything left behind would sit in the wallet unspent.
-        amountIn = received
-        // The swap has landed and the ownership coin is in the wallet. Move the
-        // screen onto spending that, so a buy that fails from here is retried
-        // against the coin already held rather than swapping a second time.
-        payVia = coin.quoteMint
-        amount.value = received
-        swapPlan = null
-        paintPay()
-        syncLabels()
-        latest = await quote(state, { amountIn: received, sellingBase: false })
-      }
-
+      // One signature either way. Against SOL or USDC that is Jupiter's own route,
+      // which passes through this curve; against the ownership coin it is the curve
+      // on its own. Nothing here is a two-transaction sequence any more, so there is
+      // no half-finished state to explain or recover from.
       status.textContent = 'Building the swap…'
-      const tx = await buildSwap(state, {
-        owner: wallet.address,
-        amountIn,
-        minimumOut: latest?.minimumOut ?? 0,
-        sellingBase: side === 'sell',
-      })
+      const tx = jupPlan
+        ? await buildSwapTx(jupPlan.quote, wallet.address)
+        : await buildSwap(state, {
+            owner: wallet.address,
+            amountIn: Number(amount.value),
+            minimumOut: latest?.minimumOut ?? 0,
+            sellingBase: side === 'sell',
+          })
       status.textContent = 'Waiting for your signature…'
       const signature = await wallet.signAndSend(tx, connection)
       status.innerHTML = `Done — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener">${signature.slice(0, 8)}…${signature.slice(-8)}</a>`
       amount.value = ''
       out.textContent = 'Enter an amount.'
       setTimeout(async () => {
+        // The balance on the label row is now wrong by exactly what was just traded.
+        paintHeld()
         await refreshStats()
         await nudgeGraduation()
       }, 2000)
@@ -914,7 +1083,7 @@ function paintFees(coin, state, api) {
           <div class="claimed">${lines.join('<br>')}</div>
           ${mine
             ? `<button class="btn" id="claim-all" ${unclaimed || lpBase ? '' : 'disabled'}>Claim</button>`
-            : `<p class="hint">Claimable only by ${esc(short(coin.creator))}, who launched it.</p>`}
+            : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
         </div>
         <p class="hint" id="claim-status"></p>
       </div>`

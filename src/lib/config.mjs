@@ -81,6 +81,19 @@ export const FEES = {
   creatorSharePct: 50,
 }
 
+/**
+ * Cloudflare Web Analytics — visitors, page views, referrers, countries. No cookies,
+ * so no consent banner, and nothing about a visitor leaves Cloudflare.
+ *
+ * This token is meant to sit in public HTML; it identifies the site, not the account,
+ * and is useless to anyone who finds it. Empty means the beacon is simply not written
+ * into the pages — the site works exactly as before.
+ *
+ * Where to get it: Cloudflare dashboard → Analytics & Logs → Web Analytics →
+ * Add a site → letsfuckingown.fun. Paste the token here and run `npm run build`.
+ */
+export const CF_BEACON_TOKEN = ''
+
 /** What a config opened before the fee was recorded in KV actually charges. */
 export const LEGACY_FEE_BPS = 100
 

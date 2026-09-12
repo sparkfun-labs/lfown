@@ -86,20 +86,38 @@ export async function balanceOf(connection, owner, mint, { native = false } = {}
   }
 }
 
-/** Prices `uiAmount` of SOL or USDC into the ownership coin, exact-in. */
-export async function quoteInto({ pay, coinMint, uiAmount, slippageBps = 100 }) {
-  const amount = Math.floor(uiAmount * 10 ** pay.decimals)
+/**
+ * A Jupiter quote in either direction. Amounts in and out are UI amounts.
+ *
+ * Jupiter routes through the bonding curve itself, so a route between SOL or USDC
+ * and one of these coins is a single transaction that still pays the pool's fees.
+ */
+export async function quoteSwap({ inMint, inDecimals = COIN_DECIMALS, outMint, outDecimals = COIN_DECIMALS, uiAmount, slippageBps = 100 }) {
+  const amount = Math.floor(uiAmount * 10 ** inDecimals)
   if (!(amount > 0)) throw new Error('Enter an amount.')
-  const q = await jup(`/quote?inputMint=${pay.mint}&outputMint=${coinMint}&amount=${amount}&slippageBps=${slippageBps}`)
+  const q = await jup(`/quote?inputMint=${inMint}&outputMint=${outMint}&amount=${amount}&slippageBps=${slippageBps}`)
   return {
     quote: q,
-    pay,
-    in: amount / 10 ** pay.decimals,
-    out: Number(q.outAmount) / 10 ** COIN_DECIMALS,
-    minimumOut: Number(q.otherAmountThreshold) / 10 ** COIN_DECIMALS,
+    in: amount / 10 ** inDecimals,
+    out: Number(q.outAmount) / 10 ** outDecimals,
+    minimumOut: Number(q.otherAmountThreshold) / 10 ** outDecimals,
     impactPct: Number(q.priceImpactPct ?? 0) * 100,
     route: (q.routePlan ?? []).map((p) => p.swapInfo?.label).filter(Boolean).join(' → '),
   }
+}
+
+/**
+ * Prices `uiAmount` of SOL or USDC into the ownership coin, exact-in.
+ *
+ * Still its own leg, for the launch: a pool cannot be opened in the same transaction
+ * as the swap that funds it — see the note at the top of this file. Trading needs no
+ * such leg, and does not use this.
+ */
+export async function quoteInto({ pay, coinMint, uiAmount, slippageBps = 100 }) {
+  const priced = await quoteSwap({
+    inMint: pay.mint, inDecimals: pay.decimals, outMint: coinMint, uiAmount, slippageBps,
+  })
+  return { ...priced, pay }
 }
 
 /**

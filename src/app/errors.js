@@ -15,13 +15,30 @@ function anchorMessage(text) {
   return text.match(/Error Message: ([^".]+)/)?.[1]?.trim() ?? null
 }
 
+/**
+ * Did the person say no, as opposed to something failing?
+ *
+ * Worth telling apart when a screen signs several transactions in a row: a network
+ * error on one is no reason to stop, and a refusal on one is every reason to.
+ */
+export function declined(error) {
+  const raw = [error?.message ?? String(error ?? ''), (error?.logs ?? []).join(' ')].join(' ')
+  return /User rejected|rejected the request|Transaction cancelled/i.test(raw)
+}
+
 export function readable(error) {
   // The logs are on the error object in some web3 versions and inlined in the
   // message in others, so both are searched.
   const raw = [error?.message ?? String(error ?? ''), (error?.logs ?? []).join(' ')].join(' ')
 
-  if (/User rejected|rejected the request|Transaction cancelled/i.test(raw)) {
-    return 'You declined the transaction in your wallet.'
+  if (declined(error)) return 'You declined the transaction in your wallet.'
+
+  // Meteora's wording for "the curve does not hold that many tokens". A creator
+  // reading it thinks the pool is broken; what it means is they asked for more of
+  // their own supply than is ever sold on the curve — a fifth of it is reserved for
+  // the pool the coin graduates into.
+  if (/not enough liquidity/i.test(raw)) {
+    return 'That dev buy is larger than the curve holds. Most of the supply is sold on the curve, but a fifth is reserved for the pool your coin graduates into — try a smaller share.'
   }
 
   const short = raw.match(/insufficient lamports (\d+),?\s*need (\d+)/i)

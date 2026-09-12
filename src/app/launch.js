@@ -16,12 +16,22 @@ const state = {
   // How the dev buy gets paid for: the ownership coin itself, or SOL/USDC routed
   // into it through Jupiter first. `priced` is the live quote for the shortfall.
   funding: { via: null, priced: null, have: 0 },
+  // A random backing was drawn and its name is being kept off the screen. It has to
+  // come back into the open before the first signature: the swap and the launch both
+  // name the mint, and the wallet will show it whatever this flag says.
+  blind: false,
 }
 
 const $ = (sel) => document.querySelector(sel)
 const usd = (n) => '$' + Math.round(n).toLocaleString('en-US')
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
+/**
+ * The backing coin's name, or a placeholder while a random draw is being kept back.
+ * Every line that would print the symbol goes through here, so hiding it is one flag
+ * rather than a rule each of them has to remember.
+ */
+const sym = () => (state.blind ? '???' : (state.asset?.symbol ?? '—'))
 
 // The theme is handled by the header's own script: there are two toggles now, one
 // in the bar and one in the drawer, and binding a single id here would have left
@@ -61,6 +71,24 @@ async function loadAssets() {
   }
 
   box.innerHTML = ''
+
+  // First tile, before any coin: a draw made here, in this browser, with the
+  // platform's own CSPRNG. Nothing about it is decided on our side.
+  const wild = document.createElement('button')
+  wild.type = 'button'
+  wild.className = 'qcard wild'
+  wild.setAttribute('aria-pressed', 'false')
+  wild.dataset.search = 'random surprise mystery lucky dip'
+  wild.innerHTML = `
+    <div class="top">
+      <div class="dice">?</div>
+      <div><div class="sym">Random</div><div class="name">Let the draw decide</div></div>
+    </div>
+    <p class="wild-note" id="wild-note">One of the ${coins.length} coins beside this one. Which one
+      stays off this screen until you sign.</p>`
+  wild.addEventListener('click', () => drawRandom(wild, coins))
+  box.appendChild(wild)
+
   for (const c of coins) {
     const card = document.createElement('button')
     card.type = 'button'
@@ -83,9 +111,47 @@ async function loadAssets() {
   }
 }
 
+/**
+ * An unbiased index. `getRandomValues() % n` favours the low indices whenever n does
+ * not divide 2^32; the coins near the top of the catalogue would come up slightly
+ * more often, which is exactly the kind of thumb on the scale this tile must not have.
+ */
+function pickIndex(n) {
+  const ceiling = Math.floor(0x1_0000_0000 / n) * n
+  const buf = new Uint32Array(1)
+  do { crypto.getRandomValues(buf) } while (buf[0] >= ceiling)
+  return buf[0] % n
+}
+
+/**
+ * Draws a backing coin and keeps its name back.
+ *
+ * Only coins with a tier already open are eligible: landing on one without would
+ * dead-end step three, and explaining why would mean naming the coin.
+ */
+async function drawRandom(card, coins) {
+  const note = $('#wild-note')
+  note.textContent = 'Drawing…'
+  const pool = coins.slice()
+  while (pool.length) {
+    const [coin] = pool.splice(pickIndex(pool.length), 1)
+    const configs = await fetch(`/api/config/${coin.mint}`)
+      .then((r) => r.json()).then((b) => b.configs).catch(() => null)
+    if (configs && TIERS.some((t) => configs[t.id])) {
+      state.blind = true
+      note.innerHTML = 'Drawn. Its name stays hidden until the moment you sign.'
+      select(coin, card)
+      return
+    }
+  }
+  note.innerHTML = '<span class="warn-text">No coin has a tier open right now. Pick one by hand.</span>'
+}
+
 // Picking a backing coin is the whole of step one, so the click is the answer —
 // there is nothing left to confirm with a Continue button.
 function select(coin, card) {
+  // A named tile clears any draw still standing from an earlier click.
+  if (!card.classList.contains('wild')) state.blind = false
   state.asset = coin
   document.querySelectorAll('.qcard').forEach((c) => c.setAttribute('aria-pressed', 'false'))
   card.setAttribute('aria-pressed', 'true')
@@ -201,7 +267,7 @@ async function paintCurve() {
     btn.setAttribute('aria-pressed', 'false')
     btn.innerHTML = `
       <span class="t-name">${tier.label}</span>
-      <span class="t-usd">${cfg.threshold.toLocaleString('en-US')} ${esc(a.symbol)}</span>
+      <span class="t-usd">${cfg.threshold.toLocaleString('en-US')} ${esc(sym())}</span>
       <span class="t-sub">≈ ${usd(cfg.threshold * a.usdPrice)} at today's price</span>`
     btn.addEventListener('click', () => {
       state.curve.tier = tier.id
@@ -221,14 +287,29 @@ async function paintCurve() {
   if (!open.length) {
     $('#to4').disabled = true
     $('#tier-hint').textContent =
-      `${a.symbol} is listed but no tier is open for it yet. LFOwn has to open one before anyone can launch against it.`
+      `${sym()} is listed but no tier is open for it yet. LFOwn has to open one before anyone can launch against it.`
   }
 
+  // `max` on a number input only stops the steppers — it does not stop typing, and a
+  // dev buy of 90% asked the curve for more tokens than it holds. Clamped here so
+  // nothing above the cap is ever priced or signed; the field itself is corrected on
+  // the way out rather than mid-keystroke, which would fight the person typing.
+  const DEV_BUY_MAX = 50
   let timer
-  $('#f-devbuy').addEventListener('input', () => {
-    state.curve.devBuy = Number($('#f-devbuy').value || 0)
+  const devBuy = $('#f-devbuy')
+  const cap = $('#devbuy-cap')
+  devBuy.addEventListener('input', () => {
+    const asked = Number(devBuy.value || 0)
+    state.curve.devBuy = Math.min(DEV_BUY_MAX, Math.max(0, asked))
+    // Said while they are still typing, not on the way out: a number silently
+    // rewritten after the fact reads as the field having eaten the keystroke.
+    cap.hidden = asked <= DEV_BUY_MAX
     clearTimeout(timer)
     timer = setTimeout(() => priceDevBuy(a), 300)
+  })
+  devBuy.addEventListener('blur', () => {
+    if (Number(devBuy.value || 0) > DEV_BUY_MAX) devBuy.value = String(DEV_BUY_MAX)
+    cap.hidden = true
   })
 }
 
@@ -253,7 +334,7 @@ async function priceDevBuy(asset) {
     state.curve.devBuyQuote = cost.quoteIn
     state.funding.priced = null // the shortfall moved; whatever was quoted for it is stale
     hint.innerHTML = `<b>${fmt(cost.baseOut)} ${esc(state.token.symbol || 'tokens')}</b> — costs about
-      <b>${fmt(cost.quoteIn, 4)} ${esc(asset.symbol)}</b> (${usd(cost.quoteIn * asset.usdPrice)}),
+      <b>${fmt(cost.quoteIn, 4)} ${esc(sym())}</b> (${usd(cost.quoteIn * asset.usdPrice)}),
       bought atomically with the launch so nobody can front-run you.`
   } catch (e) {
     state.curve.devBuyQuote = 0
@@ -291,14 +372,17 @@ async function paintFunding() {
   box.hidden = false
 
   const { PAY_WITH, payWith, balanceOf, inputFor, GAS_RESERVE } = await import('./funding.js')
+  // Nobody can choose to pay in a coin they have not been told the name of, so a
+  // blind launch is funded in SOL or USDC and Jupiter does the rest at launch time.
+  if (state.blind && (!f.via || f.via === a.mint)) f.via = PAY_WITH[0].mint
   if (!f.via) f.via = a.mint
 
   // Balances and quotes come back out of order, and the person may have clicked
   // another currency in the meantime. Only the newest run is allowed to write.
   const run = ++fundingRun
-  const options = [{ mint: a.mint, symbol: a.symbol }, ...PAY_WITH]
+  const options = state.blind ? [...PAY_WITH] : [{ mint: a.mint, symbol: a.symbol }, ...PAY_WITH]
 
-  box.innerHTML = `<span class="lab">Paying the ${fmt(need, 4)} ${esc(a.symbol)} dev buy</span>
+  box.innerHTML = `<span class="lab">Paying the ${fmt(need, 4)} ${esc(sym())} dev buy</span>
     <div class="pay">${options.map((o) =>
       `<button type="button" data-mint="${esc(o.mint)}" aria-pressed="${String(o.mint === f.via)}">${esc(o.symbol)}</button>`).join('')}</div>
     <p class="detail" id="funding-detail">Checking your wallet…</p>`
@@ -311,8 +395,11 @@ async function paintFunding() {
   const detail = (html) => { if (run === fundingRun) $('#funding-detail').innerHTML = html }
 
   if (!session) {
-    detail(`Pay in <b>${esc(a.symbol)}</b> if you hold it, or in <b>SOL</b> or <b>USDC</b> — Jupiter
-      swaps it into ${esc(a.symbol)} first. Connect your wallet to see what you have.`)
+    detail(state.blind
+      ? `Pay in <b>SOL</b> or <b>USDC</b> — Jupiter swaps it into whatever was drawn, at the
+         moment you launch. Connect your wallet to see what you have.`
+      : `Pay in <b>${esc(a.symbol)}</b> if you hold it, or in <b>SOL</b> or <b>USDC</b> — Jupiter
+         swaps it into ${esc(a.symbol)} first. Connect your wallet to see what you have.`)
     return
   }
 
@@ -326,21 +413,23 @@ async function paintFunding() {
     if (f.via === a.mint) {
       f.priced = null
       detail(short
-        ? `You hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b> — <b>${fmt(short, 4)}</b> short.
+        ? `You hold <b>${fmt(have, 4)} ${esc(sym())}</b> — <b>${fmt(short, 4)}</b> short.
            Pay with SOL or USDC and Jupiter covers the difference.`
-        : `You hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b>. Enough — nothing to swap.`)
+        : `You hold <b>${fmt(have, 4)} ${esc(sym())}</b>. Enough — nothing to swap.`)
       return
     }
 
     const pay = payWith(f.via)
     if (!short) {
       f.priced = null
-      detail(`You already hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b>, enough for this dev buy.
-        No ${esc(pay.symbol)} will be spent.`)
+      detail(state.blind
+        ? `You already hold enough of the coin that was drawn. No ${esc(pay.symbol)} will be spent.`
+        : `You already hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b>, enough for this dev buy.
+           No ${esc(pay.symbol)} will be spent.`)
       return
     }
 
-    detail(`Pricing ${fmt(short, 4)} ${esc(a.symbol)} in ${esc(pay.symbol)}…`)
+    detail(`Pricing ${fmt(short, 4)} ${esc(sym())} in ${esc(pay.symbol)}…`)
     const [priced, funds] = await Promise.all([
       inputFor({ pay, coinMint: a.mint, want: short }),
       balanceOf(connection, session.address, pay.mint, { native: pay.native }),
@@ -351,8 +440,13 @@ async function paintFunding() {
     const reserve = pay.native ? GAS_RESERVE.launch : 0
     const dp = pay.native ? 5 : 2
     const enough = funds - reserve >= priced.in
-    detail(`<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> buys about
-      <b>${fmt(priced.out, 4)} ${esc(a.symbol)}</b> via ${esc(priced.route || 'Jupiter')}${impact(priced)}.<br>` + (enough
+    const bought = state.blind
+      // The route is a list of the venues it passes through, and on a thin ownership
+      // coin that list names it as surely as the symbol would.
+      ? `<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> covers the dev buy${impact(priced)}, swapped at launch.`
+      : `<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> buys about
+         <b>${fmt(priced.out, 4)} ${esc(a.symbol)}</b> via ${esc(priced.route || 'Jupiter')}${impact(priced)}.`
+    detail(`${bought}<br>` + (enough
       ? `You hold ${fmt(funds, dp)} ${esc(pay.symbol)}${reserve ? `, of which ${reserve} stays back for rent and fees` : ''}.
          Two signatures: the swap, then the launch.`
       : `<span class="warn-text">You hold ${fmt(funds, dp)} ${esc(pay.symbol)}${reserve
@@ -376,12 +470,14 @@ function paintReview() {
   const creatorShare = cfg.creatorSharePct ?? 50
 
   $('#review').innerHTML =
-    `<div class="head">${esc(t.symbol || '—')} paired with ${esc(a.symbol)}</div>` +
+    `<div class="head">${esc(t.symbol || '—')} paired with ${state.blind ? 'a coin you have not met' : esc(a.symbol)}</div>` +
     line('Token', `${esc(t.name || '—')} · ${esc(t.symbol || '—')}`) +
-    line('Paired with', esc(a.symbol)) +
-    line(`Treasury of ${esc(a.symbol)}`, usd(a.treasury)) +
-    line('Graduation target', `${c.threshold.toLocaleString('en-US')} ${esc(a.symbol)} ≈ ${usd(c.threshold * a.usdPrice)} today`) +
-    line('Dev buy', c.devBuy ? `${c.devBuy}% of supply — ${fmt(c.devBuyQuote, 4)} ${esc(a.symbol)}` : 'none') +
+    line('Paired with', state.blind ? 'Random — named the moment you sign' : esc(a.symbol)) +
+    // The treasury is the one figure that would identify the coin outright, so a
+    // blind launch simply does without it rather than printing a lookup key.
+    (state.blind ? '' : line(`Treasury of ${esc(a.symbol)}`, usd(a.treasury))) +
+    line('Graduation target', `${c.threshold.toLocaleString('en-US')} ${esc(sym())} ≈ ${usd(c.threshold * a.usdPrice)} today`) +
+    line('Dev buy', c.devBuy ? `${c.devBuy}% of supply — ${fmt(c.devBuyQuote, 4)} ${esc(sym())}` : 'none') +
     line('Trading fee', (() => {
       // Meteora's cut comes off the top, so the split is of what remains.
       const cut = feeBreakdown(feeBps, creatorShare)
@@ -431,7 +527,6 @@ function paintConnect() {
     connectBtn.textContent = short(session.address)
     connectBtn.title = `${session.name} — ${session.address}`
     connectBtn.disabled = false
-    $('#wallet-addr').textContent = session.address
     return
   }
   menu.hidden = true
@@ -504,10 +599,10 @@ signBtn.addEventListener('click', async () => {
     // needs it, so it only loads once someone actually launches.
     const { configFor, buildLaunch, sendWithMint, connection } = await import('./launchpad.js')
 
-    say(`Checking that ${esc(a.symbol)} is open for launches…`)
+    say(`Checking that ${esc(sym())} is open for launches…`)
     const config = await configFor(a.mint, state.curve.tier)
     if (!config) {
-      say(`${esc(a.symbol)} has no launch config yet. LFOwn has to open one for this coin before anyone can launch against it.`, 'warn-text')
+      say(`${esc(sym())} has no launch config yet. LFOwn has to open one for this coin before anyone can launch against it.`, 'warn-text')
       signBtn.disabled = false
       return
     }
@@ -524,6 +619,20 @@ signBtn.addEventListener('click', async () => {
         signBtn.disabled = false
         return
       }
+    }
+
+    // The draw comes into the open here, before anything is put in front of a wallet.
+    // It has to: the swap that funds the dev buy names the mint, and so does the
+    // launch, and Phantom will print it either way. Better it is read here first,
+    // while cancelling still costs nothing, than discovered in a signature request.
+    if (state.blind) {
+      state.blind = false
+      paintReview()
+      paintFunding()
+      say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, treasury ${usd(a.treasury)}.
+        Nothing has been signed. Continue, or go back and pick another.`)
+      // A beat to actually read it, rather than a wallet popping up over the reveal.
+      await new Promise((r) => setTimeout(r, 2600))
     }
 
     // The dev buy is denominated in the ownership coin. If it is being paid in SOL
@@ -546,7 +655,7 @@ signBtn.addEventListener('click', async () => {
       }
 
       if (have < devBuy) {
-        say(`You hold ${fmt(have, 4)} ${esc(a.symbol)} and the dev buy needs ${fmt(devBuy, 4)}.
+        say(`You hold ${fmt(have, 4)} ${esc(sym())} and the dev buy needs ${fmt(devBuy, 4)}.
           Top up with SOL or USDC, or lower the dev buy.`, 'warn-text')
         signBtn.disabled = false
         return
@@ -604,19 +713,30 @@ signBtn.addEventListener('click', async () => {
     say(`Sent — waiting for the network to confirm (signature ${signature.slice(0, 12)}…)`)
     const { confirm } = await import('./funding.js')
     await confirm(connection, signature, { what: 'The launch' })
-    say(`Launched — <a href="/coins/${baseMint}" style="color:var(--red)">open your coin</a> (signature ${signature.slice(0, 12)}…)`, 'ok-text')
     signBtn.textContent = 'Launched'
+    // Kept in the console: the page is about to be replaced, and this is the one
+    // string worth having if anything needs looking up on an explorer afterwards.
+    console.log(`launched ${baseMint} — signature ${signature}`)
 
     // Told now, once there is a pool for it to find. The keeper adds the coin to the
     // cached list, which is what lets the minute-by-minute watcher follow it — a dev
     // buy big enough to take the whole raise fills the curve on the way in, and the
     // watcher would otherwise not see it until the catalogue next rebuilds. It
     // answers "not full yet" harmlessly the rest of the time.
+    //
+    // `keepalive` because the redirect below would otherwise cancel it mid-flight.
     fetch('/api/graduate', {
       method: 'POST',
+      keepalive: true,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ mint: baseMint }),
     }).catch((e) => console.error('graduation check after launch failed:', e.message))
+
+    // Straight to the coin, with a beat to read that it worked. The link stays in
+    // case anything blocks the redirect — and because a launch is worth a sentence
+    // of its own rather than a page that vanishes under the cursor.
+    say(`Launched — taking you to <a href="/coins/${baseMint}" style="color:var(--red)">your coin</a>…`, 'ok-text')
+    setTimeout(() => { location.href = `/coins/${baseMint}` }, 1800)
   } catch (e) {
     say(esc(explain(e, 'launch')), 'warn-text')
     signBtn.disabled = false
