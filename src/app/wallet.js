@@ -134,6 +134,11 @@ export async function connect(wallet, { silent = false } = {}) {
         const signed = await legacy.signTransaction(tx)
         return signed.serialize({ requireAllSignatures: false, verifySignatures: false })
       },
+      async signAllOnly(txs) {
+        if (typeof legacy.signAllTransactions !== 'function') return null
+        const signed = await legacy.signAllTransactions(txs)
+        return signed.map((t) => t.serialize({ requireAllSignatures: false, verifySignatures: false }))
+      },
     }
   }
 
@@ -189,6 +194,28 @@ export async function connect(wallet, { silent = false } = {}) {
         transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
       })
       return signedTransaction
+    },
+
+    /**
+     * The same, for several transactions at once and a single approval.
+     *
+     * A launch that shares fees with holders is two transactions — the pool has to
+     * exist before it can be handed to the vault — and asking for two approvals to do
+     * one thing reads like something went wrong. The Wallet Standard takes as many
+     * inputs as you give it and answers in the same order.
+     *
+     * Null when the wallet cannot do it, so the caller can fall back to one at a time
+     * rather than lose the launch.
+     */
+    async signAllOnly(txs) {
+      if (!signFeature) return null
+      const signed = await signFeature.signTransaction(...txs.map((tx) => ({
+        account,
+        chain: 'solana:mainnet',
+        transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
+      })))
+      if (signed.length !== txs.length) throw new Error(`${wallet.name} signed ${signed.length} of ${txs.length} transactions`)
+      return signed.map((o) => o.signedTransaction)
     },
   }
 }

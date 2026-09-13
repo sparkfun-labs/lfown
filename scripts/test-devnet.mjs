@@ -378,11 +378,24 @@ await chainTest('a launch that shares fees with holders fits two signable transa
     })
     .instruction()
 
-  // Two transactions, not three and not one. The vault has to exist before the pool
-  // is handed to it, and the pool has to exist before it can be handed over at all —
-  // but a wallet signs both in one approval, so the creator still clicks once.
-  const first = new Transaction().add(...launch.instructions)
-  const second = new Transaction().add(...openVault.instructions, handOver)
+  // Two transactions, and the vault goes first. Not because of size — the launch and
+  // the hand-over fit together comfortably — but because of what is left behind when
+  // the second one fails: an empty vault nobody will ever look at, rather than a coin
+  // promising its holders a share it has no way to pay. A wallet signs both in one
+  // approval, so the creator still clicks once.
+  //
+  // The hand-over rides in the same transaction as the launch, after it. The pool
+  // does not exist when the instruction is built, which is why it is built by hand,
+  // but it does exist by the time it runs.
+  //
+  // The 1232-byte cap that forces this is being raised to 4096 on mainnet at epoch
+  // 1035 (15 Sep 2026), by SIMD-0296 and the v1 transaction format of SIMD-0385.
+  // It does not help here yet: building v1 needs @solana/web3.js 3.x or @solana/kit
+  // 8, this repo is on 1.98.4, the Meteora SDKs hand back legacy transactions, and a
+  // wallet has to advertise v1 in `supportedTransactionVersions` before one can be
+  // sent to it. When all three catch up, these two collapse back into one.
+  const first = new Transaction().add(...openVault.instructions)
+  const second = new Transaction().add(...launch.instructions, handOver)
   const sizes = [first, second].map(sizeOf)
   process.stdout.write(`(${sizes.join(' + ')} bytes) `)
   for (const size of sizes) assert(size <= 1232, `each transaction must fit, measured ${size} bytes`)
