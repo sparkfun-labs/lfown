@@ -503,10 +503,17 @@ const cardImage = (value) => httpUrl(value) || null
 /**
  * Where the news goes. Each is silent unless its own credentials are set, so adding
  * one never disturbs the other — and neither disturbs a site running without both.
+ *
+ * `events` is which of the two moments a channel actually posts. A channel that does
+ * not post an event still writes it down, so turning it back on starts from the next
+ * coin rather than replaying every one it stayed quiet through — the same reason a
+ * channel's first run remembers without announcing.
  */
 const CHANNELS = [
   {
     id: 'telegram',
+    // Telegram is a room people opted into, and it costs nothing.
+    events: ['launched', 'graduated'],
     ready: (env) => Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
     launched: (env, coin, origin, image) => telegram.announce(env, {
       text: telegram.launchedMessage(coin, origin), photo: image, preview: telegram.coinUrl(coin, origin),
@@ -517,6 +524,11 @@ const CHANNELS = [
   },
   {
     id: 'x',
+    // Graduations only. A launch is cheap to make and there are many of them, so
+    // announcing every one buries the timeline in coins that may never fill their
+    // curve — and each post carrying a link costs $0.20. A graduation is rare, it is
+    // the moment that means something, and it stays affordable.
+    events: ['graduated'],
     ready: (env) => Boolean(env.X_CONSUMER_KEY && env.X_CONSUMER_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
     launched: async (env, coin, origin, image) =>
       x.announce(env, { text: x.launchedMessage(coin, origin), image: await imageBytes(env, image) }),
@@ -598,7 +610,7 @@ async function announceLaunches(env, launches) {
     if (!fresh.length) continue
 
     const posted = []
-    if (record) {
+    if (record && channel.events.includes('launched')) {
       for (const coin of fresh) {
         if (!artwork.has(coin.baseMint)) artwork.set(coin.baseMint, await coinArtwork(env, coin))
         // Written down only once the channel has actually heard it. A wrong token or
@@ -610,7 +622,9 @@ async function announceLaunches(env, launches) {
       }
     } else {
       posted.push(...fresh.map((l) => l.baseMint))
-      console.log(`${channel.id}: first run, remembering ${launches.length} coin(s) without announcing`)
+      console.log(record
+        ? `${channel.id}: remembering ${fresh.length} launch(es) it does not announce`
+        : `${channel.id}: first run, remembering ${launches.length} coin(s) without announcing`)
     }
     if (!posted.length) continue
 
@@ -640,10 +654,11 @@ async function announceGraduation(env, coin) {
     const record = seen[channel.id]
     const graduated = new Set(record?.graduated ?? [])
     if (graduated.has(coin.baseMint)) continue
-    if (image === undefined) image = await coinArtwork(env, coin)
-
-    // Retried on the next pass rather than silently dropped.
-    if (!(await channel.graduated(env, coin, origin, image))?.ok) continue
+    if (channel.events.includes('graduated')) {
+      if (image === undefined) image = await coinArtwork(env, coin)
+      // Retried on the next pass rather than silently dropped.
+      if (!(await channel.graduated(env, coin, origin, image))?.ok) continue
+    }
     graduated.add(coin.baseMint)
     next[channel.id] = { launched: record?.launched ?? [], graduated: [...graduated].slice(-500) }
     changed = true

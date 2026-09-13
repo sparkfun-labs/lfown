@@ -337,6 +337,11 @@ goes — Telegram (`src/lib/telegram.mjs`) and X (`src/lib/x.mjs`) — and each 
 silent unless its own credentials are set, so a site running with one, or with
 neither, behaves exactly as it did before.
 
+Each entry says which of the two moments it posts. **Telegram gets both; X gets
+graduations only** — a launch is cheap to make and there are many of them, so
+announcing every one buries the timeline in coins that may never fill their curve,
+and each post carrying a link costs $0.20. Change the `events` array to change that.
+
 New coins are noticed by the minute-by-minute cron, which is already reading the
 list for the graduation watch. A graduation is announced by the endpoint that cranks
 it, once the migration has confirmed.
@@ -346,8 +351,10 @@ What has already been said lives in KV under `announced:v2`, one record per chan
 be wrong one way or the other. The old single-channel record is migrated on read, so
 a deploy re-announces nothing. A channel's very first run only writes the record and
 says nothing: switching X on would otherwise fire every coin ever launched into the
-timeline at once. A post that fails is not written down, so it is tried again on the
-next pass rather than marked as delivered and lost.
+timeline at once. An event a channel does not post is written down for the same
+reason, so adding `launched` back to X starts from the next coin rather than
+replaying the months it stayed quiet. A post that fails is not written down, so it is
+tried again on the next pass rather than marked as delivered and lost.
 
 ### X
 
