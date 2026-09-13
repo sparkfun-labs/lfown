@@ -6,8 +6,12 @@
 // That is what makes the catalogue a catalogue.
 
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js'
-import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { DynamicBondingCurveClient, deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
+import { FEES } from '../lib/config.mjs'
+import { clampHolderPct, deriveVault, vaultShares } from '../lib/fee-split.mjs'
 
 /** All RPC goes through our own Worker, so the upstream key stays server-side. */
 export const connection = new Connection(`${location.origin}/api/rpc`, 'confirmed')
@@ -47,11 +51,20 @@ export async function configFor(mint, tier) {
   return open ? new PublicKey(open.config) : null
 }
 
+/** Whether this deployment can offer a creator the choice at all. */
+export const canShareWithHolders = () => Boolean(FEES.holderPot)
+
 /**
  * Opens the pool, and buys into it in the same transaction when a dev buy is set —
  * atomically, so the launch cannot be sniped between the two instructions.
+ *
+ * A creator sharing part of their fees with holders gets a second transaction, and
+ * it goes first: fees are paid to whoever the pool calls its creator, so that has to
+ * be the vault from the very first trade. Opening the vault before the pool also
+ * decides what a half-finished launch leaves behind — an empty vault nobody will
+ * look at, rather than a coin promising a share it has no way to pay.
  */
-export async function buildLaunch({ config, owner, token, devBuyQuote, seed }) {
+export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quoteMint, holderPct = 0 }) {
   // A seed means the address was ground to end in `own`; without one the mint is
   // just random, which is what a browser that could not run the search falls back to.
   const baseMint = seed ? Keypair.fromSeed(seed) : Keypair.generate()
@@ -85,14 +98,59 @@ export async function buildLaunch({ config, owner, token, devBuyQuote, seed }) {
     : await client.creator.createPool(createPoolParam)
 
   const transaction = tx.transaction ?? tx // createPool returns a Transaction, not a wrapper
+
+  const share = clampHolderPct(holderPct)
+  let vault = null
+  const before = []
+  if (share > 0 && FEES.holderPot && quoteMint) {
+    const quote = new PublicKey(quoteMint)
+    vault = deriveVault(baseMint.publicKey, quote)
+    const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+    const open = await dfs.createFeeVaultPda({
+      base: baseMint.publicKey,
+      tokenMint: quote,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      owner: payer,
+      payer,
+      userShare: vaultShares(share, { creator: payer, holders: FEES.holderPot }),
+    })
+    before.push(new Transaction().add(...open.instructions))
+
+    // Built by hand rather than through `client.creator.transferPoolCreator`, which
+    // reads the pool from chain to find its config — and the pool does not exist
+    // until the instruction above it in this same transaction has run.
+    const program = client.state.program ?? client.program
+    transaction.add(await program.methods
+      .transferPoolCreator()
+      .accountsPartial({
+        virtualPool: deriveDbcPoolAddress(quote, baseMint.publicKey, config),
+        config,
+        creator: payer,
+        newCreator: vault,
+        eventAuthority: deriveDbcEventAuthority(),
+        program: program.programId,
+      })
+      .instruction())
+  }
+
+  const transactions = [...before, transaction]
   const { blockhash } = await connection.getLatestBlockhash('confirmed')
-  transaction.recentBlockhash = blockhash
-  transaction.feePayer = payer
+  for (const t of transactions) {
+    t.recentBlockhash = blockhash
+    t.feePayer = payer
+  }
 
   // Deliberately not signed here. Phantom will not simulate a transaction it is not
   // the only signer of, and warns on the approval screen; its guidance is to take
   // the wallet's signature first and attach the rest after. sendWithMint does that.
-  return { transaction, mint: baseMint, baseMint: baseMint.publicKey.toBase58() }
+  return {
+    transactions,
+    transaction, // the launch itself, for callers that only ever have the one
+    mint: baseMint,
+    baseMint: baseMint.publicKey.toBase58(),
+    vault: vault?.toBase58() ?? null,
+    holderPct: vault ? share : 0,
+  }
 }
 
 /**
@@ -106,4 +164,22 @@ export async function sendWithMint(signedBytes, mint) {
   const tx = Transaction.from(signedBytes)
   tx.partialSign(mint)
   return connection.sendRawTransaction(tx.serialize())
+}
+
+/**
+ * The same for a launch that came as more than one transaction, in order.
+ *
+ * Each is confirmed before the next is sent, because the next one depends on it: the
+ * pool is handed to a vault that has to exist, and the hand-over rides with the
+ * launch. Both were signed in a single approval, so waiting here costs the creator
+ * nothing but the seconds the chain takes.
+ */
+export async function sendAllWithMint(signedList, mint) {
+  const signatures = []
+  for (const bytes of signedList) {
+    const signature = await sendWithMint(bytes, mint)
+    await connection.confirmTransaction(signature, 'confirmed')
+    signatures.push(signature)
+  }
+  return signatures
 }

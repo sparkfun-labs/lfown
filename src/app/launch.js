@@ -3,12 +3,13 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
-import { TIERS, LEGACY_FEE_BPS, feeBreakdown } from '../lib/config.mjs'
+import { TIERS, LEGACY_FEE_BPS, FEES, feeBreakdown } from '../lib/config.mjs'
+import { HOLDER_MAX_PCT, splitFor } from '../lib/fee-split.mjs'
 
 const state = {
   asset: null,
   token: {},
-  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0 },
+  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: 0 },
   // The ground mint seed, once the search has found one. See startVanity.
   vanity: null,
   seed: null,
@@ -311,6 +312,32 @@ async function paintCurve() {
     if (Number(devBuy.value || 0) > DEV_BUY_MAX) devBuy.value = String(DEV_BUY_MAX)
     cap.hidden = true
   })
+
+  // The choice only exists where there is an address to collect the holders' share.
+  // Without one the block stays out of the page entirely rather than offering
+  // something that would quietly do nothing.
+  const split = $('#holder-split')
+  const holders = $('#f-holders')
+  split.hidden = !FEES.holderPot
+  if (!FEES.holderPot) {
+    state.curve.holders = 0
+    return
+  }
+  holders.max = String(HOLDER_MAX_PCT)
+  const paint = () => {
+    const pct = Number(holders.value || 0)
+    state.curve.holders = pct
+    const cut = splitFor(pct)
+    $('#split-you').textContent = `${cut.creator}%`
+    $('#split-them').textContent = `${cut.holders}%`
+    // The track fills up to the thumb; the range is 0..HOLDER_MAX_PCT, not 0..100.
+    holders.style.setProperty('--fill', `${(pct / HOLDER_MAX_PCT) * 100}%`)
+    $('#split-hint').textContent = pct === 0
+      ? "Half of every trading fee is yours. Give any part of it to the people holding the coin — the LFOwn DAO's half is untouched either way. Fixed at launch."
+      : `Holders share ${cut.holders}% of every trading fee, pro rata. You keep ${cut.creator}%, the LFOwn DAO keeps ${cut.partner}%. Fixed at launch — it cannot be changed afterwards.`
+  }
+  holders.addEventListener('input', paint)
+  paint()
 }
 
 /**
@@ -482,7 +509,12 @@ function paintReview() {
       // Meteora's cut comes off the top, so the split is of what remains.
       const cut = feeBreakdown(feeBps, creatorShare)
       const pc = (b) => `${(b / 100).toFixed(2).replace(/\.?0+$/, '')}%`
-      return `${feeBps / 100}% per trade — ${pc(cut.creator)} to you, ${pc(cut.partner)} to the LFOwn DAO, ${pc(cut.protocol)} to Meteora`
+      const tail = `${pc(cut.partner)} to the LFOwn DAO, ${pc(cut.protocol)} to Meteora`
+      if (!c.holders) return `${feeBps / 100}% per trade — ${pc(cut.creator)} to you, ${tail}`
+      // The holders' part is carved out of the creator's, so it is that share of it
+      // rather than of the whole fee.
+      const theirs = (cut.creator * c.holders) / creatorShare
+      return `${feeBps / 100}% per trade — ${pc(cut.creator - theirs)} to you, ${pc(theirs)} to holders of ${esc(state.token.symbol || 'the coin')}, ${tail}`
     })())
 }
 
@@ -597,7 +629,7 @@ signBtn.addEventListener('click', async () => {
 
     // The web3/DBC bundle is most of the payload and nobody browsing the catalogue
     // needs it, so it only loads once someone actually launches.
-    const { configFor, buildLaunch, sendWithMint, connection } = await import('./launchpad.js')
+    const { configFor, buildLaunch, sendWithMint, sendAllWithMint, connection } = await import('./launchpad.js')
 
     say(`Checking that ${esc(sym())} is open for launches…`)
     const config = await configFor(a.mint, state.curve.tier)
@@ -687,25 +719,37 @@ signBtn.addEventListener('click', async () => {
     }
 
     say('Building the launch transaction…')
-    const { transaction, mint, baseMint } = await buildLaunch({
+    const { transactions, transaction, mint, baseMint } = await buildLaunch({
       config,
       owner: wallet.address,
       token: { name: state.token.name, symbol: state.token.symbol, uri: uri ?? '' },
       devBuyQuote: Math.round(devBuy * 1e6),
       seed: state.seed,
+      quoteMint: state.asset?.mint,
+      holderPct: state.curve.holders,
     })
 
     say('Waiting for your signature…')
-    // Wallet first, mint second: a transaction handed to Phantom with a signature
-    // slot it cannot account for is one it will not simulate, and it warns about it.
-    const signedBytes = await wallet.signOnly(transaction)
     let signature
-    if (signedBytes) {
-      signature = await sendWithMint(signedBytes, mint)
+    if (transactions.length > 1) {
+      // Sharing fees needs the vault opened before the pool, so this is two
+      // transactions. One approval covers both, and each is confirmed before the
+      // next is sent because the next one depends on it.
+      const signedAll = await wallet.signAllOnly?.(transactions)
+      if (!signedAll) throw new Error(`${wallet.name} cannot sign two transactions at once, which sharing fees with holders needs. Set the holder share back to 0%, or use another wallet.`)
+      const signatures = await sendAllWithMint(signedAll, mint)
+      signature = signatures[signatures.length - 1]
     } else {
-      // A wallet that can only sign-and-send gets the old order rather than nothing.
-      transaction.partialSign(mint)
-      signature = await wallet.signAndSend(transaction, connection)
+      // Wallet first, mint second: a transaction handed to Phantom with a signature
+      // slot it cannot account for is one it will not simulate, and it warns about it.
+      const signedBytes = await wallet.signOnly(transaction)
+      if (signedBytes) {
+        signature = await sendWithMint(signedBytes, mint)
+      } else {
+        // A wallet that can only sign-and-send gets the old order rather than nothing.
+        transaction.partialSign(mint)
+        signature = await wallet.signAndSend(transaction, connection)
+      }
     }
     // Confirmed before the link is offered. The coin page reads a coin the list
     // does not know from chain and remembers a miss for five minutes, so a click a

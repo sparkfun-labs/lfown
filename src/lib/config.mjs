@@ -77,6 +77,25 @@ export const FEES = {
    */
   treasury: 'A1XGC7uJtLcBb7oa7Q6DJtkBFriPrBGLDtSMiD2gNUHm',
 
+  /**
+   * Where a creator's holders' share waits before it is handed out.
+   *
+   * A creator can give part of their own half to the people holding the coin. That
+   * part cannot be paid to holders by the fee-sharing program itself — it pays at
+   * most five fixed addresses and a coin's holders are a crowd that changes with
+   * every trade — so it is paid to this one address, per coin, and shared out from
+   * there by `scripts/distribute.mjs`.
+   *
+   * It has to be an address whose key is held, because claiming from a vault needs
+   * its shareholder to sign. Keep it separate from `recipient`: what lands here is
+   * owed to other people, and mixing it with LFOwn's own fees makes "how much is
+   * ours" a question nobody can answer from chain.
+   *
+   * Empty means the launch screen does not offer the choice at all, and every launch
+   * behaves exactly as it did before.
+   */
+  holderPot: '',
+
   totalBps: 250,
   creatorSharePct: 50,
 }
