@@ -21,7 +21,9 @@ import {
 import BN from 'bn.js'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { deriveFeeVaultPdaAddress } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
+import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
 
 const KEY = readFileSync('.dev.vars', 'utf8').match(/api-key=([a-f0-9-]+)/)[1]
@@ -61,6 +63,77 @@ await test('the fee split matches what the launch screen promises', () => {
   assert.equal(cut.creator + cut.partner + cut.protocol, FEES.totalBps, 'the three shares must add up to the fee')
   assert.equal(cut.protocol, FEES.totalBps * 0.2, 'Meteora keeps a fifth before the split')
   assert.equal(cut.creator, cut.partner, 'creator and DAO split what remains evenly')
+})
+
+await test('the holder slider cuts only the creator\'s half', () => {
+  const none = splitFor(0)
+  assert.equal(none.holders, 0, 'keeping it all gives holders nothing')
+  assert.equal(none.creator, 50, 'and leaves the creator the half the config gives them')
+
+  const half = splitFor(HOLDER_MAX_PCT)
+  assert.equal(half.creator, 0, 'at the top of the slider the creator keeps nothing')
+  assert.equal(half.holders, 50, 'and holders take the half the creator gave up')
+
+  for (const pct of [0, 1, 17, 50]) {
+    const cut = splitFor(pct)
+    assert.equal(cut.creator + cut.holders, 50, 'the DAO\'s half is never touched')
+    assert.equal(cut.partner, 50)
+  }
+  assert.equal(splitFor(80).holders, 50, 'past the cap it stops at the cap')
+  assert.equal(splitFor(-5).holders, 0, 'and below zero it stops at zero')
+  assert.equal(splitFor('nonsense').holders, 0, 'anything unreadable means keep it all')
+})
+
+await test('the vault is derived the way the SDK derives it', () => {
+  const base = Keypair.generate().publicKey
+  const quote = Keypair.generate().publicKey
+  assert.equal(deriveVault(base, quote).toBase58(), deriveFeeVaultPdaAddress(base, quote).toBase58())
+})
+
+await test('a vault never spends a slot on a shareholder owed nothing', () => {
+  const creator = Keypair.generate().publicKey
+  const holders = Keypair.generate().publicKey
+
+  assert.deepEqual(vaultShares(0, { creator, holders }).map((s) => s.share), [50],
+    'keeping it all leaves the creator alone in the vault')
+  assert.deepEqual(vaultShares(HOLDER_MAX_PCT, { creator, holders }).map((s) => s.share), [50],
+    'giving it all leaves the holder pot alone in it')
+  assert.equal(vaultShares(HOLDER_MAX_PCT, { creator, holders })[0].address.toBase58(), holders.toBase58())
+
+  const both = vaultShares(20, { creator, holders })
+  assert.deepEqual(both.map((s) => s.share), [30, 20], 'and the shares read like the slider')
+  assert.equal(needsVault(0), false, 'no vault at all when nothing is shared')
+  assert.equal(needsVault(1), true)
+})
+
+await test('a pot is split pro rata, without the curve and without dust', () => {
+  const pool = 'PooL11111111111111111111111111111111111111'
+  const snapshot = [
+    { address: pool, amount: 800n },   // the curve holds most of the supply
+    { address: 'AAA', amount: 150n },
+    { address: 'BBB', amount: 49n },
+    { address: 'CCC', amount: 1n },
+    { address: 'DDD', amount: 0n },
+  ]
+  const { payouts, paid, carried } = allocate(snapshot, 1_000_000n, { exclude: [pool], dust: 10_000n })
+  const by = Object.fromEntries(payouts.map((p) => [p.address, p.amount]))
+
+  assert.equal(by.DDD, undefined, 'an empty account is not a holder')
+  assert.equal(by[pool], undefined, 'the curve is not paid to hold its own supply')
+  assert.equal(by.CCC, undefined, 'a share too small to be worth an account waits')
+  assert.equal(by.AAA + by.BBB, paid, 'what is paid is what the payouts add up to')
+  assert.equal(paid + carried, 1_000_000n, 'and nothing is invented or lost')
+  assert.equal(by.AAA, 750_000n, '150 of 200 eligible')
+  assert.equal(by.BBB, 245_000n, '49 of 200, plus CCC\'s share left behind')
+
+  const exact = allocate([{ address: 'AAA', amount: 3n }, { address: 'BBB', amount: 3n },
+    { address: 'CCC', amount: 3n }], 10n)
+  assert.equal(exact.payouts.reduce((t, p) => t + p.amount, 0n), 10n,
+    'a remainder that does not divide is still handed out')
+  assert.equal(exact.carried, 0n)
+
+  assert.deepEqual(allocate([], 5n), { payouts: [], paid: 0n, carried: 5n },
+    'a coin nobody holds keeps its pot for later')
 })
 
 await chainTest('a config opens against a non-SOL quote mint', async () => {
