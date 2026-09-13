@@ -10,7 +10,7 @@
 // It asserts rather than prints: a step that silently does the wrong thing is the
 // failure mode that matters here, not a crash.
 
-import { Connection, Keypair, LAMPORTS_PER_SOL, sendAndConfirmTransaction } from '@solana/web3.js'
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction, sendAndConfirmTransaction } from '@solana/web3.js'
 import { createMint, mintTo, getOrCreateAssociatedTokenAccount, getAccount } from '@solana/spl-token'
 import {
   DynamicBondingCurveClient, buildCurve, SwapMode,
@@ -21,7 +21,9 @@ import {
 import BN from 'bn.js'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { deriveFeeVaultPdaAddress } from '@meteora-ag/dynamic-fee-sharing-sdk'
+import { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } from '@meteora-ag/dynamic-fee-sharing-sdk'
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
@@ -31,9 +33,40 @@ const connection = new Connection(`https://devnet.helius-rpc.com/?api-key=${KEY}
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync('.keys/devnet.json', 'utf8'))))
-const send = (tx, signers = []) => {
+const send = async (tx, signers = []) => {
   tx.feePayer = payer.publicKey
-  return sendAndConfirmTransaction(connection, tx, [payer, ...signers], { commitment: 'confirmed' })
+  // The SDK stamps a blockhash when it builds a transaction, which can be several
+  // round trips before it is sent, and devnet forgets one quickly enough that runs
+  // failed on "Blockhash not found" rather than on anything being wrong. Take a fresh
+  // one here, where it is about to be used, and try again when it goes stale anyway.
+  for (let attempt = 1; ; attempt++) {
+    tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash
+    tx.signatures = []
+    try {
+      return await sendAndConfirmTransaction(connection, tx, [payer, ...signers], { commitment: 'confirmed' })
+    } catch (e) {
+      if (/Blockhash not found|block height exceeded/i.test(e.message) && attempt < 4) continue
+      // A failed simulation says why in its logs and nowhere else; without them the
+      // error is "Simulation failed" and a stack trace through the web3 library.
+      const logs = typeof e.getLogs === 'function' ? await e.getLogs(connection).catch(() => null) : e.transactionLogs
+      if (logs?.length) console.error(`\n${logs.join('\n')}\n`)
+      throw e
+    }
+  }
+}
+
+/**
+ * How many bytes a transaction will weigh, without touching the transaction itself.
+ *
+ * A blockhash is 32 bytes whatever it says, so a placeholder measures the same as a
+ * real one — and measuring on a copy leaves the transaction that actually gets sent
+ * to be stamped at the moment it is sent.
+ */
+const sizeOf = (tx) => {
+  const copy = new Transaction().add(...tx.instructions)
+  copy.feePayer = payer.publicKey
+  copy.recentBlockhash = PublicKey.default.toBase58()
+  return copy.serialize({ requireAllSignatures: false, verifySignatures: false }).length
 }
 
 let passed = 0
@@ -57,6 +90,7 @@ const chainTest = (name, fn) => (onChain ? test(name, fn) : Promise.resolve())
 
 const RAISE = 1_000
 let quoteMint, config, baseMint, pool
+let sharedPool, sharedVault, sharedPot
 
 await test('the fee split matches what the launch screen promises', () => {
   const cut = feeBreakdown(FEES.totalBps)
@@ -298,6 +332,125 @@ await chainTest('graduation migrates it into DAMM v2', async () => {
 await chainTest('the keeper stops offering it once migrated', async () => {
   const ready = await readyToGraduate(client, [{ pool: pool.toBase58(), isMigrated: false }])
   assert.equal(ready.length, 0, 'a migrated pool must not be cranked twice')
+})
+
+await chainTest('a launch that shares fees with holders fits two signable transactions', async () => {
+  const HOLDERS = 20
+  const mint = Keypair.generate()
+  const holderPot = Keypair.generate()
+  const vault = deriveVault(mint.publicKey, quoteMint)
+  const dfsPool = deriveDbcPoolAddress(quoteMint, mint.publicKey, config.publicKey)
+
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const launch = await client.creator.createPoolWithFirstBuy({
+    createPoolParam: {
+      baseMint: mint.publicKey, config: config.publicKey,
+      // The longest name and symbol the launch screen accepts, and a uri the length
+      // every real one has: what is measured below is the worst case, not a lucky
+      // one. All three instructions in a single transaction came to 1287 bytes.
+      name: 'A'.repeat(32), symbol: 'B'.repeat(10),
+      uri: 'https://letsfuckingown.fun/i/00000000-0000-0000-0000-000000000000.json',
+      payer: payer.publicKey, poolCreator: payer.publicKey,
+    },
+    firstBuyParam: {
+      buyer: payer.publicKey, receiver: payer.publicKey,
+      buyAmount: new BN(200 * 1e6), minimumAmountOut: new BN(0), referralTokenAccount: null,
+    },
+  })
+  const openVault = await dfs.createFeeVaultPda({
+    base: mint.publicKey, tokenMint: quoteMint, tokenProgram: TOKEN_PROGRAM_ID,
+    owner: payer.publicKey, payer: payer.publicKey,
+    userShare: vaultShares(HOLDERS, { creator: payer.publicKey, holders: holderPot.publicKey }),
+  })
+  // Built by hand rather than through `client.creator.transferPoolCreator`, which
+  // reads the pool from chain to find its config — and the pool does not exist until
+  // the first transaction has landed. Same trap as the dev buy.
+  const program = client.state.program ?? client.program
+  const handOver = await program.methods
+    .transferPoolCreator()
+    .accountsPartial({
+      virtualPool: dfsPool,
+      config: config.publicKey,
+      creator: payer.publicKey,
+      newCreator: vault,
+      eventAuthority: deriveDbcEventAuthority(),
+      program: program.programId,
+    })
+    .instruction()
+
+  // Two transactions, not three and not one. The vault has to exist before the pool
+  // is handed to it, and the pool has to exist before it can be handed over at all —
+  // but a wallet signs both in one approval, so the creator still clicks once.
+  const first = new Transaction().add(...launch.instructions)
+  const second = new Transaction().add(...openVault.instructions, handOver)
+  const sizes = [first, second].map(sizeOf)
+  process.stdout.write(`(${sizes.join(' + ')} bytes) `)
+  for (const size of sizes) assert(size <= 1232, `each transaction must fit, measured ${size} bytes`)
+
+  await send(first, [mint])
+  await send(second, [mint])
+
+  const { poolState } = await client.state.getPool(dfsPool)
+  assert.equal(poolState.creator.toBase58(), vault.toBase58(), 'the vault must now be the pool creator')
+
+  sharedPool = dfsPool
+  sharedVault = vault
+  sharedPot = holderPot
+})
+
+await chainTest('the vault splits the creator fees the way the slider said', async () => {
+  // Trade so there is something to share, then pull the creator's side into the vault.
+  await send(await client.pool.swap({
+    owner: payer.publicKey, pool: sharedPool,
+    amountIn: new BN(300 * 1e6), minimumAmountOut: new BN(0),
+    swapBaseForQuote: false, referralTokenAccount: null,
+  }))
+
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  await send(await dfs.fundByClaimDbcCreatorTradingFee({
+    signer: payer.publicKey, creator: payer.publicKey, feeVault: sharedVault,
+    poolConfig: config.publicKey, virtualPool: sharedPool,
+  }))
+
+  const breakdown = await dfs.getFeeBreakdown(sharedVault)
+  const funded = BigInt(breakdown.totalFundedFee.toString())
+  assert(funded > 0n, 'the creator fees should have landed in the vault')
+
+  const share = Object.fromEntries(breakdown.userFees.map((u) => [u.address.toBase58(), BigInt(u.totalFee.toString())]))
+  const toHolders = share[sharedPot.publicKey.toBase58()]
+  const toCreator = share[payer.publicKey.toBase58()]
+
+  // The program divides by the total share and floors, so a unit or two of what was
+  // funded belongs to nobody and stays in the vault. Worth knowing rather than worth
+  // fixing: it is dust, it is bounded by the number of shareholders, and nothing here
+  // may assume the two shares add up to the whole pot.
+  const unattributed = funded - (toHolders + toCreator)
+  assert(unattributed >= 0n && unattributed < BigInt(breakdown.userFees.length),
+    `rounding must not lose more than dust, lost ${unattributed} of ${funded}`)
+
+  // 20 of the creator's 50 points, so two fifths of what the vault received.
+  const expected = (funded * 20n) / 50n
+  assert(toHolders <= expected && expected - toHolders <= 1n,
+    `holders must get what the slider promised, got ${toHolders} against ${expected}`)
+})
+
+await chainTest('each side claims its own share and cannot touch the other', async () => {
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const before = await dfs.getFeeBreakdown(sharedVault)
+  const owed = BigInt(before.userFees.find((u) => u.address.equals(payer.publicKey)).feeUnclaimed.toString())
+  assert(owed > 0n, 'the creator should be owed something')
+
+  const ata = await getOrCreateAssociatedTokenAccount(connection, payer, quoteMint, payer.publicKey)
+  const held = (await getAccount(connection, ata.address)).amount
+  await send(await dfs.claimUserFee({ feeVault: sharedVault, user: payer.publicKey, payer: payer.publicKey }))
+  assert.equal((await getAccount(connection, ata.address)).amount - held, owed,
+    'a claim must pay exactly what was owed')
+
+  const after = await dfs.getFeeBreakdown(sharedVault)
+  const holders = after.userFees.find((u) => u.address.equals(sharedPot.publicKey))
+  assert.equal(BigInt(holders.feeClaimed.toString()), 0n,
+    "claiming the creator's share must leave the holders' share untouched")
+  assert(BigInt(holders.feeUnclaimed.toString()) > 0n, 'which is still there waiting to be handed out')
 })
 
 console.log(`\n${passed} passed${onChain ? '' : ', on-chain suite skipped'}`)
