@@ -94,7 +94,7 @@ export const FEES = {
    * Empty means the launch screen does not offer the choice at all, and every launch
    * behaves exactly as it did before.
    */
-  holderPot: '',
+  holderPot: '4m1faNte7icFoFeALXdqvZ9njGRAHGMm37QL7SoFGHcU',
 
   totalBps: 250,
   creatorSharePct: 50,
