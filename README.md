@@ -55,6 +55,7 @@ Before the first deploy:
     npx wrangler kv namespace create REGISTRY     # paste the id into wrangler.jsonc
     npx wrangler secret put HELIUS_RPC
     npx wrangler secret put FEE_COLLECTOR_KEY     # optional — see "Where the claimer lives"
+    npx wrangler secret put HOLDER_POT_KEY        # optional — see "Sharing fees with holders"
     npx wrangler secret put TELEGRAM_BOT_TOKEN    # optional, with TELEGRAM_CHAT_ID
     npx wrangler secret put TELEGRAM_CHAT_ID
     npx wrangler secret put X_CONSUMER_KEY        # optional — all four, or none
@@ -269,6 +270,37 @@ quote. Those fees belong to a different program and need `claim_position_fee`.
 `src/lib/lp-fees.mjs` reads them (`getUnClaimLpFee`, because the `feeAPending` field
 on a position is a checkpoint rather than a balance) and builds the claim. The hourly
 sweep, `scripts/claim-fees.mjs` and the coin page all cover both phases.
+
+### Sharing fees with holders
+
+A creator can give part of their own half to the people holding the coin — a slider
+on the launch screen, 0 to 50 points of the whole trading fee. The DAO's half is
+untouched at every position.
+
+It is enforced on chain rather than promised. Meteora's dynamic-fee-sharing program
+owns a vault that becomes the pool's creator, so the creator's fees are paid into it
+and each side claims its own share with its own signature. Nobody, LFOwn included,
+can take the other's part, and the shares cannot be edited once the vault exists.
+
+That program pays at most five fixed addresses, so it cannot pay holders — a coin's
+holders are a crowd that changes with every trade. It pays two: the creator, and
+`FEES.holderPot`, which collects the holders' part until the hourly cron hands it
+out. `src/lib/holder-payouts.mjs` does that, pro rata and in integers, leaving out
+the two program addresses that hold supply on behalf of a pool rather than on their
+own behalf — on a bonding curve that is 77% to 99% of the coin.
+
+Two keys for one job. The pot signs, because only a shareholder may claim its share;
+the collector pays, because paying someone a token they have never held means renting
+them an account for it. So the pot never needs a SOL balance, and it holds nothing
+between runs: a coin worth less than `FLOOR_USD` is left in its vault, where it keeps
+accruing and only its shareholders can reach it.
+
+Sharing makes a launch two transactions — the vault has to exist before the pool is
+handed to it — signed in one approval. The vault is seeded by the coin's mint, which
+has to sign to open it, so a coin launched without one can never be given one
+afterwards: the mint key is thrown away once the pool exists.
+
+Empty `FEES.holderPot` means the launch screen does not offer the choice at all.
 
 ### The hourly sweep
 

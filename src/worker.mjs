@@ -892,10 +892,27 @@ async function collectLaunches(env) {
  * last sweep" would be the wrong thing to believe. See the README before moving it.
  */
 async function loadCollector(env) {
-  if (!env.FEE_COLLECTOR_KEY) return null
+  return loadKey(env.FEE_COLLECTOR_KEY)
+}
+
+/**
+ * The key that claims what creators gave their holders, and hands it on.
+ *
+ * Kept apart from the collector on purpose. What it touches is owed to other people
+ * rather than to LFOwn, and it is emptied every run — a coin is left in its vault
+ * until it is worth paying out, so between runs this key holds nothing at all. It
+ * pays for nothing either; the collector covers fees and account rent, so this one
+ * needs no SOL.
+ */
+async function loadHolderPot(env) {
+  return loadKey(env.HOLDER_POT_KEY)
+}
+
+async function loadKey(secret) {
+  if (!secret) return null
   const { Keypair } = await import('@solana/web3.js')
-  const secret = env.FEE_COLLECTOR_KEY.trim()
-  const bytes = secret.startsWith('[') ? Uint8Array.from(JSON.parse(secret)) : decodeBase58(secret)
+  const trimmed = secret.trim()
+  const bytes = trimmed.startsWith('[') ? Uint8Array.from(JSON.parse(trimmed)) : decodeBase58(trimmed)
   return Keypair.fromSecretKey(bytes)
 }
 
@@ -1277,12 +1294,114 @@ async function sweepFees(env) {
   return { swept: done.length }
 }
 
+/**
+ * Hands each coin's holders the share its creator gave them.
+ *
+ * Runs on the same hour as the sweep, and needs two keys for one job: the pot signs,
+ * because only a vault's shareholder may claim its share, and the collector pays,
+ * because paying someone a token they have never held means renting them an account
+ * for it. Splitting it that way is what lets the pot hold nothing but other people's
+ * money and never need a balance of its own.
+ *
+ * A coin below the floor is skipped rather than paid — its share stays in the vault,
+ * where it keeps accruing and where only its shareholders can reach it. So this key
+ * is empty between runs by construction, not by luck.
+ */
+async function distributeToHolders(env) {
+  if (!FEES.holderPot) return { skipped: true }
+  const pot = await loadHolderPot(env)
+  if (!pot) {
+    console.log('holder payouts skipped: HOLDER_POT_KEY is not set')
+    return { skipped: true }
+  }
+  if (pot.publicKey.toBase58() !== FEES.holderPot) {
+    console.error(`holder payouts aborted: ${pot.publicKey.toBase58()} is not the pot ${FEES.holderPot}`)
+    return { skipped: true, reason: 'wrong key' }
+  }
+  const payer = await loadCollector(env)
+  if (!payer) {
+    console.log('holder payouts skipped: FEE_COLLECTOR_KEY pays the fees and the account rent')
+    return { skipped: true }
+  }
+
+  const [{ Connection, PublicKey, Transaction }, { DynamicFeeSharingClient },
+    { deriveDbcPoolAuthority, deriveDammV2PoolAuthority }] = await Promise.all([
+    import('@solana/web3.js'),
+    import('@meteora-ag/dynamic-fee-sharing-sdk'),
+    import('@meteora-ag/dynamic-bonding-curve-sdk'),
+  ])
+  const { pendingHolderFees, snapshotHolders, payoutInstructions, FLOOR_USD } =
+    await import('./lib/holder-payouts.mjs')
+
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const { launches } = await readLaunches(env)
+  const { coins } = await readCatalogue(env)
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+
+  // Whoever holds the supply on behalf of a pool rather than on their own behalf.
+  // Both are program addresses shared by every pool, so this is two entries, not two
+  // per coin — and without them the curve would be paid to hold its own tokens.
+  const custodians = [deriveDbcPoolAuthority().toBase58(), deriveDammV2PoolAuthority().toBase58()]
+
+  const owed = await pendingHolderFees(dfs, connection, launches, { potAddress: FEES.holderPot, prices })
+  const done = []
+  for (const o of owed) {
+    if (o.usd < FLOOR_USD) continue
+    const name = o.launch.symbol ?? o.launch.baseMint
+    try {
+      const claim = await dfs.claimUserFee({ feeVault: o.vault, user: pot.publicKey, payer: payer.publicKey })
+      claim.feePayer = payer.publicKey
+      await sendAndConfirm(connection, claim, [payer, pot])
+
+      // Snapshotted after the claim, not before: the pot is now holding the money, so
+      // the list of who gets it is as fresh as it can be.
+      const holders = await snapshotHolders(env.HELIUS_RPC, o.launch.baseMint)
+      const { batches, paid, payouts } = payoutInstructions({
+        holders,
+        pot: pot.publicKey,
+        payer: payer.publicKey,
+        quoteMint: o.launch.quoteMint,
+        amount: o.amount,
+        price: o.price,
+        exclude: [...custodians, o.launch.pool].filter(Boolean),
+      })
+      if (!batches.length) {
+        console.log(`holder payouts: ${name} has nobody to pay yet, ${(Number(o.amount) / 1e6).toFixed(6)} claimed and waiting`)
+        continue
+      }
+
+      let sent = 0
+      for (const instructions of batches) {
+        const tx = new Transaction().add(...instructions)
+        tx.feePayer = payer.publicKey
+        await sendAndConfirm(connection, tx, [payer, pot])
+        sent++
+      }
+      done.push({ symbol: o.launch.symbol, baseMint: o.launch.baseMint, holders: payouts.length,
+        quote: Number(paid) / 1e6, usd: (Number(paid) / 1e6) * o.price, transactions: sent })
+    } catch (e) {
+      // Left for the next hour rather than retried here: whatever failed, the share
+      // is still in the vault or still in the pot, and neither is lost.
+      console.error(`holder payouts failed on ${name}: ${e.message}`)
+    }
+  }
+
+  if (done.length) {
+    console.log(`holder payouts: ${done.length} coin(s), ${done.reduce((t, d) => t + d.holders, 0)} holder(s), ≈$${done.reduce((t, d) => t + d.usd, 0).toFixed(2)}`)
+    if (env.REGISTRY) {
+      await env.REGISTRY.put('payouts:last', JSON.stringify({ at: new Date().toISOString(), done }))
+    }
+  }
+  return { paid: done.length }
+}
+
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 function decodeBase58(str) {
   let n = 0n
   for (const c of str) {
     const i = B58.indexOf(c)
-    if (i < 0) throw new Error('FEE_COLLECTOR_KEY is neither base58 nor a JSON array')
+    if (i < 0) throw new Error('that secret is neither base58 nor a JSON array')
     n = n * 58n + BigInt(i)
   }
   const bytes = []
@@ -1336,7 +1455,12 @@ export default {
   // Keeps the catalogue warm so a visitor never waits on getProgramAccounts.
   async scheduled(event, env, ctx) {
     if (event.cron === FEE_SWEEP) {
-      ctx.waitUntil(sweepFees(env))
+      // The sweep first: both spend from the same collector, and LFOwn's own claim
+      // failing for want of SOL is a better outcome than a holder's payout failing.
+      ctx.waitUntil((async () => {
+        await sweepFees(env).catch((e) => console.error(`fee sweep failed: ${e.message}`))
+        await distributeToHolders(env).catch((e) => console.error(`holder payouts failed: ${e.message}`))
+      })())
       return
     }
     if (event.cron === WATCH) {
