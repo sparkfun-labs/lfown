@@ -140,7 +140,7 @@ await test('a vault never spends a slot on a shareholder owed nothing', () => {
   assert.equal(needsVault(1), true)
 })
 
-await test('a pot is split pro rata, without the curve and without dust', () => {
+await test('a pot is split pro rata, without the curve, and nothing is left behind', () => {
   const pool = 'PooL11111111111111111111111111111111111111'
   const snapshot = [
     { address: pool, amount: 800n },   // the curve holds most of the supply
@@ -154,11 +154,23 @@ await test('a pot is split pro rata, without the curve and without dust', () => 
 
   assert.equal(by.DDD, undefined, 'an empty account is not a holder')
   assert.equal(by[pool], undefined, 'the curve is not paid to hold its own supply')
-  assert.equal(by.CCC, undefined, 'a share too small to be worth an account waits')
-  assert.equal(by.AAA + by.BBB, paid, 'what is paid is what the payouts add up to')
-  assert.equal(paid + carried, 1_000_000n, 'and nothing is invented or lost')
-  assert.equal(by.AAA, 750_000n, '150 of 200 eligible')
-  assert.equal(by.BBB, 245_000n, '49 of 200, plus CCC\'s share left behind')
+  assert.equal(by.CCC, undefined, 'a share too small to be worth an account is dropped')
+  // CCC's share is not held back. A vault is claimed all or nothing, so a share left
+  // out of one run is already in the pot, and nothing reads the pot again: holding it
+  // back used to strand it. It is re-split among the holders who are paid.
+  assert.equal(carried, 0n, 'nothing is left behind in the pot')
+  assert.equal(paid, 1_000_000n, 'the whole pot is handed out')
+  assert.equal(by.AAA + by.BBB, 1_000_000n)
+  assert.equal(by.AAA, 753_769n, '150 of the 199 kept, plus the rounding remainder')
+  assert.equal(by.BBB, 246_231n, '49 of the 199 kept')
+
+  // Dropping the smallest raises the others, so the cut has to be made from the top.
+  // Here nobody clears the floor on the full list, yet the largest does on their own.
+  const lifted = allocate([{ address: 'A', amount: 40n }, { address: 'B', amount: 30n },
+    { address: 'C', amount: 30n }], 1_000_000n, { dust: 500_000n })
+  assert.deepEqual(lifted.payouts, [{ address: 'A', amount: 1_000_000n }],
+    'dropping everyone under the floor at once would have paid nobody')
+  assert.equal(lifted.carried, 0n)
 
   const exact = allocate([{ address: 'AAA', amount: 3n }, { address: 'BBB', amount: 3n },
     { address: 'CCC', amount: 3n }], 10n)
@@ -167,7 +179,9 @@ await test('a pot is split pro rata, without the curve and without dust', () => 
   assert.equal(exact.carried, 0n)
 
   assert.deepEqual(allocate([], 5n), { payouts: [], paid: 0n, carried: 5n },
-    'a coin nobody holds keeps its pot for later')
+    'a coin nobody holds pays nobody — and the caller must not claim it')
+  assert.deepEqual(allocate([{ address: 'A', amount: 1n }], 100n, { dust: 500n }).payouts, [],
+    'nor a pot too small for even one person')
 })
 
 await chainTest('a config opens against a non-SOL quote mint', async () => {

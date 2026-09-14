@@ -300,6 +300,20 @@ handed to it — signed in one approval. The vault is seeded by the coin's mint,
 has to sign to open it, so a coin launched without one can never be given one
 afterwards: the mint key is thrown away once the pool exists.
 
+When it pays, and whom. A coin is looked at once an hour; it is paid only when its
+share is worth at least `FLOOR_USD` ($2), and each holder only when their cut is at
+least `PER_HOLDER_FLOOR_USD` ($0.50). A holder under that floor is left out of the
+run and their cut re-split among the others — not held back. That distinction is the
+whole design: a vault is claimed all or nothing, so a share held back would already
+be sitting in the pot, where nothing reads it again. So who would be paid is decided
+*before* claiming, a coin with nobody over the floor is not claimed at all, and what
+is handed out is the change in the pot's balance across the claim rather than the
+figure read beforehand.
+
+If a run fails after claiming, what did not go out is stranded in the pot and will
+not come back on its own. It is logged and appended to `payouts:stranded` in KV with
+the coin, the quote mint and the amount, so it can be sent on by hand.
+
 Empty `FEES.holderPot` means the launch screen does not offer the choice at all.
 
 ### The hourly sweep

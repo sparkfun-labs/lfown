@@ -31,7 +31,12 @@ import { allocate, deriveVault } from './fee-split.mjs'
  */
 export const FLOOR_USD = 2
 
-/** And below this, one person's share is not worth the account it would need. */
+/**
+ * And below this, one person's share is not worth the account it would need. Such a
+ * holder is left out of the run and their share re-split among the others — not held
+ * back, because a vault is claimed all or nothing and a share held back would sit in
+ * the pot where nothing reads it again.
+ */
 export const PER_HOLDER_FLOOR_USD = 0.5
 
 /** How many transfers ride in one transaction, with room for the account each needs. */
@@ -113,18 +118,25 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
  *
  * The pool's own vault is left out: on a bonding curve the program holds most of the
  * supply, and paying it would be paying the curve to hold its own tokens.
+ *
+ * No batches means nobody clears the floor, and the caller must not claim: the share
+ * is safer left in the vault than moved to a pot with nobody to hand it to. `totals`
+ * is what each batch sends, so a run that fails part way knows what never went out.
  */
 export function payoutInstructions({ holders, pot, payer, quoteMint, amount, price, exclude }) {
   const dust = price > 0 ? BigInt(Math.ceil((PER_HOLDER_FLOOR_USD / price) * 1e6)) : 0n
   const { payouts, paid, carried } = allocate(holders, amount, { exclude, dust })
-  if (!payouts.length) return { batches: [], paid: 0n, carried }
+  if (!payouts.length) return { batches: [], totals: [], paid: 0n, carried, payouts: [] }
 
   const mint = new PublicKey(quoteMint)
   const from = getAssociatedTokenAddressSync(mint, pot, true)
   const batches = []
+  const totals = []
   for (let i = 0; i < payouts.length; i += PER_TRANSACTION) {
     const instructions = []
-    for (const p of payouts.slice(i, i + PER_TRANSACTION)) {
+    const slice = payouts.slice(i, i + PER_TRANSACTION)
+    totals.push(slice.reduce((t, p) => t + p.amount, 0n))
+    for (const p of slice) {
       const owner = new PublicKey(p.address)
       const to = getAssociatedTokenAddressSync(mint, owner, true)
       // Idempotent: a holder who already has an account for this coin is common, and
@@ -136,5 +148,5 @@ export function payoutInstructions({ holders, pot, payer, quoteMint, amount, pri
     }
     batches.push(instructions)
   }
-  return { batches, paid, carried, payouts }
+  return { batches, totals, paid, carried, payouts }
 }

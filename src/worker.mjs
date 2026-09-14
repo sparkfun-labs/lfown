@@ -1325,11 +1325,22 @@ async function distributeToHolders(env) {
   }
 
   const [{ Connection, PublicKey, Transaction }, { DynamicFeeSharingClient },
-    { deriveDbcPoolAuthority, deriveDammV2PoolAuthority }] = await Promise.all([
+    { deriveDbcPoolAuthority, deriveDammV2PoolAuthority }, { getAssociatedTokenAddressSync }] = await Promise.all([
     import('@solana/web3.js'),
     import('@meteora-ag/dynamic-fee-sharing-sdk'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'),
+    import('@solana/spl-token'),
   ])
+  // An account that does not exist yet holds nothing; the pot's first claim in a given
+  // quote coin is what creates it.
+  const balanceOf = async (account) => {
+    try {
+      return BigInt((await connection.getTokenAccountBalance(account)).value.amount)
+    } catch (e) {
+      if (/could not find account|Invalid param/i.test(e.message)) return 0n
+      throw e
+    }
+  }
   const { pendingHolderFees, snapshotHolders, payoutInstructions, FLOOR_USD } =
     await import('./lib/holder-payouts.mjs')
 
@@ -1349,41 +1360,72 @@ async function distributeToHolders(env) {
   for (const o of owed) {
     if (o.usd < FLOOR_USD) continue
     const name = o.launch.symbol ?? o.launch.baseMint
+    const quoteMint = new PublicKey(o.launch.quoteMint)
+    const from = getAssociatedTokenAddressSync(quoteMint, pot.publicKey, true)
+    let claimed = 0n
+    let sent = 0n
     try {
-      const claim = await dfs.claimUserFee({ feeVault: o.vault, user: pot.publicKey, payer: payer.publicKey })
-      claim.feePayer = payer.publicKey
-      await sendAndConfirm(connection, claim, [payer, pot])
-
-      // Snapshotted after the claim, not before: the pot is now holding the money, so
-      // the list of who gets it is as fresh as it can be.
+      // Who would be paid is decided before anything is claimed, because a claim takes
+      // the whole share at once. Claiming a pot nobody can be paid from would move it
+      // out of the vault — where it is safe and keeps accruing — onto a hot key with
+      // nothing to do with it. The snapshot is seconds older than the claim; that is
+      // the price of never claiming what cannot be handed out.
       const holders = await snapshotHolders(env.HELIUS_RPC, o.launch.baseMint)
-      const { batches, paid, payouts } = payoutInstructions({
+      const plan = {
         holders,
         pot: pot.publicKey,
         payer: payer.publicKey,
         quoteMint: o.launch.quoteMint,
-        amount: o.amount,
         price: o.price,
         exclude: [...custodians, o.launch.pool].filter(Boolean),
-      })
-      if (!batches.length) {
-        console.log(`holder payouts: ${name} has nobody to pay yet, ${(Number(o.amount) / 1e6).toFixed(6)} claimed and waiting`)
+      }
+      if (!payoutInstructions({ ...plan, amount: o.amount }).batches.length) {
+        console.log(`holder payouts: ${name} has nobody over the floor yet — ${(Number(o.amount) / 1e6).toFixed(6)} left in its vault`)
         continue
       }
 
-      let sent = 0
-      for (const instructions of batches) {
+      // What this claim actually paid, measured rather than assumed. Fees keep accruing
+      // between reading the vault and claiming it, so the vault's figure is only a lower
+      // bound. And the pot's account for this quote coin is shared by every coin paired
+      // with it, so its balance is not this coin's either — the change across this one
+      // claim is the only number that is all of this coin's and nothing else.
+      const before = await balanceOf(from)
+      const claim = await dfs.claimUserFee({ feeVault: o.vault, user: pot.publicKey, payer: payer.publicKey })
+      claim.feePayer = payer.publicKey
+      await sendAndConfirm(connection, claim, [payer, pot])
+      claimed = (await balanceOf(from)) - before
+
+      // More money can only keep more holders over the floor, never fewer, so a plan
+      // that paid someone on the lower bound still pays someone now.
+      const { batches, totals, payouts } = payoutInstructions({ ...plan, amount: claimed })
+      let transactions = 0
+      for (const [i, instructions] of batches.entries()) {
         const tx = new Transaction().add(...instructions)
         tx.feePayer = payer.publicKey
         await sendAndConfirm(connection, tx, [payer, pot])
-        sent++
+        // Counted as each batch lands, so a failure part way through knows exactly how
+        // much of this coin's claim never reached anyone.
+        sent += totals[i]
+        transactions++
       }
       done.push({ symbol: o.launch.symbol, baseMint: o.launch.baseMint, holders: payouts.length,
-        quote: Number(paid) / 1e6, usd: (Number(paid) / 1e6) * o.price, transactions: sent })
+        quote: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * o.price, transactions })
     } catch (e) {
-      // Left for the next hour rather than retried here: whatever failed, the share
-      // is still in the vault or still in the pot, and neither is lost.
       console.error(`holder payouts failed on ${name}: ${e.message}`)
+      // Before the claim, nothing moved: the share is still in the vault and the next
+      // hour tries again. After it, whatever did not go out is in the pot — and nothing
+      // reads the pot, so it is not coming back on its own. Written down where someone
+      // will find it, with enough to send it on by hand.
+      const stranded = claimed - sent
+      if (stranded > 0n) {
+        const record = { at: new Date().toISOString(), symbol: o.launch.symbol, baseMint: o.launch.baseMint,
+          quoteMint: o.launch.quoteMint, amount: stranded.toString(), error: e.message }
+        console.error(`holder payouts: ${stranded} of ${name}'s claim is stranded in the pot`)
+        if (env.REGISTRY) {
+          const list = (await env.REGISTRY.get('payouts:stranded', 'json').catch(() => null)) ?? []
+          await env.REGISTRY.put('payouts:stranded', JSON.stringify([...list, record].slice(-200)))
+        }
+      }
     }
   }
 

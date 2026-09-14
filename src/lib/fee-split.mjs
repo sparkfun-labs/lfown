@@ -100,30 +100,44 @@ export function deriveVault(baseMint, quoteMint) {
  *
  * `dust` is the floor per person. Receiving a token costs rent if the recipient has
  * no account for it yet, so a share below the floor is worth less than the account
- * it would need. Those shares stay in the pot for the next run, where they may
- * clear it; `carried` says how much that was.
+ * it would need. Those holders are dropped and the whole pot is split among the
+ * rest, so `carried` is zero whenever anyone is paid — and the whole pot when nobody
+ * is, which is the caller's signal not to claim it at all.
  */
 export function allocate(holders, pot, { exclude = [], dust = 0n } = {}) {
   const out = new Set(exclude.map(String))
+  const amount = BigInt(pot)
+  // Largest first: the remainder goes to the biggest holder rather than to whoever the
+  // snapshot happened to list first, and the cut below works down from the top.
   const eligible = holders
     .map((h) => ({ address: String(h.address), amount: BigInt(h.amount) }))
     .filter((h) => h.amount > 0n && !out.has(h.address))
+    .sort((a, b) => (b.amount === a.amount ? 0 : b.amount > a.amount ? 1 : -1))
+  if (!eligible.length || amount <= 0n) return { payouts: [], paid: 0n, carried: amount > 0n ? amount : 0n }
 
-  const supply = eligible.reduce((t, h) => t + h.amount, 0n)
-  const amount = BigInt(pot)
-  if (supply === 0n || amount <= 0n) return { payouts: [], paid: 0n, carried: amount > 0n ? amount : 0n }
+  // A holder whose share is under the floor is dropped and the pot re-split among the
+  // rest — not paid less, and not held back. Held back is what this used to do, and it
+  // stranded money: a vault is claimed all or nothing, so a share left out of one run
+  // was already sitting in the pot, and nothing ever read the pot again.
+  //
+  // Dropping the smallest raises everyone else's share, which can lift the next one
+  // over the floor, so it is not enough to drop everyone under it at once. Shares are
+  // proportional to holdings, so the smallest share is always the smallest holder, and
+  // "the k-th largest still clears the floor among the top k" only ever turns false as
+  // k grows. One pass finds the largest such k. A share must also be at least one unit,
+  // so an empty floor never pays anyone zero.
+  const floor = BigInt(dust) > 0n ? BigInt(dust) : 1n
+  let kept = 0
+  let supply = 0n
+  for (const h of eligible) {
+    if ((amount * h.amount) / (supply + h.amount) < floor) break
+    supply += h.amount
+    kept++
+  }
+  if (!kept) return { payouts: [], paid: 0n, carried: amount }
 
-  // Floor division leaves a remainder smaller than the number of holders. It goes to
-  // the largest holder rather than to whoever the snapshot happened to list first,
-  // which would quietly favour an ordering nobody chose.
-  const shares = eligible
-    .map((h) => ({ address: h.address, share: (amount * h.amount) / supply, weight: h.amount }))
-    .sort((a, b) => (b.weight === a.weight ? 0 : b.weight > a.weight ? 1 : -1))
-  const remainder = amount - shares.reduce((t, s) => t + s.share, 0n)
-  if (shares.length) shares[0].share += remainder
-
-  const payouts = shares.filter((s) => s.share >= dust && s.share > 0n)
-    .map(({ address, share }) => ({ address, amount: share }))
-  const paid = payouts.reduce((t, p) => t + p.amount, 0n)
-  return { payouts, paid, carried: amount - paid }
+  const payouts = eligible.slice(0, kept).map((h) => ({ address: h.address, amount: (amount * h.amount) / supply }))
+  // Floor division leaves a remainder smaller than the number of holders kept.
+  payouts[0].amount += amount - payouts.reduce((t, p) => t + p.amount, 0n)
+  return { payouts, paid: amount, carried: 0n }
 }
