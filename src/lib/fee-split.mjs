@@ -141,3 +141,25 @@ export function allocate(holders, pot, { exclude = [], dust = 0n } = {}) {
   payouts[0].amount += amount - payouts.reduce((t, p) => t + p.amount, 0n)
   return { payouts, paid: amount, carried: 0n }
 }
+
+/**
+ * Who a vault's shares belong to, as far as this site is willing to say.
+ *
+ * Only the share held by the pot is ever the holders'. Anyone can open a pool on these
+ * configs through the SDK instead of the launch page and hand it to a vault of their own
+ * making — 49 points to a second wallet, 1 to themselves — and a page that called every
+ * other shareholder "holders" would announce a gift to holders that pays them nothing.
+ * So `holders` is the pot's slot and nothing else; `others` is whatever the creator
+ * handed to addresses that are neither them nor the pot, which the site cannot vouch for.
+ *
+ * Addresses may be PublicKeys, as the SDK returns them, or base58 strings.
+ */
+export function vaultSplit(users, totalShare, { creator, pot }) {
+  const key = (a) => (typeof a?.toBase58 === 'function' ? a.toBase58() : String(a))
+  const live = users.filter((u) => Number(u.share) > 0)
+  const of = (who) => (who ? live.filter((u) => key(u.address) === who).reduce((t, u) => t + Number(u.share), 0) : 0)
+  const total = Number(totalShare)
+  const holders = of(pot)
+  const own = of(creator)
+  return { total, holders, creator: own, others: total - holders - own }
+}

@@ -120,12 +120,15 @@ export async function vaultFees({ pool }, { vault, creator, lp = null }) {
       claimed: Number(BigInt(user.feeClaimed.toString())) / 1e6,
     }
   }
-  const other = state.users.find((u) => u.share > 0 && u.address.toBase58() !== creator)
+  // Only the pot's slot is the holders'. A vault opened through the SDK can give its
+  // second slot to any wallet at all, and a coin page that called that "holders" would
+  // be announcing a gift to holders that pays them nothing.
+  const { FEES } = await import('../lib/config.mjs')
   return {
     vault: address.toBase58(),
     totalShare: Number(total),
     creator: side(creator),
-    holders: other ? side(other.address.toBase58()) : nobody,
+    holders: FEES.holderPot ? side(FEES.holderPot) : nobody,
   }
 }
 

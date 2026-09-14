@@ -84,7 +84,7 @@ export const FEES = {
    * part cannot be paid to holders by the fee-sharing program itself — it pays at
    * most five fixed addresses and a coin's holders are a crowd that changes with
    * every trade — so it is paid to this one address, per coin, and shared out from
-   * there by `scripts/distribute.mjs`.
+   * there by the hourly payout, `distributeToHolders` in `src/worker.mjs`.
    *
    * It has to be an address whose key is held, because claiming from a vault needs
    * its shareholder to sign. Keep it separate from `recipient`: what lands here is

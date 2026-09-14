@@ -158,6 +158,9 @@ server carries a dead link forever.
   every coin already graduated, for good. It cannot touch the treasury: claims land
   there directly and receiving needs no signature. Keep as little SOL on it as the
   keeper needs, and read *Where the claimer lives* below.
+- **The holder pot key is just as permanent.** `HOLDER_POT_KEY` is a shareholder of
+  every shared vault, and the fee-sharing program has no way to remove one. Its
+  balance is normally empty; its reach is not. See *Sharing fees with holders*.
 - **Every route that costs something is rate limited per address in the Worker**
   (`ratelimits` in `wrangler.jsonc`): the RPC proxy on its own ceiling; the chart,
   launch, exit, graduate, image and metadata routes on a shared one. A JSON-RPC
@@ -309,9 +312,18 @@ own behalf — on a bonding curve that is 77% to 99% of the coin.
 
 Two keys for one job. The pot signs, because only a shareholder may claim its share;
 the collector pays, because paying someone a token they have never held means renting
-them an account for it. So the pot never needs a SOL balance, and it holds nothing
-between runs: a coin worth less than `FLOOR_USD` is left in its vault, where it keeps
-accruing and only its shareholders can reach it.
+them an account for it. So the pot never needs a SOL balance, and between runs its
+balance is normally empty: a coin worth less than `FLOOR_USD` is left in its vault,
+where it keeps accruing and only its shareholders can reach it.
+
+An empty balance is not an empty key. The pot is a shareholder of every shared vault,
+and the program has no instruction to replace a shareholder, change a share or close a
+vault. Whoever holds `HOLDER_POT_KEY` can claim the holders' part of every shared coin
+already launched, and of every one launched while `FEES.holderPot` still names it, for
+good — the same reach the claimer key has over the DAO's half. There is no
+architectural fix while the payout is hourly and automatic. Once the secret is in the
+Worker, move the local copy in `.keys/` off the machine or encrypt it, and watch that
+the pot's claims on chain match what `payouts:last` says was paid.
 
 Sharing makes a launch two transactions, signed in one approval: all three instructions
 together measured 1287 bytes with the longest name and symbol the screen accepts,
@@ -372,17 +384,50 @@ collect fees in token B only (`collectFeeMode` 1), so token A never earns anythi
 send elsewhere. Should Meteora ever change either, a pull would pay the wrong token
 into the vault; the devnet suite asserts both on every run.
 
-What the pages say. `/api/fees` splits a shared coin's creator half by the vault's own
-shares, on the curve and after graduation alike: `creator` is the creator's own share
-and `holders` what they gave away, so creator + holders + LFOwn is still exactly what
-the coin generated. Every page that prints "fees generated" sums all three — the
-leaderboard, the creator pages, `/coins`, a coin's panel and the landing's bar — and
-shows a holders line only where there is one. A creator is ranked by what their coins
-generated, holders' part included; "kept" is what they actually kept.
+What the pages say. Only the share a vault gives `FEES.holderPot` is ever called the
+holders'. Anyone can open a pool on these configs through the SDK instead of the launch
+page and hand it to a vault of their own making — 49 points to a second wallet, 1 to
+themselves — and a site that called every other shareholder "holders" would announce a
+gift to holders that pays them nothing. So a vault whose other shareholder is not the
+pot is a split the creator chose: `vaultSplit` in `src/lib/fee-split.mjs` draws that
+line once, `/api/fees` keeps such shares on the creator's side and marks the coin
+`customSplit`, and a coin's panel shows holders only for the pot's slot. The hourly
+payout was never fooled — it looks the pot up by address.
+
+`/api/fees` splits a shared coin's creator half by the vault's own shares, on the curve
+and after graduation alike: `holders` is the pot's share and `creator` the rest, so
+creator + holders + LFOwn is still exactly what the coin generated. Every page that
+prints "fees generated" sums all three — the leaderboard, the creator pages, `/coins`, a
+coin's panel and the landing's bar — and shows a holders line only where there is one.
+A creator is ranked by what their coins generated, holders' part included; "kept" is
+everything that went neither to holders nor to the DAO.
 
 If a run fails after claiming, what did not go out is stranded in the pot and will
 not come back on its own. It is logged and appended to `payouts:stranded` in KV with
-the coin, the quote mint and the amount, so it can be sent on by hand.
+the coin, the quote mint and the amount, so it can be sent on by hand — after checking
+the chain, since a batch that timed out waiting for confirmation may have landed
+anyway and still be counted as stranded. A run the Worker is stopped in the middle of
+leaves no record at all: the plan is not written anywhere before sending starts.
+
+Known limits. None of them matters at today's volume, and all of them will:
+
+- The snapshot is taken at the top of the hour, a moment anyone can predict. Buying at
+  :59 and selling at :01 collects an hour's holder share for two trading fees, which
+  pays once a coin's hourly pot outweighs the round trip.
+- Only the two Meteora pool authorities are left out. Any other program account holding
+  the coin — another DEX's pool, a lending market — is paid like a wallet, into an
+  account nobody controls.
+- A creator's own dev buy is a holding like any other, and with the curve's share
+  excluded it is often most of what is left: a creator who gives holders 50% can take a
+  large part of it back.
+- Every recipient without an account for the quote coin costs the collector about
+  0.0015 SOL to open one.
+- A quote coin that drops out of the catalogue has no price, so its pot never clears the
+  dollar floor and is never paid.
+- The snapshot reads at most 50 pages of 1,000 accounts and stops there silently.
+- The creator's surplus after migration is reachable through the vault —
+  `CreatorWithdrawSurplus` is on the program's whitelist and the SDK has
+  `fundByWithdrawDbcCreatorSurplus` — but nothing here collects it yet.
 
 Empty `FEES.holderPot` means the launch screen does not offer the choice at all.
 

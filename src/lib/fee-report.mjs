@@ -9,6 +9,8 @@ import {
   deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { CpAmm, getUnClaimLpFee } from '@meteora-ag/cp-amm-sdk'
+import { FEES } from './config.mjs'
+import { vaultSplit } from './fee-split.mjs'
 
 const lamports = (x) => Number(x?.toString() ?? 0) / 1e6
 
@@ -16,7 +18,7 @@ const lamports = (x) => Number(x?.toString() ?? 0) / 1e6
  * Per coin: what the curve earned, what the graduated pool has earned since, and
  * how each splits between the creator, LFOwn and Meteora.
  */
-export async function feeReport(client, connection, launches, { prices = new Map() } = {}) {
+export async function feeReport(client, connection, launches, { prices = new Map(), holderPot = FEES.holderPot } = {}) {
   const cp = new CpAmm(connection)
   const rows = []
   // Loaded only when some coin shares its fees: every other report never needs it.
@@ -70,19 +72,23 @@ export async function feeReport(client, connection, launches, { prices = new Map
     // position alike — so it is split here, once, and every page reads the result.
     // Left whole if the vault cannot be read: overstating one creator is better than
     // a report that fails to build for everyone.
+    //
+    // Only the pot's slot is the holders' (see `vaultSplit`). Any other shareholder was
+    // put there by whoever opened the vault, and the site cannot say who they are, so
+    // their part stays on the creator's side of the ledger and the coin is marked as a
+    // split of the creator's own choosing rather than a gift to holders.
     const creatorSide = curve.creator + graduated.creator
     let creatorOwn = creatorSide
     let holders = 0
+    let customSplit = false
     if (l.vault && dfs) {
       try {
         const vault = await dfs.getFeeVault(new PublicKey(l.vault))
-        const totalShare = Number(vault.totalShare)
-        const live = vault.users.filter((u) => u.share > 0)
-        const mine = live.find((u) => u.address.toBase58() === l.creator)
-        const theirs = live.filter((u) => u.address.toBase58() !== l.creator).reduce((t, u) => t + Number(u.share), 0)
-        if (totalShare) {
-          creatorOwn = (creatorSide * Number(mine?.share ?? 0)) / totalShare
-          holders = (creatorSide * theirs) / totalShare
+        const split = vaultSplit(vault.users, vault.totalShare, { creator: l.creator, pot: holderPot })
+        if (split.total) {
+          holders = (creatorSide * split.holders) / split.total
+          creatorOwn = creatorSide - holders
+          customSplit = split.others > 0
         }
       } catch (e) {
         console.error(`fee report: vault ${l.vault} for ${l.symbol ?? l.baseMint} unreadable, creator figure left unsplit: ${e.message}`)
@@ -115,6 +121,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
       creator: creatorOwn,
       holders,
       holdersUsd: holders * price,
+      customSplit,
       meteora: curve.protocol,
     })
   }

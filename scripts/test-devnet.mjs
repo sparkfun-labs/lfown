@@ -29,7 +29,7 @@ import { CpAmm, derivePositionNftAccount } from '@meteora-ag/cp-amm-sdk'
 import { lpPositions } from '../src/lib/lp-fees.mjs'
 import { feeReport } from '../src/lib/fee-report.mjs'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
-import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
+import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate, vaultSplit } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
 
 const KEY = readFileSync('.dev.vars', 'utf8').match(/api-key=([a-f0-9-]+)/)[1]
@@ -186,6 +186,23 @@ await test('a pot is split pro rata, without the curve, and nothing is left behi
     'a coin nobody holds pays nobody — and the caller must not claim it')
   assert.deepEqual(allocate([{ address: 'A', amount: 1n }], 100n, { dust: 500n }).payouts, [],
     'nor a pot too small for even one person')
+})
+
+await test("only the pot's share is ever called the holders'", () => {
+  const creator = 'CREATOR'
+  const pot = 'POT'
+  assert.deepEqual(vaultSplit([{ address: creator, share: 30 }, { address: pot, share: 20 }], 50, { creator, pot }),
+    { total: 50, holders: 20, creator: 30, others: 0 }, 'a vault the launch page opened reads as it should')
+
+  // A vault opened through the SDK instead, with a second wallet where the pot belongs.
+  const forged = vaultSplit([{ address: creator, share: 1 }, { address: 'SECOND', share: 49 }], 50, { creator, pot })
+  assert.equal(forged.holders, 0, 'a second wallet is not holders, whatever share it is given')
+  assert.equal(forged.others, 49, 'it is a split the creator chose')
+
+  assert.equal(vaultSplit([{ address: pot, share: 50 }], 50, { creator, pot: '' }).holders, 0,
+    'with no pot configured, nothing is holders')
+  assert.equal(vaultSplit([{ address: creator, share: 50 }, { address: pot, share: 0 }], 50, { creator, pot }).holders, 0,
+    'an empty slot is not a share')
 })
 
 await chainTest('a config opens against a non-SOL quote mint', async () => {
@@ -658,12 +675,15 @@ await chainTest('the fee report splits a shared coin between its creator and its
   const shared = await client.state.getPool(sharedPool)
   const plain = await client.state.getPool(pool)
   const prices = new Map([[quoteMint.toBase58(), 1]])
+  const sharedLaunch = { pool: sharedPool.toBase58(), baseMint: shared.poolState.baseMint.toBase58(),
+    quoteMint: quoteMint.toBase58(), creator: payer.publicKey.toBase58(), vault: sharedVault.toBase58(), symbol: 'SHRD' }
+  // The suite's pot is a throwaway keypair, not the address in config.mjs, so it is named.
+  const holderPot = sharedPot.publicKey.toBase58()
   const { coins, totals } = await feeReport(client, connection, [
-    { pool: sharedPool.toBase58(), baseMint: shared.poolState.baseMint.toBase58(), quoteMint: quoteMint.toBase58(),
-      creator: payer.publicKey.toBase58(), vault: sharedVault.toBase58(), symbol: 'SHRD' },
+    sharedLaunch,
     { pool: pool.toBase58(), baseMint: plain.poolState.baseMint.toBase58(), quoteMint: quoteMint.toBase58(),
       creator: payer.publicKey.toBase58(), symbol: 'TEST' },
-  ], { prices })
+  ], { prices, holderPot })
   const bySymbol = Object.fromEntries(coins.map((c) => [c.symbol, c]))
   const close = (a, b) => Math.abs(a - b) < 1e-6
 
@@ -680,6 +700,16 @@ await chainTest('the fee report splits a shared coin between its creator and its
   assert.equal(t.holders, 0, 'a coin that does not share gives holders nothing')
   assert(close(t.creator, t.lfown), 'and its creator keeps the whole half')
   assert(close(totals.holdersUsd, s.holdersUsd), 'the totals carry the holders too')
+  assert.equal(s.customSplit, false, 'a vault whose other slot is the pot is not a custom split')
+
+  // The same real vault, read as though its second shareholder were not the pot — which
+  // is exactly what a vault opened through the SDK with a second wallet looks like.
+  const [forged] = (await feeReport(client, connection, [sharedLaunch],
+    { prices, holderPot: Keypair.generate().publicKey.toBase58() })).coins
+  assert.equal(forged.holders, 0, 'a shareholder that is not the pot must never be reported as holders')
+  assert(close(forged.creator, s.creator + s.holders), "its part stays on the creator's side")
+  assert(close(forged.creator + forged.holders + forged.lfown, forged.total), 'and everything still adds up')
+  assert.equal(forged.customSplit, true, 'and the coin is marked as a split the creator chose')
 })
 
 console.log(`\n${passed} passed${onChain ? '' : ', on-chain suite skipped'}`)
