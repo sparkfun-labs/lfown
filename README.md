@@ -112,6 +112,13 @@ will really charge rather than what `FEES` currently says.
 Pass a single mint instead of `all` to open one coin. Coins already open on that
 tier are skipped, and each config is written to KV as soon as it confirms.
 
+A coin whose raise has not closed yet has no market and no price to convert the tier
+with. Start the script with `--wait` and it checks MetaDAO's market API every minute,
+opening the config the moment the coin trades there — which is also when it appears in
+the launch page's catalogue:
+
+    LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --wait
+
 The graduation threshold lives inside the config, so it cannot vary per launch —
 a creator picks one of the tiers in `src/lib/config.mjs` ($5k / $15k / $50k,
 converted to backing coins at the price on the day the tier was opened). Open the

@@ -6,6 +6,13 @@
 //
 //   node scripts/create-config.mjs <mint|all> [starter|standard|serious]   # dry run
 //   LFOWN_ARM=yes node scripts/create-config.mjs all starter              # sends
+//   LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --wait    # waits for a new coin to list
+//
+// `--wait` is for a raise that has not closed yet: the coin has no market and no price,
+// so there is nothing to convert the tier's dollar target with. It checks MetaDAO's
+// market API every minute and opens the config as soon as the coin trades there — the
+// same moment it appears in the launch page's catalogue, so a config is never waiting on
+// a coin nobody can pick, nor the other way round.
 //
 // Coins already open on that tier are skipped, and each new config is published to
 // KV as soon as it confirms — a config nobody can look up may as well not exist.
@@ -28,8 +35,10 @@ import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { FEES, TIERS } from '../src/lib/config.mjs'
 
-const target = process.argv[2]
-const tierId = process.argv[3] ?? 'starter'
+const args = process.argv.slice(2).filter((a) => !a.startsWith('--'))
+const WAIT = process.argv.includes('--wait')
+const target = args[0]
+const tierId = args[1] ?? 'starter'
 const tier = TIERS.find((t) => t.id === tierId)
 if (!target || !tier) {
   console.error(`usage: node scripts/create-config.mjs <mint|all> [${TIERS.map((t) => t.id).join('|')}]`)
@@ -48,12 +57,22 @@ const connection = new Connection(RPC, 'confirmed')
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 const { buildRegistry } = await import('../src/lib/registry.mjs')
-const { coins } = await buildRegistry()
+let { coins } = await buildRegistry()
 
 // A tier is a dollar target, converted once at today's price. From then on the
 // threshold is a fixed number of backing coins and its dollar value floats.
-const queue = target === 'all' ? coins : coins.filter((c) => c.mint === target)
-if (!queue.length) { console.error('not a listed ownership coin:', target); process.exit(1) }
+let queue = target === 'all' ? coins : coins.filter((c) => c.mint === target)
+if (!queue.length && WAIT && target !== 'all') {
+  console.log(`${target} is not listed on MetaDAO's market API yet. Checking every minute; Ctrl-C to stop.`)
+  while (!queue.length) {
+    await new Promise((r) => setTimeout(r, 60_000))
+    ;({ coins } = await buildRegistry().catch((e) => { console.log(`  (market API: ${e.message})`); return { coins: [] } }))
+    queue = coins.filter((c) => c.mint === target)
+    if (!queue.length) console.log(`  ${new Date().toISOString().slice(11, 19)} not yet`)
+  }
+  console.log(`listed: ${queue[0].symbol} at $${queue[0].usdPrice}, treasury $${Math.round(queue[0].treasury).toLocaleString('en-US')}\n`)
+}
+if (!queue.length) { console.error('not a listed ownership coin:', target, WAIT ? '' : '(add --wait if its raise has not closed yet)'); process.exit(1) }
 
 console.log(ARMED ? '*** ARMED ***' : 'dry run — set LFOWN_ARM=yes to send')
 console.log('tier       :', `${tier.label} — $${tier.usd.toLocaleString('en-US')} per coin`)
