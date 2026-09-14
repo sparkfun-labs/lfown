@@ -1,15 +1,23 @@
 # LFOwn
 
-> LFOwn is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it: through the HTTP API below, or through the MCP server at https://letsfuckingown.fun/mcp.
+> LFOwn is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it.
 
 Nothing is ever signed for the creator. The wallet that signs a launch is the wallet that earns its trading fees.
 
-## How to launch a coin
+## Which way in
 
-1. Read the options: `GET https://letsfuckingown.fun/api/agent/options`
-   It lists the ownership coins a coin can be paired with (symbol, mint, price, treasury), the tiers open for each (the amount a curve must raise to graduate), the fee split and the limits.
+- **You are an MCP client** (Claude, ChatGPT, Cursor, VS Code, …): connect to `https://letsfuckingown.fun/mcp` and use its tools — `list_launch_options`, `validate_launch`, `prepare_launch`, `submit_launch`. No key, no login.
+- **Otherwise**: the HTTP endpoints below. They do exactly the same thing; use one or the other, not both.
 
-2. Prepare the launch: `POST https://letsfuckingown.fun/api/agent/launch` with a JSON body:
+## How to launch a coin over HTTP
+
+1. **Read the options**: `GET https://letsfuckingown.fun/api/agent/options`
+   The ownership coins a coin can be paired with (symbol, mint, price, treasury), the tiers open for each (how much a curve must raise to graduate), the fee split and the limits.
+
+2. **Check it (optional, stores nothing)**: `POST https://letsfuckingown.fun/api/agent/validate` with the same body as step 3.
+   Answers `{ ok, problems, warnings, feeShares, devBuy }`. Use it while settling details with the user, so abandoned attempts leave nothing behind.
+
+3. **Prepare the launch**: `POST https://letsfuckingown.fun/api/agent/launch` with a JSON body:
    - `name` (required, up to 32 characters)
    - `symbol` (required, up to 10 characters)
    - `quote` (required): the symbol or mint of an ownership coin from the options, e.g. `"META"`
@@ -17,27 +25,44 @@ Nothing is ever signed for the creator. The wallet that signs a launch is the wa
    - `description` (optional, up to 500 characters)
    - `imageUrl` (optional, http(s)) or `imageData` (optional, base64 data URL); png, jpeg, webp or gif, under 2 MB
    - `website`, `twitter` (optional)
-   - `holderPct` (optional, 0 to 50, default 25): points of the whole trading fee the creator gives the coin's holders, out of their own half. Paid out hourly, pro rata, in the ownership coin. Fixed at launch.
+   - `holderPct` (optional, 0 to 50, default 25): the holders' share — see *Fee shares* below
    - `devBuyPercent` (optional, 0 to 50, default 0): percent of supply the creator buys at launch, paid in the ownership coin
    - `creator` (optional): the Solana wallet that signs and earns the fees
+   - `id` (optional): a draft id from an earlier call — see *Retrying*
 
    Two answers, depending on whether you can sign:
-   - **You have no wallet** (for example, you are a chat assistant): leave out `creator`. The response has `mode: "link"` and a `launchUrl`. Give that link to the person you are helping. Everything is filled in; they review it and sign with their own wallet on the page.
-   - **You control a Solana wallet**: pass it as `creator`. The response has `mode: "sign"` and `transactions`, each base64 and already signed by the coin's mint. Sign every one with the creator wallet without changing it, then go to step 3 within about a minute.
+   - **No wallet, or a person should approve** (recommended for chat assistants): leave out `creator`. The response has `mode: "link"` and a `launchUrl`. Give that link to the person. Everything is filled in; they review it and sign with their own wallet. The link works for seven days.
+   - **You control a Solana wallet**: pass it as `creator`. The response has `mode: "sign"`, `expiresAt`, and `transactions`: objects `{ index, purpose, base64 }`, already signed by the coin's mint. Sign each `base64` with the creator wallet without changing it.
 
-3. Send it: `POST https://letsfuckingown.fun/api/agent/submit` with `{ "id": "<id from step 2>", "transactions": ["<signed base64>", ...] }`
-   The server sends them in order, waits for each to confirm, lists the coin, and answers with the signatures and the coin's page. You can also send them yourself through any Solana RPC, in order, each confirmed before the next.
+4. **Send it**: `POST https://letsfuckingown.fun/api/agent/submit` with `{ "id": "<id>", "transactions": [...] }` **before `expiresAt`** — about a minute.
+   `transactions` may be the objects exactly as returned, or just their signed base64 strings, in the same order. The server sends them in order, waits for each to confirm, lists the coin, and answers with the signatures and the coin's page.
 
 A launch that shares fees with holders is two transactions: the fee vault first, then the launch. A creator who keeps all of their half (`holderPct: 0`) signs one.
 
+## Retrying
+
+Solana transactions are only valid for about a minute. Do not stop to ask a person between `launch` and `submit` — if a person must confirm, use the link instead.
+
+If they expire (`submit` answers **410** and says so), call `launch` again with `{ "id": "<same id>", "creator": "<wallet>" }`. You get fresh transactions for the same coin under the same address, and no new files are stored. Calling again with all the fields instead creates a brand-new draft.
+
+If the draft was already launched, `launch` answers **409** with the coin's page.
+
+## Fee shares
+
+Every trade pays 2.5%. Meteora takes 0.5% of the trade first. **Every share in this API — `holderPct` and `feeShares` alike — is a percent of what is left after Meteora's cut:**
+
+- the LFOwn DAO always takes 50
+- the creator and the holders split the other 50: holders get `holderPct`, the creator keeps `50 - holderPct`
+
+With the default `holderPct: 25`: creator 25, holders 25, DAO 50. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 50, holders 50, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.
+
 ## Costs
 
-- The creator pays roughly 0.03 SOL in rent and network fees to launch, plus the dev buy if any.
-- Every trade on the coin pays a 2.5% fee. Meteora keeps 0.5%; of the rest, half goes to the creator's side (split with holders as chosen) and half to the LFOwn DAO.
+The creator pays roughly 0.03 SOL in rent and network fees to launch, plus the dev buy if any.
 
 ## Reference
 
+- MCP server (Streamable HTTP): https://letsfuckingown.fun/mcp
 - API index: https://letsfuckingown.fun/api/agent
 - OpenAPI: https://letsfuckingown.fun/api/agent/openapi.json
-- MCP server (Streamable HTTP): https://letsfuckingown.fun/mcp
 - Launched coins: https://letsfuckingown.fun/coins

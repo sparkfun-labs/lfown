@@ -599,10 +599,11 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 | `POST /api/graduate` | asks the keeper to migrate a curve that has filled; every claim is checked against chain before a lamport is spent |
 | `POST /api/rpc` | allowlisted read/send proxy to Helius, so the key never reaches the browser. Ten calls per request at most. |
 | `GET /api/agent` · `/api/agent/options` · `/api/agent/openapi.json` | the agent API's index, the coins and tiers an agent can launch on, and its OpenAPI spec. See [Launching from an AI agent](#launching-from-an-ai-agent). |
-| `POST /api/agent/launch` | prepares a launch: a `/launch?draft=` link for a person to sign, or with `creator` the transactions, already signed by the mint |
-| `POST /api/agent/submit` | sends a prepared launch signed by the creator, in order; refuses any transaction it did not prepare |
+| `POST /api/agent/validate` | checks a launch exactly as `launch` would, storing nothing: `{ok, problems, warnings}` |
+| `POST /api/agent/launch` | prepares a launch: a `/launch?draft=` link for a person to sign, or with `creator` the transactions, already signed by the mint and valid until `expiresAt`. With `id`, rebuilds an earlier draft under the same address. |
+| `POST /api/agent/submit` | sends a prepared launch signed by the creator, in order; takes the transaction objects or bare base64; refuses any transaction it did not prepare, and answers 410 once they expired |
 | `GET /api/agent/draft/:id` | a draft, as the launch page reads it back. Kept seven days. |
-| `POST /mcp` | the same three operations as an MCP server (Streamable HTTP, stateless; protocol 2026-07-28 and the legacy `initialize` versions) |
+| `POST /mcp` | the same operations as MCP tools, each with an `outputSchema` (Streamable HTTP, stateless; protocol 2026-07-28 and the legacy `initialize` versions) |
 
 A cron every 10 minutes rebuilds the catalogue into KV. Exit costs are priced on
 demand and cached 60s, which keeps each request well under the subrequest ceiling.
@@ -618,9 +619,10 @@ A few records are logs rather than caches and carry no version: `sweep:last`,
 `payouts:last` and `payouts:stranded` — the last is the one to read if a holder payout
 ever fails halfway.
 
-Agent launches keep three more: `mintpool:v1:<address>` (the `own` address reserve),
-`agentdraft:v1:<id>` (seven days) and `agentlaunch:v1:<id>` (fifteen minutes, the
-message hashes `submit` checks against).
+Agent launches keep four more: `mintpool:v1:<address>` (the `own` address reserve),
+`agentdraft:v1:<id>` (seven days, public), `agentmint:v1:<id>` (a day, the mint seed a
+draft launches under, so a retry keeps its address) and `agentlaunch:v1:<id>` (fifteen
+minutes, the message hashes `submit` checks against).
 
 ## Launching from an AI agent
 
@@ -638,9 +640,10 @@ with no wallet at all.
 
 The server is remote (Streamable HTTP), stateless and needs no key or login: the URL is
 all a client needs. It speaks MCP 2026-07-28 and the older `initialize` versions, so
-current and older clients both connect. Once connected, the agent sees three tools —
-`list_launch_options`, `prepare_launch`, `submit_launch` — and "launch a token on
-LFOwn" is enough.
+current and older clients both connect. Once connected, the agent sees four tools —
+`list_launch_options`, `validate_launch`, `prepare_launch`, `submit_launch`, each with
+an `outputSchema` — and "launch a token on LFOwn" is enough. MCP clients use the tools;
+the `/api/agent/*` routes are the same operations for everyone else.
 
 **Claude (claude.ai, desktop, mobile)** — Settings → Connectors → *Add custom
 connector*, name `LFOwn`, URL `https://letsfuckingown.fun/mcp`. Leave the OAuth fields
@@ -706,6 +709,19 @@ earns its fees, so there are two ways through:
 
 `submit` is not an open relay: it only sends transactions whose message hashes match
 the ones it prepared, and only with every signature on them.
+
+**Retries and expiry.** Signed transactions are only valid for about a minute, and the
+response says until when (`expiresAt`). An agent that runs out of time calls `launch`
+again with the draft's `id` and its `creator`: the stored image and metadata and the
+same mint address are reused, so nothing new is written and no `own` address is burnt.
+`submit` answers 410 with exactly that instruction; `launch` answers 409 if the draft's
+coin already exists. `validate` runs every check and stores nothing, for the back and
+forth before an agent commits.
+
+**One unit for fees.** `holderPct` and every `feeShares` number are percentages of the
+trading fee left after Meteora's cut — the DAO 50, the creator `50 - holderPct`, holders
+`holderPct` — and `feeShares.perTradeBps` gives the same split in basis points of the
+trade.
 
 **The `own` suffix.** The launch page grinds its address in the browser. An agent has
 nowhere to do that, so the minute cron keeps a reserve of twenty ground addresses in KV

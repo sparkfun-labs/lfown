@@ -312,6 +312,7 @@ await test('agent: a launch with no creator is kept as a draft and answered with
   assert.equal(r.body.mode, 'link')
   assert.match(r.body.launchUrl, /^https:\/\/example\.test\/launch\?draft=[0-9a-f-]{36}$/)
   assert.deepEqual([r.body.feeShares.creator, r.body.feeShares.holders, r.body.feeShares.lfownDao], [0, 50, 50])
+  assert.deepEqual(r.body.feeShares.perTradeBps, { fee: 250, meteora: 50, creator: 0, holders: 100, lfownDao: 100 })
   const meta = JSON.parse(r2.get(r.body.token.uri.split('/i/')[1]))
   assert.equal(meta.symbol, 'AGNT')
   assert.equal(meta.external_url, '')
@@ -320,6 +321,30 @@ await test('agent: a launch with no creator is kept as a draft and answered with
   assert.equal(d.body.quoteMint, COIN)
   assert.equal(d.body.tier, 'starter')
   assert.equal(d.body.holderPct, 50)
+
+  // A retry with the id reuses the draft: same id, not one new file in the bucket.
+  const files = r2.size
+  const again = await post('/api/agent/launch', { id: r.body.id })
+  assert.equal(again.status, 200, JSON.stringify(again.body))
+  assert.equal(again.body.id, r.body.id)
+  assert.equal(again.body.token.uri, r.body.token.uri)
+  assert.equal(r2.size, files)
+})
+
+await test('agent: validate stores nothing and turns bad input into problems', async () => {
+  const files = r2.size
+  const drafts = [...kv.keys()].filter((k) => k.startsWith('agentdraft:')).length
+  const good = await post('/api/agent/validate', { name: 'Fine', symbol: 'FINE', quote: 'TEST', holderPct: 10 })
+  assert.equal(good.status, 200)
+  assert.equal(good.body.ok, true)
+  assert.deepEqual(good.body.problems, [])
+  assert.equal(good.body.feeShares.holders, 10)
+  const bad = await post('/api/agent/validate', { name: 'Fine', symbol: 'WAYTOOLONGSYM', quote: 'TEST' })
+  assert.equal(bad.status, 200)
+  assert.equal(bad.body.ok, false)
+  assert.match(bad.body.problems[0], /symbol/)
+  assert.equal(r2.size, files)
+  assert.equal([...kv.keys()].filter((k) => k.startsWith('agentdraft:')).length, drafts)
 })
 
 await test('agent: bad requests say what is wrong', async () => {
@@ -329,7 +354,9 @@ await test('agent: bad requests say what is wrong', async () => {
   assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'TOOLONGSYMBOL', quote: 'TEST' })).status, 400)
   assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'A', quote: 'TEST', creator: 'not-a-wallet' })).status, 400)
   assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'A', quote: 'TEST', tier: 'serious' })).status, 400)
-  assert.equal((await post('/api/agent/submit', { id: 'nope', transactions: [] })).status, 404)
+  const gone = await post('/api/agent/submit', { id: 'nope', transactions: [{ base64: 'AA==' }] })
+  assert.equal(gone.status, 410)
+  assert.match(gone.body.error, /prepare_launch again/)
   assert.equal((await call('/api/agent/draft/nope')).status, 404)
   const pre = await call('/api/agent/launch', { method: 'OPTIONS' })
   assert.equal(pre.status, 204)
@@ -339,7 +366,7 @@ await test('agent: the index and OpenAPI describe the same three endpoints', asy
   const index = await call('/api/agent')
   assert.equal(index.body.mcp, 'https://example.test/mcp')
   const spec = await call('/api/agent/openapi.json')
-  assert.deepEqual(Object.keys(spec.body.paths), ['/api/agent/options', '/api/agent/launch', '/api/agent/submit'])
+  assert.deepEqual(Object.keys(spec.body.paths), ['/api/agent/options', '/api/agent/validate', '/api/agent/launch', '/api/agent/submit'])
 })
 
 const MODERN = '2026-07-28'
@@ -353,7 +380,8 @@ await test('mcp: a legacy client initialises, lists tools and gets 202 for a not
   assert.ok(init.body.result.capabilities.tools)
   assert.equal((await mcp({ jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202)
   const list = await mcp({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { 'mcp-protocol-version': '2025-06-18' })
-  assert.deepEqual(list.body.result.tools.map((t) => t.name), ['list_launch_options', 'prepare_launch', 'submit_launch'])
+  assert.deepEqual(list.body.result.tools.map((t) => t.name), ['list_launch_options', 'validate_launch', 'prepare_launch', 'submit_launch'])
+  for (const tool of list.body.result.tools) assert.equal(tool.outputSchema?.type, 'object', `${tool.name} declares its output`)
   assert.equal(list.body.result.resultType, undefined)
 })
 
@@ -366,6 +394,7 @@ await test('mcp: a modern client discovers the server and calls a tool with no h
   const tool = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { _meta: meta, name: 'prepare_launch', arguments: { name: 'Mcp', symbol: 'MCP', quote: 'TEST' } } }, { ...h, 'mcp-method': 'tools/call', 'mcp-name': 'prepare_launch' })
   assert.equal(tool.status, 200)
   assert.equal(tool.body.result.structuredContent.mode, 'link')
+  for (const key of ['id', 'mode', 'launchUrl', 'feeShares', 'next']) assert.ok(key in tool.body.result.structuredContent, `prepare_launch output has ${key}`)
   const refused = await mcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { _meta: meta, name: 'prepare_launch', arguments: { name: 'x', symbol: 'x', quote: 'NOPE' } } }, h)
   assert.equal(refused.body.result.isError, true)
 })

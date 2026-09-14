@@ -9,10 +9,16 @@
 //
 //   with `creator`     the server builds the transactions, signs them with the coin's
 //                      own mint key, and hands them back for the creator to sign and
-//                      send — or to post to /api/agent/submit, which sends them in
-//                      order and waits for each.
+//                      send — or to post to submit, which sends them in order and
+//                      waits for each.
 //   without `creator`  the server keeps the launch as a draft and answers with a link
 //                      to /launch, filled in, for a person to review and sign.
+//
+// Every launch is a draft first, and a draft's id is what makes retrying cheap: calling
+// prepare again with it reuses the stored image and metadata and the same mint address,
+// so an agent whose transactions expired while it asked a human does not leave a trail
+// of abandoned files and burnt `own` addresses behind it. `validate` checks everything
+// without storing anything at all.
 //
 // The mint key comes from the reserve in mint-pool.mjs, so an agent's coin ends in
 // `own` like everyone else's; when the reserve is empty the launch goes ahead on a
@@ -36,6 +42,15 @@ const LIMITS = {
 const BASE58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 const DRAFT_TTL = 7 * 24 * 60 * 60
 const LAUNCH_TTL = 15 * 60
+// The mint seed a draft launches under, kept apart from the draft itself because the
+// draft is public and the seed is not. A day covers any retry worth making.
+const MINT_TTL = 24 * 60 * 60
+// Solana's target slot time. Only used to turn a block height into a clock time for
+// the agent; the height itself stays the authority.
+const SLOT_MS = 400
+
+/** The unit every fee percentage in this API is quoted in. One unit, everywhere. */
+export const SHARE_UNIT = "percent of the trading fee left after Meteora's cut"
 
 class AgentError extends Error {
   constructor(status, message, details) {
@@ -70,6 +85,30 @@ const httpUrl = (value) => {
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('')
 const digest = async (bytes) => hex(await crypto.subtle.digest('SHA-256', bytes))
+const toBase64 = (bytes) => btoa(String.fromCharCode(...bytes))
+const fromBase64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0))
+
+/**
+ * A holder share as every number an agent might want, in one unit.
+ *
+ * The slider, `holderPct` and every share below are percentages of what is left of a
+ * trading fee once Meteora has taken its cut — which is also how the config splits it.
+ * `perTradeBps` is the same thing in basis points of the trade itself, for an agent
+ * that wants to tell a person "0.5% of every trade goes to holders".
+ */
+export function feeShares(holderPct, feeBps = FEES.totalBps) {
+  const cut = splitFor(holderPct)
+  const { protocol } = feeBreakdown(feeBps)
+  const shared = feeBps - protocol
+  const bps = (pct) => (shared * pct) / 100
+  return {
+    unit: SHARE_UNIT,
+    creator: cut.creator,
+    holders: cut.holders,
+    lfownDao: cut.partner,
+    perTradeBps: { fee: feeBps, meteora: protocol, creator: bps(cut.creator), holders: bps(cut.holders), lfownDao: bps(cut.partner) },
+  }
+}
 
 // ── the catalogue an agent chooses from ─────────────────────────────────────
 
@@ -90,6 +129,8 @@ export async function agentOptions(env, { readCatalogue }) {
         label: tier.label,
         threshold: cfg.threshold,
         thresholdUsd: Math.round(cfg.threshold * (coin.usdPrice ?? 0)),
+        feeBps: cfg.feeBps ?? FEES.totalBps,
+        config: cfg.config,
       })
     }
     return tiers.length
@@ -100,19 +141,147 @@ export async function agentOptions(env, { readCatalogue }) {
   return {
     coins: rows.filter(Boolean),
     tradingFee: {
-      totalBps: FEES.totalBps,
-      note: `Meteora keeps ${cut.protocol / 100}% of every trade; the rest is split evenly between the creator's side and the LFOwn DAO.`,
+      bps: FEES.totalBps,
+      meteoraBps: cut.protocol,
+      note: `Every trade pays ${FEES.totalBps / 100}%. Meteora takes ${cut.protocol / 100}% of the trade first; every share in this API is a ${SHARE_UNIT}.`,
     },
     holders: {
       default: DEFAULT_HOLDER_PCT,
       max: HOLDER_MAX_PCT,
-      note: "Points of the whole trading fee a creator gives the coin's holders, out of their own half. Paid out hourly, pro rata, in the ownership coin. Fixed at launch.",
+      unit: SHARE_UNIT,
+      note: `The LFOwn DAO always takes 50. The creator splits the other 50 with holders: holderPct is the holders' part (0-${HOLDER_MAX_PCT}), the creator keeps the rest. Paid hourly, pro rata, in the ownership coin. Fixed at launch.`,
+      example: feeShares(DEFAULT_HOLDER_PCT),
     },
     limits: LIMITS,
   }
 }
 
-// ── storing what a launch needs before anything is signed ───────────────────
+// ── reading a request ───────────────────────────────────────────────────────
+
+/** Reads and checks what an agent asked for, before anything is stored or built. */
+async function readRequest(env, input, deps) {
+  const name = String(input?.name ?? '').trim()
+  const symbol = String(input?.symbol ?? '').trim().replace(/^\$/, '')
+  if (!name || name.length > LIMITS.name) throw new AgentError(400, `name is required, at most ${LIMITS.name} characters`)
+  if (!symbol || symbol.length > LIMITS.symbol) throw new AgentError(400, `symbol is required, at most ${LIMITS.symbol} characters`)
+
+  const options = await agentOptions(env, deps)
+  const wanted = String(input?.quote ?? input?.quoteMint ?? input?.quoteSymbol ?? '').trim()
+  if (!wanted) throw new AgentError(400, 'quote is required: the symbol or mint of an ownership coin from the launch options')
+  const coin = options.coins.find((c) => c.mint === wanted || c.symbol.toLowerCase() === wanted.replace(/^\$/, '').toLowerCase())
+  if (!coin) {
+    throw new AgentError(400, `no open ownership coin matches "${wanted}"`, { available: options.coins.map((c) => c.symbol) })
+  }
+  const tier = input?.tier ? coin.tiers.find((t) => t.id === String(input.tier)) : coin.tiers[0]
+  if (!tier) throw new AgentError(400, `tier "${input.tier}" is not open for ${coin.symbol}`, { open: coin.tiers.map((t) => t.id) })
+
+  const holderPct = input?.holderPct === undefined ? DEFAULT_HOLDER_PCT : clampHolderPct(input.holderPct)
+  const devBuyPercent = Math.max(0, Math.min(LIMITS.devBuyMaxPercent, Number(input?.devBuyPercent ?? 0) || 0))
+  const creator = input?.creator ? String(input.creator).trim() : null
+  if (creator && !BASE58.test(creator)) throw new AgentError(400, 'creator must be a Solana wallet address')
+
+  if (input?.imageData && !/^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(String(input.imageData))) {
+    throw new AgentError(400, 'imageData must be a base64 data URL of a png, jpeg, webp or gif')
+  }
+  if (input?.imageData && (String(input.imageData).length * 3) / 4 > LIMITS.imageBytes * 1.01) {
+    throw new AgentError(413, 'the image must be under 2 MB')
+  }
+  if (input?.imageUrl && !httpUrl(input.imageUrl)) throw new AgentError(400, 'imageUrl must be an http(s) URL')
+
+  return {
+    coin,
+    tier,
+    holderPct,
+    devBuyPercent,
+    creator,
+    token: {
+      name,
+      symbol,
+      description: String(input?.description ?? '').slice(0, LIMITS.description),
+      website: httpUrl(input?.website),
+      twitter: String(input?.twitter ?? '').slice(0, 100),
+    },
+  }
+}
+
+/**
+ * A request, or a retry of one. With `id`, everything comes from the stored draft and
+ * only `creator` and `devBuyPercent` may be given afresh — the rest is what a person
+ * may already have been shown, and changing it means a new draft.
+ */
+async function requestFrom(env, input, deps) {
+  if (!input?.id) return readRequest(env, input, deps)
+  const draft = await readDraft(env, String(input.id))
+  if (!draft) throw new AgentError(404, 'no draft with that id; drafts are kept for seven days. Call prepare_launch without id to start a new one.')
+  const request = await readRequest(env, {
+    name: draft.name,
+    symbol: draft.symbol,
+    quote: draft.quoteMint,
+    tier: draft.tier,
+    description: draft.description,
+    website: draft.website,
+    twitter: draft.twitter,
+    holderPct: draft.holderPct,
+    devBuyPercent: input.devBuyPercent ?? draft.devBuyPercent,
+    creator: input.creator,
+  }, deps)
+  return { ...request, draft }
+}
+
+/**
+ * What chain has to say about a launch before it is built: what the dev buy costs,
+ * and whether the creator can pay for it and for the rent. Problems stop a launch;
+ * warnings are passed on.
+ */
+async function chainChecks(env, request) {
+  const out = { problems: [], warnings: [], devBuy: null, devBuyQuote: 0 }
+  if (!request.creator && !(request.devBuyPercent > 0)) return out
+
+  const [{ Connection, PublicKey }, { DynamicBondingCurveClient }, builder, { getAssociatedTokenAddressSync }] =
+    await Promise.all([
+      import('@solana/web3.js'),
+      import('@meteora-ag/dynamic-bonding-curve-sdk'),
+      import('./lib/launch-builder.mjs'),
+      import('@solana/spl-token'),
+    ])
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const client = new DynamicBondingCurveClient(connection, 'confirmed')
+  Object.assign(out, { connection, client, builder })
+
+  const symbol = request.coin.symbol
+  if (request.devBuyPercent > 0) {
+    const cost = await builder.devBuyCost(client, { config: request.tier.config, percent: request.devBuyPercent })
+    out.devBuyQuote = Math.ceil(cost.quoteIn * 1e6)
+    out.devBuy = { percent: request.devBuyPercent, tokens: cost.baseOut, costs: cost.quoteIn, in: symbol }
+  }
+  if (request.creator) {
+    const creator = new PublicKey(request.creator)
+    if (out.devBuyQuote > 0) {
+      let held = 0
+      try {
+        const ata = getAssociatedTokenAddressSync(new PublicKey(request.coin.mint), creator)
+        held = Number((await connection.getTokenAccountBalance(ata)).value.amount)
+      } catch { /* no account for it yet means none held */ }
+      if (held < out.devBuyQuote) {
+        out.problems.push(`A ${request.devBuyPercent}% dev buy costs ${out.devBuy.costs} ${symbol} and the creator holds ${held / 1e6}. Fund the wallet with ${symbol}, lower devBuyPercent, or set it to 0.`)
+      }
+    }
+    const lamports = await connection.getBalance(creator)
+    if (lamports < 0.03 * 1e9) {
+      out.warnings.push(`the creator holds ${lamports / 1e9} SOL; a launch needs roughly 0.03 SOL for rent and fees`)
+    }
+  }
+  return out
+}
+
+const summary = (request) => ({
+  token: { name: request.token.name, symbol: request.token.symbol },
+  quote: { symbol: request.coin.symbol, mint: request.coin.mint },
+  tier: { id: request.tier.id, label: request.tier.label, threshold: request.tier.threshold, thresholdUsd: request.tier.thresholdUsd },
+  feeShares: feeShares(request.holderPct, request.tier.feeBps),
+})
+
+// ── storing what a launch needs ─────────────────────────────────────────────
 
 async function storeImage(env, origin, { imageUrl, imageData }) {
   if (!env.IMAGES) throw new AgentError(501, 'image hosting is not configured on this deployment')
@@ -120,12 +289,10 @@ async function storeImage(env, origin, { imageUrl, imageData }) {
   let type
   if (imageData) {
     const match = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(String(imageData))
-    if (!match) throw new AgentError(400, 'imageData must be a base64 data URL of a png, jpeg, webp or gif')
     type = match[1]
-    bytes = Uint8Array.from(atob(match[2]), (c) => c.charCodeAt(0))
+    bytes = fromBase64(match[2])
   } else if (imageUrl) {
     const url = httpUrl(imageUrl)
-    if (!url) throw new AgentError(400, 'imageUrl must be an http(s) URL')
     // Already one of ours: kept as it is. A Worker cannot fetch a URL it serves itself.
     if (url.startsWith(`${origin}/i/`)) return url
     let res
@@ -165,146 +332,128 @@ async function storeMetadata(env, origin, token) {
   return `${origin}/i/${key}`
 }
 
-/** Reads and checks what an agent asked for, before anything is stored or built. */
-async function readRequest(env, input, deps) {
-  const name = String(input?.name ?? '').trim()
-  const symbol = String(input?.symbol ?? '').trim().replace(/^\$/, '')
-  if (!name || name.length > LIMITS.name) throw new AgentError(400, `name is required, at most ${LIMITS.name} characters`)
-  if (!symbol || symbol.length > LIMITS.symbol) throw new AgentError(400, `symbol is required, at most ${LIMITS.symbol} characters`)
+// ── validate, prepare, submit ───────────────────────────────────────────────
 
-  const options = await agentOptions(env, deps)
-  const wanted = String(input?.quote ?? input?.quoteMint ?? input?.quoteSymbol ?? '').trim()
-  if (!wanted) throw new AgentError(400, 'quote is required: the symbol or mint of an ownership coin from /api/agent/options')
-  const coin = options.coins.find((c) => c.mint === wanted || c.symbol.toLowerCase() === wanted.replace(/^\$/, '').toLowerCase())
-  if (!coin) {
-    throw new AgentError(400, `no open ownership coin matches "${wanted}"`, { available: options.coins.map((c) => c.symbol) })
+/**
+ * Everything prepare checks, and nothing it stores: no draft, no image, no metadata,
+ * no mint address taken. Invalid input is an answer here, not an error.
+ */
+export async function validateLaunch(env, origin, input, deps) {
+  let request
+  try {
+    request = await requestFrom(env, input, deps)
+  } catch (e) {
+    if (!(e instanceof AgentError)) throw e
+    return { ok: false, problems: [e.message], warnings: [], ...(e.details ? { details: e.details } : {}) }
   }
-  const tier = input?.tier ? coin.tiers.find((t) => t.id === String(input.tier)) : coin.tiers[0]
-  if (!tier) throw new AgentError(400, `tier "${input.tier}" is not open for ${coin.symbol}`, { open: coin.tiers.map((t) => t.id) })
-
-  const holderPct = input?.holderPct === undefined ? DEFAULT_HOLDER_PCT : clampHolderPct(input.holderPct)
-  const devBuyPercent = Math.max(0, Math.min(LIMITS.devBuyMaxPercent, Number(input?.devBuyPercent ?? 0) || 0))
-  const creator = input?.creator ? String(input.creator).trim() : null
-  if (creator && !BASE58.test(creator)) throw new AgentError(400, 'creator must be a Solana wallet address')
-
+  const checks = await chainChecks(env, request)
   return {
-    coin,
-    tier,
-    holderPct,
-    devBuyPercent,
-    creator,
-    token: {
-      name,
-      symbol,
-      description: String(input?.description ?? '').slice(0, LIMITS.description),
-      website: httpUrl(input?.website),
-      twitter: String(input?.twitter ?? '').slice(0, 100),
-    },
+    ok: checks.problems.length === 0,
+    problems: checks.problems,
+    warnings: checks.warnings,
+    mode: request.creator ? 'sign' : 'link',
+    ...summary(request),
+    devBuy: checks.devBuy,
+    next: checks.problems.length
+      ? 'Fix the problems, then validate again.'
+      : 'Nothing was stored. Call prepare_launch with the same arguments to go ahead.',
   }
 }
 
-// ── the launch itself ───────────────────────────────────────────────────────
+const expiredMessage = (id) =>
+  `these transactions have expired — a Solana transaction is only valid for about a minute. Call prepare_launch again with {"id": "${id}", "creator": ...}: same coin, same address, fresh transactions to sign.`
 
 /**
  * Keeps a launch as a draft, and with a creator also builds its transactions.
  *
  * The transactions come back signed by the mint and by nobody else. The creator signs
  * every one without changing it; the server remembers each message's hash so that
- * /api/agent/submit sends only launches it prepared, rather than acting as an open
- * relay for whatever anyone posts.
+ * submit sends only launches it prepared, rather than acting as an open relay for
+ * whatever anyone posts.
  */
-export async function prepareLaunch(env, origin, input, deps) {
+export async function prepareLaunch(env, origin, input, deps, { via = 'http' } = {}) {
   if (!env.REGISTRY) throw new AgentError(501, 'launches are not configured on this deployment')
-  const request = await readRequest(env, input, deps)
-  const image = await storeImage(env, origin, { imageUrl: input?.imageUrl, imageData: input?.imageData })
-  const token = { ...request.token, image }
-  const uri = await storeMetadata(env, origin, token)
+  const request = await requestFrom(env, input, deps)
+  // Checked before anything is stored, so a launch that cannot go ahead leaves nothing.
+  const checks = await chainChecks(env, request)
+  if (checks.problems.length) throw new AgentError(400, checks.problems.join(' '))
 
-  const id = crypto.randomUUID()
-  const draft = {
-    id,
-    createdAt: new Date().toISOString(),
-    name: token.name,
-    symbol: token.symbol,
-    description: token.description,
-    image: token.image,
-    website: token.website,
-    twitter: token.twitter,
-    uri,
-    quoteMint: request.coin.mint,
-    quoteSymbol: request.coin.symbol,
-    tier: request.tier.id,
-    holderPct: request.holderPct,
-    devBuyPercent: request.devBuyPercent,
+  let draft = request.draft
+  if (!draft) {
+    const image = await storeImage(env, origin, { imageUrl: input?.imageUrl, imageData: input?.imageData })
+    const token = { ...request.token, image }
+    draft = {
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      name: token.name,
+      symbol: token.symbol,
+      description: token.description,
+      image: token.image,
+      website: token.website,
+      twitter: token.twitter,
+      uri: await storeMetadata(env, origin, token),
+      quoteMint: request.coin.mint,
+      quoteSymbol: request.coin.symbol,
+      tier: request.tier.id,
+      holderPct: request.holderPct,
+      devBuyPercent: request.devBuyPercent,
+    }
+    await env.REGISTRY.put(`agentdraft:v1:${draft.id}`, JSON.stringify(draft), { expirationTtl: DRAFT_TTL })
+  } else if (draft.devBuyPercent !== request.devBuyPercent) {
+    draft = { ...draft, devBuyPercent: request.devBuyPercent }
+    await env.REGISTRY.put(`agentdraft:v1:${draft.id}`, JSON.stringify(draft), { expirationTtl: DRAFT_TTL })
   }
-  await env.REGISTRY.put(`agentdraft:v1:${id}`, JSON.stringify(draft), { expirationTtl: DRAFT_TTL })
+  const id = draft.id
 
-  const cut = splitFor(request.holderPct)
   const common = {
     id,
     launchUrl: `${origin}/launch?draft=${id}`,
-    token: { name: token.name, symbol: token.symbol, image: token.image, uri },
-    quote: { symbol: request.coin.symbol, mint: request.coin.mint },
-    tier: request.tier,
-    feeShares: {
-      note: 'Percent of the trading fee left after Meteora takes its cut.',
-      creator: cut.creator,
-      holders: cut.holders,
-      lfownDao: cut.partner,
-    },
+    ...summary(request),
+    token: { name: draft.name, symbol: draft.symbol, image: draft.image, uri: draft.uri },
+    devBuy: checks.devBuy,
   }
 
   if (!request.creator) {
     return {
       ...common,
       mode: 'link',
-      next: 'Give launchUrl to a person with a Solana wallet. Everything is filled in; they review it and sign on the page.',
+      next: 'Give launchUrl to a person with a Solana wallet. Everything is filled in; they review it and sign on the page. The link works for seven days.',
+      warnings: checks.warnings,
     }
   }
 
-  const [{ Connection, Keypair, PublicKey }, { DynamicBondingCurveClient }, { take }, builder, { getAssociatedTokenAddressSync }] =
-    await Promise.all([
-      import('@solana/web3.js'),
-      import('@meteora-ag/dynamic-bonding-curve-sdk'),
-      import('./lib/mint-pool.mjs'),
-      import('./lib/launch-builder.mjs'),
-      import('@solana/spl-token'),
-    ])
-  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
-  const client = new DynamicBondingCurveClient(connection, 'confirmed')
-  const creator = new PublicKey(request.creator)
-  const configValue = JSON.parse(await env.REGISTRY.get(`config:${request.coin.mint}:${request.tier.id}`))
+  const { connection, client, builder } = checks
+  const [{ Keypair }, { take }] = await Promise.all([import('@solana/web3.js'), import('./lib/mint-pool.mjs')])
 
-  const warnings = []
-  let devBuyQuote = 0
-  let devBuy = null
-  if (request.devBuyPercent > 0) {
-    const cost = await builder.devBuyCost(client, { config: configValue.config, percent: request.devBuyPercent })
-    devBuyQuote = Math.ceil(cost.quoteIn * 1e6)
-    devBuy = { percent: request.devBuyPercent, tokens: cost.baseOut, costs: cost.quoteIn, in: request.coin.symbol }
-    let held = 0
-    try {
-      const ata = getAssociatedTokenAddressSync(new PublicKey(request.coin.mint), creator)
-      held = Number((await connection.getTokenAccountBalance(ata)).value.amount)
-    } catch { /* no account for it yet means none held */ }
-    if (held < devBuyQuote) {
-      throw new AgentError(400, `a ${request.devBuyPercent}% dev buy costs ${cost.quoteIn} ${request.coin.symbol} and the creator holds ${held / 1e6}. Fund the wallet with ${request.coin.symbol}, lower devBuyPercent, or set it to 0.`)
+  // A retry launches under the address the draft was first given, unless that coin
+  // already exists — then it has been launched, and a second one would be a new coin.
+  let mint = null
+  let vanity = false
+  const kept = await env.REGISTRY.get(`agentmint:v1:${id}`)
+  if (kept) {
+    const previous = Keypair.fromSeed(fromBase64(kept))
+    if (await connection.getAccountInfo(previous.publicKey)) {
+      throw new AgentError(409, `this draft has already been launched: ${origin}/coins/${previous.publicKey.toBase58()}`)
     }
+    mint = previous
+    vanity = previous.publicKey.toBase58().endsWith('own')
   }
-  const lamports = await connection.getBalance(creator)
-  if (lamports < 0.03 * 1e9) warnings.push(`the creator holds ${lamports / 1e9} SOL; a launch needs roughly 0.03 SOL for rent and fees`)
-
-  const drawn = await take(env.REGISTRY)
-  const mint = drawn ? Keypair.fromSeed(drawn.seed) : Keypair.generate()
-  if (!drawn) warnings.push('the address reserve was empty, so this coin does not end in "own"')
+  const warnings = [...checks.warnings]
+  if (!mint) {
+    const drawn = await take(env.REGISTRY)
+    mint = drawn ? Keypair.fromSeed(drawn.seed) : Keypair.generate()
+    vanity = Boolean(drawn)
+    if (!drawn) warnings.push('the address reserve was empty, so this coin does not end in "own"')
+    await env.REGISTRY.put(`agentmint:v1:${id}`, toBase64(mint.secretKey.slice(0, 32)), { expirationTtl: MINT_TTL })
+  }
 
   const built = await builder.buildLaunchTransactions({
     client,
     connection,
-    config: configValue.config,
+    config: request.tier.config,
     creator: request.creator,
-    token: { name: token.name, symbol: token.symbol, uri },
-    devBuyQuote,
+    token: { name: draft.name, symbol: draft.symbol, uri: draft.uri },
+    devBuyQuote: checks.devBuyQuote,
     mint,
     quoteMint: request.coin.mint,
     holderPct: request.holderPct,
@@ -314,12 +463,11 @@ export async function prepareLaunch(env, origin, input, deps) {
   const hashes = []
   for (const [index, tx] of built.transactions.entries()) {
     tx.partialSign(mint)
-    const bytes = tx.serialize({ requireAllSignatures: false, verifySignatures: false })
     hashes.push(await digest(tx.serializeMessage()))
     transactions.push({
       index,
       purpose: built.transactions.length > 1 && index === 0 ? 'open-fee-vault' : 'launch',
-      base64: btoa(String.fromCharCode(...bytes)),
+      base64: toBase64(tx.serialize({ requireAllSignatures: false, verifySignatures: false })),
     })
   }
   await env.REGISTRY.put(`agentlaunch:v1:${id}`, JSON.stringify({
@@ -329,20 +477,27 @@ export async function prepareLaunch(env, origin, input, deps) {
     lastValidBlockHeight: built.lastValidBlockHeight,
   }), { expirationTtl: LAUNCH_TTL })
 
+  const height = await connection.getBlockHeight('confirmed').catch(() => built.lastValidBlockHeight - 150)
+  const expiresInSeconds = Math.max(0, Math.floor(((built.lastValidBlockHeight - height) * SLOT_MS) / 1000))
+  const expiresAt = new Date(Date.now() + expiresInSeconds * 1000).toISOString()
+
+  const how = via === 'mcp'
+    ? 'call the submit_launch tool with {id, transactions}'
+    : `POST {id, transactions} to ${origin}/api/agent/submit`
   return {
     ...common,
     mode: 'sign',
     mint: built.baseMint,
-    vanity: Boolean(drawn),
+    vanity,
     pool: built.pool,
     vault: built.vault,
-    devBuy,
     signer: request.creator,
-    transactions,
+    expiresAt,
+    expiresInSeconds,
     lastValidBlockHeight: built.lastValidBlockHeight,
+    transactions,
     coinUrl: `${origin}/coins/${built.baseMint}`,
-    submit: { method: 'POST', url: `${origin}/api/agent/submit`, body: { id, transactions: ['<each transaction, signed by the creator, base64>'] } },
-    next: 'Sign every transaction with the creator wallet without changing it — the mint has already signed — then POST them to submit, in order, within about a minute. Or send them yourself, each confirmed before the next.',
+    next: `Sign every transaction with ${request.creator} without changing it — the mint has already signed — then ${how} before ${expiresAt}. transactions may be these objects as returned or their base64 strings, in order. Do not ask a person to confirm in between: if they need to review, use launchUrl instead. If it expires, call prepare_launch again with {id, creator} for fresh transactions under the same address.`,
     warnings,
   }
 }
@@ -351,8 +506,12 @@ export async function prepareLaunch(env, origin, input, deps) {
 export async function submitLaunch(env, origin, input, deps) {
   const id = String(input?.id ?? '')
   const record = env.REGISTRY ? await env.REGISTRY.get(`agentlaunch:v1:${id}`, 'json') : null
-  if (!record) throw new AgentError(404, 'no prepared launch with that id; it may have expired — call /api/agent/launch again')
-  const signed = Array.isArray(input?.transactions) ? input.transactions : []
+  if (!record) {
+    throw new AgentError(410, `no transactions are waiting for id "${id}". They are dropped once expired. Call prepare_launch again with {id, creator} for fresh ones — same coin, same address.`)
+  }
+  // As prepare returned them, or just their base64: both are what an agent would pass.
+  const signed = (Array.isArray(input?.transactions) ? input.transactions : [])
+    .map((t) => (typeof t === 'string' ? t : t?.base64))
   if (signed.length !== record.hashes.length) {
     throw new AgentError(400, `expected ${record.hashes.length} signed transaction(s), received ${signed.length}`)
   }
@@ -364,7 +523,7 @@ export async function submitLaunch(env, origin, input, deps) {
   for (const [i, encoded] of signed.entries()) {
     let tx
     try {
-      tx = Transaction.from(Uint8Array.from(atob(String(encoded)), (c) => c.charCodeAt(0)))
+      tx = Transaction.from(fromBase64(String(encoded)))
     } catch {
       throw new AgentError(400, `transaction ${i} is not a base64 Solana transaction`)
     }
@@ -375,6 +534,10 @@ export async function submitLaunch(env, origin, input, deps) {
     txs.push(tx)
   }
 
+  if (await connection.getBlockHeight('confirmed') > record.lastValidBlockHeight) {
+    throw new AgentError(410, expiredMessage(id))
+  }
+
   const signatures = []
   for (const [i, tx] of txs.entries()) {
     let signature
@@ -382,11 +545,14 @@ export async function submitLaunch(env, origin, input, deps) {
       signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed' })
       await waitFor(connection, signature, record.lastValidBlockHeight, { timeoutMs: 60_000 })
     } catch (e) {
+      if (/blockhash not found|block height exceeded|expired/i.test(e.message)) {
+        throw new AgentError(410, expiredMessage(id), { landed: signatures })
+      }
       throw new AgentError(502, `transaction ${i} did not land: ${e.message}`, { landed: signatures })
     }
     signatures.push(signature)
   }
-  await env.REGISTRY.delete(`agentlaunch:v1:${id}`)
+  await Promise.all([env.REGISTRY.delete(`agentlaunch:v1:${id}`), env.REGISTRY.delete(`agentmint:v1:${id}`)])
 
   // What the launch page does once its launch confirms: the coin is read from chain and
   // added to the list, so it is announced and watched without waiting for a rebuild.
@@ -402,44 +568,51 @@ export async function readDraft(env, id) {
 
 // ── HTTP ────────────────────────────────────────────────────────────────────
 
+const LAUNCH_PROPERTIES = {
+  id: { type: 'string', description: 'A draft id from an earlier prepare. Reuses its token, image, metadata and mint address; only creator and devBuyPercent may be given with it.' },
+  name: { type: 'string', maxLength: LIMITS.name },
+  symbol: { type: 'string', maxLength: LIMITS.symbol },
+  quote: { type: 'string', description: 'Symbol or mint of an ownership coin from the launch options' },
+  tier: { type: 'string', enum: TIERS.map((t) => t.id), description: 'Defaults to the first open tier' },
+  description: { type: 'string', maxLength: LIMITS.description },
+  imageUrl: { type: 'string', format: 'uri' },
+  imageData: { type: 'string', description: 'base64 data URL; png, jpeg, webp or gif, under 2 MB' },
+  website: { type: 'string', format: 'uri' },
+  twitter: { type: 'string' },
+  holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share, as a ${SHARE_UNIT}. The DAO always takes 50; the creator keeps 50 minus this.` },
+  devBuyPercent: { type: 'number', minimum: 0, maximum: LIMITS.devBuyMaxPercent, default: 0, description: 'Percent of supply bought at launch, paid in the ownership coin by the creator' },
+  creator: { type: 'string', description: 'The Solana wallet that signs and earns the fees. Omit to get a link for a person to sign.' },
+}
+
 const OPENAPI = (origin) => ({
   openapi: '3.1.0',
   info: {
     title: 'LFOwn agent API',
-    version: '1.0.0',
-    description: 'Launch a memecoin paired with a MetaDAO ownership coin on Solana. Nothing is signed for the creator: with a creator wallet you get transactions to sign, without one you get a link for a person to sign.',
+    version: '1.1.0',
+    description: `Launch a memecoin paired with a MetaDAO ownership coin on Solana. Nothing is signed for the creator: with a creator wallet you get transactions to sign, without one you get a link for a person to sign. Every fee share is a ${SHARE_UNIT}. MCP clients should use ${origin}/mcp instead; it exposes the same operations as tools.`,
   },
   servers: [{ url: origin }],
   paths: {
     '/api/agent/options': {
       get: { operationId: 'listLaunchOptions', summary: 'Ownership coins a coin can be paired with, their open tiers, fee split and limits', responses: { 200: { description: 'Options' } } },
     },
+    '/api/agent/validate': {
+      post: {
+        operationId: 'validateLaunch',
+        summary: 'Check a launch without storing anything: answers {ok, problems, warnings} and what the launch would be',
+        requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: LAUNCH_PROPERTIES } } } },
+        responses: { 200: { description: 'The verdict' } },
+      },
+    },
     '/api/agent/launch': {
       post: {
         operationId: 'prepareLaunch',
-        summary: 'Prepare a launch: a signing link, or with a creator wallet the transactions to sign',
+        summary: 'Prepare a launch: a signing link, or with a creator wallet the transactions to sign (valid about a minute, see expiresAt)',
         requestBody: {
           required: true,
-          content: { 'application/json': { schema: {
-            type: 'object',
-            required: ['name', 'symbol', 'quote'],
-            properties: {
-              name: { type: 'string', maxLength: LIMITS.name },
-              symbol: { type: 'string', maxLength: LIMITS.symbol },
-              quote: { type: 'string', description: 'Symbol or mint of an ownership coin from /api/agent/options' },
-              tier: { type: 'string', enum: TIERS.map((t) => t.id), description: 'Defaults to the first open tier' },
-              description: { type: 'string', maxLength: LIMITS.description },
-              imageUrl: { type: 'string', format: 'uri' },
-              imageData: { type: 'string', description: 'base64 data URL; png, jpeg, webp or gif, under 2 MB' },
-              website: { type: 'string', format: 'uri' },
-              twitter: { type: 'string' },
-              holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT },
-              devBuyPercent: { type: 'number', minimum: 0, maximum: LIMITS.devBuyMaxPercent, default: 0, description: 'Percent of supply bought at launch, paid in the ownership coin by the creator' },
-              creator: { type: 'string', description: 'The Solana wallet that signs and earns the fees. Omit to get a link for a person to sign.' },
-            },
-          } } },
+          content: { 'application/json': { schema: { type: 'object', required: ['name', 'symbol', 'quote'], properties: LAUNCH_PROPERTIES } } },
         },
-        responses: { 200: { description: 'A prepared launch' }, 400: { description: 'Invalid request' } },
+        responses: { 200: { description: 'A prepared launch' }, 400: { description: 'Invalid request' }, 409: { description: 'That draft was already launched' } },
       },
     },
     '/api/agent/submit': {
@@ -451,10 +624,17 @@ const OPENAPI = (origin) => ({
           content: { 'application/json': { schema: {
             type: 'object',
             required: ['id', 'transactions'],
-            properties: { id: { type: 'string' }, transactions: { type: 'array', items: { type: 'string', description: 'base64' } } },
+            properties: {
+              id: { type: 'string' },
+              transactions: {
+                type: 'array',
+                description: 'In the order returned. Either the objects prepare returned, or their base64 strings, signed by the creator.',
+                items: { oneOf: [{ type: 'string' }, { type: 'object', required: ['base64'], properties: { base64: { type: 'string' } } }] },
+              },
+            },
           } } },
         },
-        responses: { 200: { description: 'Launched' }, 400: { description: 'Not the prepared transactions' }, 404: { description: 'Unknown or expired' } },
+        responses: { 200: { description: 'Launched' }, 400: { description: 'Not the prepared transactions' }, 410: { description: 'Expired: prepare again with the same id' } },
       },
     },
   },
@@ -478,8 +658,10 @@ export async function handleAgent(url, request, env, ctx, deps) {
         guide: `${origin}/llms.txt`,
         openapi: `${origin}/api/agent/openapi.json`,
         mcp: `${origin}/mcp`,
+        note: 'MCP clients: use /mcp. Everyone else: these endpoints. Both do exactly the same thing.',
         endpoints: {
           options: `GET ${origin}/api/agent/options`,
+          validate: `POST ${origin}/api/agent/validate`,
           launch: `POST ${origin}/api/agent/launch`,
           submit: `POST ${origin}/api/agent/submit`,
         },
@@ -493,14 +675,12 @@ export async function handleAgent(url, request, env, ctx, deps) {
       const draft = await readDraft(env, path.slice('/api/agent/draft/'.length))
       return draft ? reply(draft) : reply({ error: 'no draft with that id; drafts are kept for seven days' }, { status: 404 })
     }
-    if ((path === '/api/agent/launch' || path === '/api/agent/submit') && request.method === 'POST') {
+    const routes = { '/api/agent/validate': validateLaunch, '/api/agent/launch': prepareLaunch, '/api/agent/submit': submitLaunch }
+    if (routes[path] && request.method === 'POST') {
       if (await deps.limited(env.HEAVY_LIMITER, request)) return reply({ error: 'too many requests; try again in a minute' }, { status: 429, headers: { 'retry-after': '60' } })
       const input = await request.json().catch(() => null)
       if (!input || typeof input !== 'object') return reply({ error: 'send a JSON object' }, { status: 400 })
-      const result = path === '/api/agent/launch'
-        ? await prepareLaunch(env, origin, input, deps)
-        : await submitLaunch(env, origin, input, deps)
-      return reply(result)
+      return reply(await routes[path](env, origin, input, deps))
     }
     return reply({ error: 'not found', see: `${origin}/api/agent` }, { status: 404 })
   } catch (e) {

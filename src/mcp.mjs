@@ -16,7 +16,7 @@
 // The tools are thin: each one is the matching /api/agent handler, so the HTTP API
 // and MCP can never disagree about what a launch is.
 
-import { AgentError, agentOptions, prepareLaunch, submitLaunch, DEFAULT_HOLDER_PCT } from './agent.mjs'
+import { AgentError, agentOptions, validateLaunch, prepareLaunch, submitLaunch, DEFAULT_HOLDER_PCT, SHARE_UNIT } from './agent.mjs'
 import { HOLDER_MAX_PCT } from './lib/fee-split.mjs'
 import { TIERS } from './lib/config.mjs'
 
@@ -25,10 +25,43 @@ const LEGACY = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
 const SERVER_INFO = { name: 'lfown', title: 'LFOwn', version: '1.0.0' }
 
 const INSTRUCTIONS = `LFOwn launches memecoins on Solana, each paired with a MetaDAO ownership coin instead of SOL.
-To launch: call list_launch_options, pick an ownership coin with the user, then prepare_launch.
-If you cannot sign Solana transactions (you have no wallet), call prepare_launch without "creator" and give the user the launchUrl it returns: they review and sign on the site.
-If you control a wallet, pass it as "creator", sign every returned transaction unchanged, and call submit_launch within about a minute.
+To launch: call list_launch_options, pick an ownership coin with the user, optionally validate_launch (stores nothing), then prepare_launch.
+If you cannot sign Solana transactions (you have no wallet), call prepare_launch without "creator" and give the user the launchUrl it returns: they review and sign on the site. This is the recommended path whenever a person should approve the launch.
+If you control a wallet, pass it as "creator", sign every returned transaction unchanged and call submit_launch before expiresAt (about a minute). If they expire, call prepare_launch again with the same id and creator: same coin, same address, no new files.
+Every fee share is a ${SHARE_UNIT}: the LFOwn DAO takes 50, the creator splits the other 50 with holders (holderPct).
 Nothing is ever signed for the creator, and the creator's wallet is the one that earns the fees.`
+
+const LAUNCH_INPUT = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: 'Draft id from an earlier prepare_launch. Reuses its token, image, metadata and mint address — pass it to retry instead of starting over. Only creator and devBuyPercent may be given with it.' },
+    name: { type: 'string', maxLength: 32, description: 'Coin name' },
+    symbol: { type: 'string', maxLength: 10, description: 'Ticker, without $' },
+    quote: { type: 'string', description: 'Symbol or mint of the ownership coin to pair with, from list_launch_options' },
+    tier: { type: 'string', enum: TIERS.map((t) => t.id), description: 'Graduation tier; defaults to the first open one' },
+    description: { type: 'string', maxLength: 500 },
+    imageUrl: { type: 'string', description: 'http(s) URL of a png, jpeg, webp or gif under 2 MB' },
+    imageData: { type: 'string', description: 'The image as a base64 data URL, if there is no URL for it' },
+    website: { type: 'string' },
+    twitter: { type: 'string', description: 'X handle or URL' },
+    holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share as a ${SHARE_UNIT} — the same unit as feeShares in every response. The DAO always takes 50; the creator keeps 50 minus this. Paid hourly, pro rata. Fixed at launch.` },
+    devBuyPercent: { type: 'number', minimum: 0, maximum: 50, default: 0, description: 'Percent of supply the creator buys at launch, paid in the ownership coin' },
+    creator: { type: 'string', description: 'Solana wallet that signs and earns the fees. Leave out to get a signing link for a person.' },
+  },
+  additionalProperties: false,
+}
+
+const FEE_SHARES = {
+  type: 'object',
+  description: `Every number is a ${SHARE_UNIT}, except perTradeBps: basis points of the trade itself.`,
+  properties: {
+    unit: { type: 'string' },
+    creator: { type: 'number' },
+    holders: { type: 'number' },
+    lfownDao: { type: 'number' },
+    perTradeBps: { type: 'object' },
+  },
+}
 
 const TOOLS = [
   {
@@ -36,45 +69,88 @@ const TOOLS = [
     title: 'List launch options',
     description: 'Ownership coins a new coin can be paired with, the tiers open for each (how much the curve must raise to graduate), the trading-fee split and the limits on names, images and dev buys.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+    outputSchema: {
+      type: 'object',
+      required: ['coins', 'tradingFee', 'holders', 'limits'],
+      properties: {
+        coins: { type: 'array', items: { type: 'object', properties: { symbol: { type: 'string' }, mint: { type: 'string' }, usdPrice: { type: 'number' }, tiers: { type: 'array' } } } },
+        tradingFee: { type: 'object' },
+        holders: { type: 'object' },
+        limits: { type: 'object' },
+      },
+    },
     annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'validate_launch',
+    title: 'Validate a coin launch',
+    description: 'Checks a launch exactly as prepare_launch would — inputs, the ownership coin and tier, the dev buy price, the creator\'s balances — without storing anything or reserving an address. Answers ok, problems and warnings. Use it before prepare_launch while settling details with the user.',
+    inputSchema: LAUNCH_INPUT,
+    outputSchema: {
+      type: 'object',
+      required: ['ok', 'problems', 'warnings'],
+      properties: {
+        ok: { type: 'boolean' },
+        problems: { type: 'array', items: { type: 'string' } },
+        warnings: { type: 'array', items: { type: 'string' } },
+        mode: { type: 'string', enum: ['link', 'sign'] },
+        feeShares: FEE_SHARES,
+        devBuy: { type: ['object', 'null'] },
+        next: { type: 'string' },
+      },
+    },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
     name: 'prepare_launch',
     title: 'Prepare a coin launch',
-    description: 'Stores the coin\'s image and metadata and prepares its launch. Without "creator": returns launchUrl, a link where a person reviews everything and signs with their own wallet — use this when you have no wallet. With "creator": returns base64 transactions already signed by the new mint, for that wallet to sign unchanged and pass to submit_launch.',
-    inputSchema: {
+    description: 'Stores the coin\'s image and metadata as a draft and prepares its launch. Without "creator": returns launchUrl, where a person reviews everything and signs with their own wallet — use this when you have no wallet or a person should approve. With "creator": returns transactions already signed by the new mint, for that wallet to sign unchanged and pass to submit_launch before expiresAt (about a minute). To retry, pass the same id rather than the fields again.',
+    inputSchema: LAUNCH_INPUT,
+    outputSchema: {
       type: 'object',
-      required: ['name', 'symbol', 'quote'],
+      required: ['id', 'mode', 'launchUrl', 'feeShares', 'next'],
       properties: {
-        name: { type: 'string', maxLength: 32, description: 'Coin name' },
-        symbol: { type: 'string', maxLength: 10, description: 'Ticker, without $' },
-        quote: { type: 'string', description: 'Symbol or mint of the ownership coin to pair with, from list_launch_options' },
-        tier: { type: 'string', enum: TIERS.map((t) => t.id), description: 'Graduation tier; defaults to the first open one' },
-        description: { type: 'string', maxLength: 500 },
-        imageUrl: { type: 'string', description: 'http(s) URL of a png, jpeg, webp or gif under 2 MB' },
-        imageData: { type: 'string', description: 'The image as a base64 data URL, if there is no URL for it' },
-        website: { type: 'string' },
-        twitter: { type: 'string', description: 'X handle or URL' },
-        holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: 'Points of the whole trading fee given to holders out of the creator\'s half; paid hourly, pro rata. Fixed at launch.' },
-        devBuyPercent: { type: 'number', minimum: 0, maximum: 50, default: 0, description: 'Percent of supply the creator buys at launch, paid in the ownership coin' },
-        creator: { type: 'string', description: 'Solana wallet that signs and earns the fees. Leave out to get a signing link for a person.' },
+        id: { type: 'string', description: 'Draft id: pass it back to retry, and to submit_launch' },
+        mode: { type: 'string', enum: ['link', 'sign'] },
+        launchUrl: { type: 'string' },
+        feeShares: FEE_SHARES,
+        mint: { type: 'string' },
+        signer: { type: 'string' },
+        expiresAt: { type: 'string', format: 'date-time' },
+        expiresInSeconds: { type: 'integer' },
+        transactions: {
+          type: 'array',
+          description: 'Sign each base64 unchanged, in order. submit_launch takes these objects or their base64 strings.',
+          items: { type: 'object', required: ['index', 'purpose', 'base64'], properties: { index: { type: 'integer' }, purpose: { type: 'string', enum: ['open-fee-vault', 'launch'] }, base64: { type: 'string' } } },
+        },
+        coinUrl: { type: 'string' },
+        next: { type: 'string' },
+        warnings: { type: 'array', items: { type: 'string' } },
       },
-      additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
     name: 'submit_launch',
     title: 'Submit a signed launch',
-    description: 'Sends the transactions from prepare_launch, signed by the creator, in order, waiting for each to confirm. Only transactions this server prepared are accepted.',
+    description: 'Sends the transactions from prepare_launch, signed by the creator, in order, waiting for each to confirm. Only transactions this server prepared are accepted. This is the MCP form of POST /api/agent/submit — use this one from an MCP client. If they expired, call prepare_launch with the same id and creator.',
     inputSchema: {
       type: 'object',
       required: ['id', 'transactions'],
       properties: {
         id: { type: 'string', description: 'The id prepare_launch returned' },
-        transactions: { type: 'array', items: { type: 'string' }, description: 'Each transaction, signed by the creator, base64, in the order returned' },
+        transactions: {
+          type: 'array',
+          description: 'In the order returned, signed by the creator: the objects prepare_launch returned, or just their base64 strings.',
+          items: { anyOf: [{ type: 'string' }, { type: 'object', required: ['base64'], properties: { base64: { type: 'string' } } }] },
+        },
       },
       additionalProperties: false,
+    },
+    outputSchema: {
+      type: 'object',
+      required: ['mint', 'signatures', 'coinUrl'],
+      properties: { mint: { type: 'string' }, signatures: { type: 'array', items: { type: 'string' } }, coinUrl: { type: 'string' } },
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
@@ -123,7 +199,8 @@ async function callTool(name, args, ctx) {
   try {
     let result
     if (name === 'list_launch_options') result = await agentOptions(env, deps)
-    else if (name === 'prepare_launch') result = await prepareLaunch(env, origin, args ?? {}, deps)
+    else if (name === 'validate_launch') result = await validateLaunch(env, origin, args ?? {}, deps)
+    else if (name === 'prepare_launch') result = await prepareLaunch(env, origin, args ?? {}, deps, { via: 'mcp' })
     else if (name === 'submit_launch') result = await submitLaunch(env, origin, args ?? {}, deps)
     else return null
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result }
@@ -202,7 +279,7 @@ async function handleMessage(msg, request, ctx) {
       return ok({ tools: TOOLS })
     case 'tools/call': {
       if (!params?.name) return failure(id, ERR.invalidParams, 'tools/call needs a tool name', null, 400)
-      if (params.name !== 'list_launch_options' && await ctx.deps.limited(ctx.env.HEAVY_LIMITER, request)) {
+      if (!['list_launch_options', 'validate_launch'].includes(params.name) && await ctx.deps.limited(ctx.env.HEAVY_LIMITER, request)) {
         return ok({ content: [{ type: 'text', text: 'Too many requests from this address; try again in a minute.' }], isError: true })
       }
       const result = await callTool(params.name, params.arguments, ctx)
@@ -240,7 +317,7 @@ function landingPage(origin) {
 <h1>LFOwn MCP server</h1>
 <p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor or any MCP client and ask it to <b>launch a token on LFOwn</b>.</p>
 <div class="url"><span>●</span>${endpoint}</div>
-<p class="mute">Remote MCP over Streamable HTTP · no key, no login · tools: list_launch_options, prepare_launch, submit_launch. Nothing is ever signed for you: the agent hands you a link, or a wallet you control signs.</p>
+<p class="mute">Remote MCP over Streamable HTTP · no key, no login · tools: list_launch_options, validate_launch, prepare_launch, submit_launch. Nothing is ever signed for you: the agent hands you a link, or a wallet you control signs.</p>
 
 <h2>Claude</h2>
 <p>Settings → Connectors → Add custom connector → paste the URL, leave OAuth empty.</p>
