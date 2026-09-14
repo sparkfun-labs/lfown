@@ -31,6 +31,10 @@ import { feeReport } from '../src/lib/fee-report.mjs'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate, vaultSplit } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
+import { buildLaunchTransactions } from '../src/lib/launch-builder.mjs'
+import { grind } from '../src/lib/mint-pool.mjs'
+import { waitFor } from '../src/lib/confirm.mjs'
+import { createHash } from 'node:crypto'
 
 const KEY = readFileSync('.dev.vars', 'utf8').match(/api-key=([a-f0-9-]+)/)[1]
 const connection = new Connection(`https://devnet.helius-rpc.com/?api-key=${KEY}`, 'confirmed')
@@ -444,6 +448,43 @@ await chainTest('a launch that shares fees with holders fits two signable transa
   sharedPool = dfsPool
   sharedVault = vault
   sharedPot = holderPot
+})
+
+await chainTest('an agent launch lands the way the API hands it out: mint signs first, creator second', async () => {
+  // What /api/agent/launch does, step for step: an `own` address from the reserve,
+  // the shared builder, the mint's signature on the server, the message hashed; then
+  // what the agent does: its wallet signs without touching anything, and the
+  // transactions go out in order, each confirmed before the next.
+  const [ground] = await grind({ budgetMs: 60_000, max: 1 })
+  assert(ground, 'the reserve search found nothing in a minute')
+  const mint = Keypair.fromSeed(ground.seed)
+  const holderPot = Keypair.generate().publicKey.toBase58()
+  const built = await buildLaunchTransactions({
+    client, connection, config: config.publicKey.toBase58(), creator: payer.publicKey.toBase58(),
+    token: { name: 'Agent Coin', symbol: 'AGNT', uri: 'https://example.invalid/a.json' },
+    devBuyQuote: 10 * 1e6, mint, quoteMint: quoteMint.toBase58(), holderPct: 25, holderPot,
+  })
+  assert.equal(built.transactions.length, 2, 'a shared launch is the vault, then the pool')
+  assert.match(built.baseMint, /own$/)
+
+  const hash = (tx) => createHash('sha256').update(tx.serializeMessage()).digest('hex')
+  const handedOut = built.transactions.map((tx) => {
+    tx.partialSign(mint)
+    return { hash: hash(tx), base64: tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString('base64') }
+  })
+
+  for (const [i, { hash: prepared, base64 }] of handedOut.entries()) {
+    const tx = Transaction.from(Buffer.from(base64, 'base64'))
+    tx.partialSign(payer)
+    assert.equal(hash(tx), prepared, `transaction ${i} must be the one prepared`)
+    assert(tx.verifySignatures(true), `transaction ${i} must carry every signature`)
+    const signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed' })
+    await waitFor(connection, signature, built.lastValidBlockHeight, { timeoutMs: 60_000 })
+  }
+
+  const { poolState } = await client.state.getPool(new PublicKey(built.pool))
+  assert.equal(poolState.creator.toBase58(), built.vault, 'the vault must be the pool creator')
+  assert(Number(poolState.quoteReserve.toString()) > 0, 'the dev buy must have landed with the launch')
 })
 
 await chainTest('the registry credits the person who launched it, not the vault', async () => {

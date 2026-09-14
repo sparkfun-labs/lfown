@@ -552,12 +552,13 @@ channel is simply not live.
     npm test
 
 Runs against devnet with a stand-in quote mint — a plain 6-decimal SPL token,
-mechanically identical to every ownership coin checked on chain. Twenty-four tests:
+mechanically identical to every ownership coin checked on chain. Twenty-six tests:
 the fee and holder-split arithmetic offline, then config → launch → buy → sell →
 partial fill → graduation, then the whole holder share end to end — a shared launch in
 two transactions, the vault splitting by the slider, the creator claiming through it
 before and after graduation, the pot pulling and claiming with no SOL of its own, and
-the fee report splitting the result. The on-chain half skips itself with the address
+the fee report splitting the result, and an agent launch built and signed exactly as
+`/api/agent/launch` hands it out. The on-chain half skips itself with the address
 to fund when the devnet wallet is empty.
 
 `node scripts/canary-mainnet.mjs` is the same flow against a real ownership coin. It
@@ -570,7 +571,8 @@ KV and R2 in memory — so it runs anywhere and touches nothing: the JSON-RPC ca
 the exit-size cap, the rebuild locks, the metadata route leaving the cache alone,
 and the misses remembered for chart, graduate and launch. It reads the cache keys out
 of the Worker's source rather than spelling their versions, so bumping one does not
-fail a healthy worker.
+fail a healthy worker. It also covers the agent side: the `own` address reserve, the
+agent routes, and the MCP server in both protocol eras.
 
 ## API
 
@@ -589,6 +591,11 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 | `POST /api/metadata` | writes the Metaplex JSON the token's on-chain `uri` points at |
 | `POST /api/graduate` | asks the keeper to migrate a curve that has filled; every claim is checked against chain before a lamport is spent |
 | `POST /api/rpc` | allowlisted read/send proxy to Helius, so the key never reaches the browser. Ten calls per request at most. |
+| `GET /api/agent` · `/api/agent/options` · `/api/agent/openapi.json` | the agent API's index, the coins and tiers an agent can launch on, and its OpenAPI spec. See [Launching from an AI agent](#launching-from-an-ai-agent). |
+| `POST /api/agent/launch` | prepares a launch: a `/launch?draft=` link for a person to sign, or with `creator` the transactions, already signed by the mint |
+| `POST /api/agent/submit` | sends a prepared launch signed by the creator, in order; refuses any transaction it did not prepare |
+| `GET /api/agent/draft/:id` | a draft, as the launch page reads it back. Kept seven days. |
+| `POST /mcp` | the same three operations as an MCP server (Streamable HTTP, stateless; protocol 2026-07-28 and the legacy `initialize` versions) |
 
 A cron every 10 minutes rebuilds the catalogue into KV. Exit costs are priced on
 demand and cached 60s, which keeps each request well under the subrequest ceiling.
@@ -603,6 +610,44 @@ every coin ever launched.
 A few records are logs rather than caches and carry no version: `sweep:last`,
 `payouts:last` and `payouts:stranded` — the last is the one to read if a holder payout
 ever fails halfway.
+
+Agent launches keep three more: `mintpool:v1:<address>` (the `own` address reserve),
+`agentdraft:v1:<id>` (seven days) and `agentlaunch:v1:<id>` (fifteen minutes, the
+message hashes `submit` checks against).
+
+## Launching from an AI agent
+
+Any agent can launch a coin: one with its own wallet, a script, or a chat assistant
+with no wallet at all. It finds out how from `/llms.txt`, `/api/agent/openapi.json`, or
+by connecting to `https://letsfuckingown.fun/mcp` — in Claude as a custom connector, in
+ChatGPT through developer mode or an app.
+
+Nothing is signed for the creator. The wallet that signs a launch is the wallet that
+earns its fees, so there are two ways through:
+
+- **No wallet.** `POST /api/agent/launch` without `creator` stores the image, the
+  metadata and every choice as a draft, and answers with `/launch?draft=<id>`. The page
+  fills itself in and stops at the curve step; the person checks it and signs.
+- **A wallet.** With `creator`, the server builds the same transactions the launch page
+  builds (`src/lib/launch-builder.mjs`, shared by both), signs them with the mint key,
+  and returns them. The agent signs each one unchanged and posts them to
+  `/api/agent/submit`, which sends them in order and lists the coin — or sends them
+  through any RPC itself.
+
+`submit` is not an open relay: it only sends transactions whose message hashes match
+the ones it prepared, and only with every signature on them.
+
+**The `own` suffix.** The launch page grinds its address in the browser. An agent has
+nowhere to do that, so the minute cron keeps a reserve of twenty ground addresses in KV
+(`src/lib/mint-pool.mjs`, WebCrypto Ed25519, about five seconds each inside workerd),
+and each agent launch takes one out. The trade-off: those mint keys live on the server
+until the pool opens. They control nothing afterwards — the config makes the mint
+authority immutable — but they are secrets until then, readable by anyone with the KV
+namespace. When the reserve is empty the launch goes ahead on a random address and says
+so in `warnings`.
+
+Both agent routes and MCP tool calls share `HEAVY_LIMITER` with the other expensive
+routes. Spam is accepted: every launch still costs its creator the rent.
 
 ## Themes
 

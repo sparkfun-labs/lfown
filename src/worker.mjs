@@ -968,6 +968,20 @@ async function watchGraduations(env) {
   return { checked: live.length }
 }
 
+/**
+ * Keeps the reserve of `own` addresses that agent launches draw from topped up.
+ *
+ * Capped well inside a scheduled run's CPU allowance: about five seconds of search
+ * per address in workerd, so a run adds two or three and an empty reserve is full
+ * again within ten minutes. A full reserve costs one list call and nothing else.
+ */
+async function refillMintPool(env) {
+  if (!env.REGISTRY) return
+  const { refill } = await import('./lib/mint-pool.mjs')
+  const { had, added } = await refill(env.REGISTRY, { budgetMs: 12_000 })
+  if (added) console.log(`mint pool: ${had} → ${had + added}`)
+}
+
 const EMPTY_REPORT = () => ({
   updatedAt: new Date().toISOString(),
   coins: [],
@@ -1527,6 +1541,17 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
 
+    // The agent API answers every origin and carries its own limits; the rest of /api
+    // is for this site's pages. Loaded only when an agent actually calls.
+    if (url.pathname === '/mcp') {
+      const { handleMcp } = await import('./mcp.mjs')
+      return handleMcp(url, request, env, ctx, { readCatalogue, crankOne, limited })
+    }
+    if (url.pathname === '/api/agent' || url.pathname.startsWith('/api/agent/')) {
+      const { handleAgent } = await import('./agent.mjs')
+      return handleAgent(url, request, env, ctx, { readCatalogue, crankOne, limited })
+    }
+
     if (url.pathname.startsWith('/api/')) return handleApi(url, request, env, ctx)
 
     // Uploaded token images.
@@ -1578,6 +1603,9 @@ export default {
     }
     if (event.cron === WATCH) {
       ctx.waitUntil(watchGraduations(env))
+      // Alongside, not after: the watch is mostly waiting on the network, and the
+      // search is the only thing here that needs the CPU.
+      ctx.waitUntil(refillMintPool(env).catch((e) => console.error(`mint pool refill failed: ${e.message}`)))
       return
     }
     // Everything unrecognised still runs the frequent job, because that is the safe

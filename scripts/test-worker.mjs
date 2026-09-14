@@ -73,6 +73,10 @@ const REGISTRY = {
   async get(key, type) { const v = kv.get(key); return v === undefined ? null : type === 'json' ? JSON.parse(v) : v },
   async put(key, value) { kv.set(key, String(value)) },
   async delete(key) { kv.delete(key) },
+  async list({ prefix = '', limit = 1000 } = {}) {
+    const keys = [...kv.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((name) => ({ name }))
+    return { keys, list_complete: true }
+  },
 }
 const r2 = new Map()
 const IMAGES = {
@@ -256,6 +260,131 @@ await test('rate limiter: a binding that says no turns into a 429', async () => 
   assert.equal(r.headers.get('retry-after'), '60')
   const r2 = await worker.fetch(new Request(`https://example.test/api/quote-assets`), { ...env, HEAVY_LIMITER: denied }, ctx)
   assert.equal(r2.status, 200) // the cheap routes are not behind it
+})
+
+// ── agents ─────────────────────────────────────────────────────────────────
+console.log('\nLFOwn agent launches\n')
+
+const pool = await import(new URL('../src/lib/mint-pool.mjs', import.meta.url).href)
+const { Keypair } = await import('@solana/web3.js')
+
+await test('mint pool: a ground address ends in own and its seed rebuilds the same key', async () => {
+  const [hit] = await pool.grind({ budgetMs: 30_000, max: 1 })
+  assert.ok(hit, 'found nothing in 30 s')
+  assert.match(hit.address, /own$/)
+  assert.equal(hit.seed.length, 32)
+  assert.equal(Keypair.fromSeed(hit.seed).publicKey.toBase58(), hit.address)
+})
+
+await test('mint pool: refill tops up to the target, take hands one out and removes it', async () => {
+  const store = new Map()
+  const fakeKv = {
+    async get(k) { return store.get(k) ?? null },
+    async put(k, v) { store.set(k, v) },
+    async delete(k) { store.delete(k) },
+    async list({ prefix = '', limit = 1000 } = {}) {
+      return { keys: [...store.keys()].filter((k) => k.startsWith(prefix)).slice(0, limit).map((name) => ({ name })), list_complete: true }
+    },
+  }
+  assert.equal(await pool.take(fakeKv), null)
+  const first = await pool.refill(fakeKv, { target: 2, budgetMs: 60_000 })
+  assert.deepEqual(first, { had: 0, added: 2 })
+  assert.deepEqual(await pool.refill(fakeKv, { target: 2 }), { had: 2, added: 0 })
+  const got = await pool.take(fakeKv)
+  assert.match(got.address, /own$/)
+  assert.equal(Keypair.fromSeed(got.seed).publicKey.toBase58(), got.address)
+  assert.equal(await pool.poolSize(fakeKv), 1)
+})
+
+await test('agent: options list the open coin, its tier priced in usd, and the fee split', async () => {
+  const r = await call('/api/agent/options')
+  assert.equal(r.status, 200)
+  assert.equal(r.headers.get('access-control-allow-origin'), '*')
+  assert.equal(r.body.coins.length, 1)
+  assert.equal(r.body.coins[0].symbol, 'TEST')
+  assert.deepEqual(r.body.coins[0].tiers.map((t) => [t.id, t.thresholdUsd]), [['starter', 5000]])
+  assert.equal(r.body.holders.default, 25)
+})
+
+await test('agent: a launch with no creator is kept as a draft and answered with a link', async () => {
+  const r = await post('/api/agent/launch', { name: 'Agent Coin', symbol: '$AGNT', quote: 'test', description: 'made by a bot', website: 'javascript:x', holderPct: 99 })
+  assert.equal(r.status, 200, JSON.stringify(r.body))
+  assert.equal(r.body.mode, 'link')
+  assert.match(r.body.launchUrl, /^https:\/\/example\.test\/launch\?draft=[0-9a-f-]{36}$/)
+  assert.deepEqual([r.body.feeShares.creator, r.body.feeShares.holders, r.body.feeShares.lfownDao], [0, 50, 50])
+  const meta = JSON.parse(r2.get(r.body.token.uri.split('/i/')[1]))
+  assert.equal(meta.symbol, 'AGNT')
+  assert.equal(meta.external_url, '')
+  const d = await call(`/api/agent/draft/${r.body.id}`)
+  assert.equal(d.status, 200)
+  assert.equal(d.body.quoteMint, COIN)
+  assert.equal(d.body.tier, 'starter')
+  assert.equal(d.body.holderPct, 50)
+})
+
+await test('agent: bad requests say what is wrong', async () => {
+  const noQuote = await post('/api/agent/launch', { name: 'A', symbol: 'A', quote: 'NOPE' })
+  assert.equal(noQuote.status, 400)
+  assert.deepEqual(noQuote.body.details.available, ['TEST'])
+  assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'TOOLONGSYMBOL', quote: 'TEST' })).status, 400)
+  assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'A', quote: 'TEST', creator: 'not-a-wallet' })).status, 400)
+  assert.equal((await post('/api/agent/launch', { name: 'A', symbol: 'A', quote: 'TEST', tier: 'serious' })).status, 400)
+  assert.equal((await post('/api/agent/submit', { id: 'nope', transactions: [] })).status, 404)
+  assert.equal((await call('/api/agent/draft/nope')).status, 404)
+  const pre = await call('/api/agent/launch', { method: 'OPTIONS' })
+  assert.equal(pre.status, 204)
+})
+
+await test('agent: the index and OpenAPI describe the same three endpoints', async () => {
+  const index = await call('/api/agent')
+  assert.equal(index.body.mcp, 'https://example.test/mcp')
+  const spec = await call('/api/agent/openapi.json')
+  assert.deepEqual(Object.keys(spec.body.paths), ['/api/agent/options', '/api/agent/launch', '/api/agent/submit'])
+})
+
+const MODERN = '2026-07-28'
+const mcp = (body, headers = {}) => post('/mcp', body, headers)
+const meta = { 'io.modelcontextprotocol/protocolVersion': MODERN }
+
+await test('mcp: a legacy client initialises, lists tools and gets 202 for a notification', async () => {
+  const init = await mcp({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 't', version: '1' } } })
+  assert.equal(init.status, 200)
+  assert.equal(init.body.result.protocolVersion, '2025-06-18')
+  assert.ok(init.body.result.capabilities.tools)
+  assert.equal((await mcp({ jsonrpc: '2.0', method: 'notifications/initialized' })).status, 202)
+  const list = await mcp({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, { 'mcp-protocol-version': '2025-06-18' })
+  assert.deepEqual(list.body.result.tools.map((t) => t.name), ['list_launch_options', 'prepare_launch', 'submit_launch'])
+  assert.equal(list.body.result.resultType, undefined)
+})
+
+await test('mcp: a modern client discovers the server and calls a tool with no handshake', async () => {
+  const h = { 'mcp-protocol-version': MODERN }
+  const disc = await mcp({ jsonrpc: '2.0', id: 'd', method: 'server/discover', params: { _meta: meta } }, { ...h, 'mcp-method': 'server/discover' })
+  assert.equal(disc.status, 200)
+  assert.deepEqual(disc.body.result.supportedVersions, [MODERN])
+  assert.equal(disc.body.result.resultType, 'complete')
+  const tool = await mcp({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { _meta: meta, name: 'prepare_launch', arguments: { name: 'Mcp', symbol: 'MCP', quote: 'TEST' } } }, { ...h, 'mcp-method': 'tools/call', 'mcp-name': 'prepare_launch' })
+  assert.equal(tool.status, 200)
+  assert.equal(tool.body.result.structuredContent.mode, 'link')
+  const refused = await mcp({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { _meta: meta, name: 'prepare_launch', arguments: { name: 'x', symbol: 'x', quote: 'NOPE' } } }, h)
+  assert.equal(refused.body.result.isError, true)
+})
+
+await test('mcp: mismatches, unknown versions and methods, other verbs and foreign origins are refused', async () => {
+  const mismatch = await mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: meta } }, { 'mcp-protocol-version': '2025-06-18' })
+  assert.equal(mismatch.status, 400)
+  assert.equal(mismatch.body.error.code, -32020)
+  const method = await mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: meta } }, { 'mcp-method': 'tools/call' })
+  assert.equal(method.body.error.code, -32020)
+  const version = await mcp({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: { 'io.modelcontextprotocol/protocolVersion': '1999-01-01' } } })
+  assert.equal(version.status, 400)
+  assert.equal(version.body.error.code, -32022)
+  assert.ok(version.body.error.data.supported.includes(MODERN))
+  const unknown = await mcp({ jsonrpc: '2.0', id: 1, method: 'prompts/list', params: { _meta: meta } })
+  assert.equal(unknown.status, 404)
+  assert.equal(unknown.body.error.code, -32601)
+  assert.equal((await call('/mcp')).status, 405)
+  assert.equal((await mcp({ jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'http://evil.example' })).status, 403)
 })
 
 console.log(`\n${passed} passed`)

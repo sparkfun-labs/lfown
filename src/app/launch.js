@@ -96,6 +96,7 @@ async function loadAssets() {
     card.className = 'qcard'
     card.setAttribute('aria-pressed', 'false')
     card.dataset.search = `${c.symbol} ${c.name ?? ''}`.toLowerCase()
+    card.dataset.mint = c.mint
     card.innerHTML = `
       <div class="top">
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
@@ -265,6 +266,7 @@ async function paintCurve() {
     const btn = document.createElement('button')
     btn.type = 'button'
     btn.className = 'tier'
+    btn.dataset.tier = tier.id
     btn.setAttribute('aria-pressed', 'false')
     btn.innerHTML = `
       <span class="t-name">${tier.label}</span>
@@ -283,7 +285,8 @@ async function paintCurve() {
 
   // Starter first: it is the tier most launches want, and preselecting it makes the
   // common path two clicks rather than three.
-  box.querySelector('.tier')?.click()
+  // A draft an agent prepared names its tier; it wins while it is still open.
+  ;(state.draft && box.querySelector(`.tier[data-tier="${state.draft.tier}"]`) || box.querySelector('.tier'))?.click()
 
   if (!open.length) {
     $('#to4').disabled = true
@@ -324,6 +327,16 @@ async function paintCurve() {
     return
   }
   holders.max = String(HOLDER_MAX_PCT)
+  if (state.draft && !state.draft.applied) {
+    // Once only: going back to this step later must not undo what the person changed.
+    state.draft.applied = true
+    holders.value = String(state.draft.holderPct ?? holders.value)
+    if (state.draft.devBuyPercent > 0) {
+      devBuy.value = String(state.draft.devBuyPercent)
+      state.curve.devBuy = Math.min(DEV_BUY_MAX, state.draft.devBuyPercent)
+      priceDevBuy(a)
+    }
+  }
   const paint = () => {
     const pct = Number(holders.value || 0)
     state.curve.holders = pct
@@ -817,4 +830,52 @@ async function restoreSession() {
 }
 restoreSession()
 
-loadAssets()
+loadAssets().then(applyDraft)
+
+/**
+ * A launch an agent prepared for someone to sign: `/launch?draft=<id>`.
+ *
+ * Everything is filled in and the page stops at the curve step, so the person still
+ * sees every choice before the review — the agent proposed it, they decide it. The
+ * draft holds nothing secret; its id is only hard to guess.
+ */
+async function applyDraft() {
+  const id = new URLSearchParams(location.search).get('draft')
+  if (!id) return
+  const draft = await fetch(`/api/agent/draft/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+  const card = draft && [...document.querySelectorAll('.qcard:not(.wild)')]
+    .find((c) => c.dataset.mint === draft.quoteMint)
+  if (!draft || !card) {
+    const note = $('#draft-note')
+    if (note) {
+      note.hidden = false
+      note.textContent = draft
+        ? `This draft pairs the coin with ${draft.quoteSymbol}, which is not open for launches any more. Pick another coin.`
+        : 'That draft has expired or does not exist. Drafts are kept for seven days.'
+    }
+    return
+  }
+
+  state.draft = draft
+  card.click()
+  const values = { name: draft.name, symbol: draft.symbol, desc: draft.description, x: draft.twitter, site: draft.website }
+  for (const [key, sel] of Object.entries(fields)) {
+    const input = $(sel)
+    input.value = values[key] ?? ''
+    input.dispatchEvent(new Event('input'))
+  }
+  if (draft.image) {
+    state.token.image = draft.image
+    preview.src = draft.image
+    preview.hidden = false
+    clearBtn.hidden = false
+    imageStatus.textContent = 'Image from the draft.'
+  }
+  const note = $('#draft-note')
+  if (note) {
+    note.hidden = false
+    note.textContent = `Filled in from a draft an AI agent prepared for ${draft.name} ($${draft.symbol}). Check each step — nothing is signed until you sign it.`
+  }
+  unlock(3)
+  startVanity()
+}

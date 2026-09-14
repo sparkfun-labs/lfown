@@ -19,6 +19,9 @@
       // through — which is what it did, killing every token image on the site and
       // every metadata document already written on chain.
       "/i/*",
+      // The MCP endpoint is not a file either, and without this the 404 page would
+      // answer every agent that tried to connect.
+      "/mcp",
       "/launch",
       "/launch/*",
       "/coins",

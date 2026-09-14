@@ -1,0 +1,43 @@
+# LFOwn
+
+> LFOwn is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it: through the HTTP API below, or through the MCP server at https://letsfuckingown.fun/mcp.
+
+Nothing is ever signed for the creator. The wallet that signs a launch is the wallet that earns its trading fees.
+
+## How to launch a coin
+
+1. Read the options: `GET https://letsfuckingown.fun/api/agent/options`
+   It lists the ownership coins a coin can be paired with (symbol, mint, price, treasury), the tiers open for each (the amount a curve must raise to graduate), the fee split and the limits.
+
+2. Prepare the launch: `POST https://letsfuckingown.fun/api/agent/launch` with a JSON body:
+   - `name` (required, up to 32 characters)
+   - `symbol` (required, up to 10 characters)
+   - `quote` (required): the symbol or mint of an ownership coin from the options, e.g. `"META"`
+   - `tier` (optional): `starter`, `standard` or `serious`; defaults to the first open tier
+   - `description` (optional, up to 500 characters)
+   - `imageUrl` (optional, http(s)) or `imageData` (optional, base64 data URL); png, jpeg, webp or gif, under 2 MB
+   - `website`, `twitter` (optional)
+   - `holderPct` (optional, 0 to 50, default 25): points of the whole trading fee the creator gives the coin's holders, out of their own half. Paid out hourly, pro rata, in the ownership coin. Fixed at launch.
+   - `devBuyPercent` (optional, 0 to 50, default 0): percent of supply the creator buys at launch, paid in the ownership coin
+   - `creator` (optional): the Solana wallet that signs and earns the fees
+
+   Two answers, depending on whether you can sign:
+   - **You have no wallet** (for example, you are a chat assistant): leave out `creator`. The response has `mode: "link"` and a `launchUrl`. Give that link to the person you are helping. Everything is filled in; they review it and sign with their own wallet on the page.
+   - **You control a Solana wallet**: pass it as `creator`. The response has `mode: "sign"` and `transactions`, each base64 and already signed by the coin's mint. Sign every one with the creator wallet without changing it, then go to step 3 within about a minute.
+
+3. Send it: `POST https://letsfuckingown.fun/api/agent/submit` with `{ "id": "<id from step 2>", "transactions": ["<signed base64>", ...] }`
+   The server sends them in order, waits for each to confirm, lists the coin, and answers with the signatures and the coin's page. You can also send them yourself through any Solana RPC, in order, each confirmed before the next.
+
+A launch that shares fees with holders is two transactions: the fee vault first, then the launch. A creator who keeps all of their half (`holderPct: 0`) signs one.
+
+## Costs
+
+- The creator pays roughly 0.03 SOL in rent and network fees to launch, plus the dev buy if any.
+- Every trade on the coin pays a 2.5% fee. Meteora keeps 0.5%; of the rest, half goes to the creator's side (split with holders as chosen) and half to the LFOwn DAO.
+
+## Reference
+
+- API index: https://letsfuckingown.fun/api/agent
+- OpenAPI: https://letsfuckingown.fun/api/agent/openapi.json
+- MCP server (Streamable HTTP): https://letsfuckingown.fun/mcp
+- Launched coins: https://letsfuckingown.fun/coins
