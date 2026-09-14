@@ -139,7 +139,17 @@ async function gather(address) {
   for (const coin of mine) {
     let state = null
     try { state = await loadPool(coin.pool) } catch (e) { console.error(`pool ${coin.pool}:`, e.message) }
-    const lp = positions.find((p) => p.tokenA === coin.baseMint || p.tokenB === coin.baseMint) ?? null
+    const here = (list) => list.find((p) => p.tokenA === coin.baseMint || p.tokenB === coin.baseMint) ?? null
+    // A shared coin's position was minted to its vault — the pool's creator when it
+    // graduated — so it is not among this wallet's own positions.
+    const lp = !coin.vault
+      ? here(positions)
+      : state?.isMigrated
+        ? here(await lpPositions(connection, coin.vault).catch((e) => {
+            console.error(`vault positions ${coin.vault}:`, e.message)
+            return []
+          }))
+        : null
     const price = earned.get(coin.baseMint)?.quoteUsdPrice ?? coin.quoteUsdPrice ?? 0
 
     // On the curve every fee is quote-side. In a graduated pool the position earns
@@ -149,7 +159,7 @@ async function gather(address) {
     // until they are pulled into the vault — so the pool's figure would count the
     // holders' part as this wallet's. The vault says what is actually theirs.
     const shared = state && coin.vault
-      ? await vaultFees(state, { vault: coin.vault, creator: address }).catch((e) => {
+      ? await vaultFees(state, { vault: coin.vault, creator: address, lp }).catch((e) => {
           console.error(`vault ${coin.vault}:`, e.message)
           return null
         })
@@ -157,8 +167,10 @@ async function gather(address) {
     const curvePending = coin.vault
       ? (shared?.creator.pending ?? 0)
       : state ? Number(state.pool.creatorQuoteFee.toString()) / 1e6 : 0
-    const lpQuote = lp ? (quoteIsB ? lp.feeB : lp.feeA) : 0
-    const lpBase = lp ? (quoteIsB ? lp.feeA : lp.feeB) : 0
+    // Already inside the vault's figures for a shared coin, split — counted again here
+    // it would give the holders' part to this wallet.
+    const lpQuote = lp && !coin.vault ? (quoteIsB ? lp.feeB : lp.feeA) : 0
+    const lpBase = lp && !coin.vault ? (quoteIsB ? lp.feeA : lp.feeB) : 0
 
     rows.push({
       coin, state, lp, price,

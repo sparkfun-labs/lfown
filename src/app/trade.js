@@ -94,14 +94,19 @@ export function creatorFees({ pool, config }) {
  *
  * Null for a coin with no vault, which is every coin whose creator kept it all.
  */
-export async function vaultFees({ pool }, { vault, creator }) {
+export async function vaultFees({ pool }, { vault, creator, lp = null }) {
   if (!vault) return null
   const { DynamicFeeSharingClient } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
   const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
   const address = new PublicKey(vault)
   const [state, breakdown] = await Promise.all([dfs.getFeeVault(address), dfs.getFeeBreakdown(address)])
   const total = BigInt(state.totalShare)
-  const inPool = BigInt(pool.creatorQuoteFee.toString())
+  // After graduation the undivided fees sit in the locked position the vault owns
+  // rather than on the curve. Same split, other place.
+  const inPosition = lp
+    ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * 1e6))
+    : 0n
+  const inPool = BigInt(pool.creatorQuoteFee.toString()) + inPosition
   const nobody = { share: 0, pending: 0, claimed: 0 }
 
   const side = (who) => {
@@ -201,8 +206,8 @@ export async function claimInstructions({ address, pool, config }, { creator, lp
     // not one. There is nothing of theirs to claim; the payout moves the holders' part.
     if (!mine) return out
 
-    const inPool = BigInt(pool.creatorQuoteFee.toString())
-    if (inPool > 0n) {
+    const inCurve = BigInt(pool.creatorQuoteFee.toString())
+    if (inCurve > 0n) {
       const pull = await dfs.fundByClaimDbcCreatorTradingFee({
         signer: owner, creator: owner, feeVault,
         poolConfig: pool.config, virtualPool: address,
@@ -210,14 +215,33 @@ export async function claimInstructions({ address, pool, config }, { creator, lp
       })
       out.push(...pull.instructions)
     }
+
+    // After graduation the vault owns the creator's locked position — it was the pool's
+    // creator when the pool migrated — so that position's fees are pulled the same way,
+    // from DAMM v2. The program checks only the account it pays into the vault, which
+    // must be the pool's token B; every pool migrated so far puts the quote there and
+    // collects fees in nothing else. The token A account must still exist, and gets 0.
+    const inPosition = lp
+      ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * 1e6))
+      : 0n
+    if (inPosition > 0n) {
+      const { derivePositionNftAccount } = await import('@meteora-ag/cp-amm-sdk')
+      const pull = await dfs.fundByClaimDammV2Fee({
+        signer: owner, owner, feeVault,
+        dammV2Pool: new PublicKey(lp.pool),
+        dammV2Position: new PublicKey(lp.position),
+        dammV2PositionNftAccount: derivePositionNftAccount(new PublicKey(lp.nftMint)),
+        dammV2PoolState: lp.poolState,
+      })
+      out.push(...pull.instructions)
+    }
+
     const breakdown = await dfs.getFeeBreakdown(feeVault)
     const waiting = BigInt(breakdown.userFees.find((u) => u.address.equals(owner))?.feeUnclaimed.toString() ?? '0')
-    if (waiting + (inPool * BigInt(mine.share)) / BigInt(state.totalShare) > 0n) {
+    if (waiting + ((inCurve + inPosition) * BigInt(mine.share)) / BigInt(state.totalShare) > 0n) {
       const take = await dfs.claimUserFee({ feeVault, user: owner, payer: owner })
       out.push(...take.instructions)
     }
-    // A graduated shared coin's position belongs to the vault as well, and is not
-    // claimed here yet — see the README.
     return out
   }
 

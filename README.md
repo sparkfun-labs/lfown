@@ -333,10 +333,19 @@ that field. The vault's first field is its `owner`, written from the launching w
 so `resolveVaultCreators` in `src/lib/launches.mjs` reads it back and credits the
 person — even at 50%, where they hold no share and the shareholder list cannot say.
 
-Two things are not done. A shared coin that graduates gets its locked DAMM v2 position
-minted to the vault, and neither the creator's claim nor the payout pulls from it yet
-(`fundByClaimDammV2Fee`); until they do, a shared coin's fees after graduation wait in
-that position. And `/api/fees` still counts a shared coin's holders' part as the
+After graduation. Migration mints the creator's locked DAMM v2 position to whoever the
+pool names as its creator, which for a shared coin is the vault — proven on devnet, not
+assumed. Its fees are pulled into the vault the same way, with `fundByClaimDammV2Fee`,
+by the creator's claim (775 bytes, one transaction) and by the hourly payout alike. The
+program checks only the account it pays into the vault, and that account is fixed at
+token B. That holds up because of two facts read off both pools graduated on mainnet,
+PROPHET and CHADICI: migration puts the base at token A and the quote at token B
+whatever order their mints sort in — one of the two sorts each way — and the pools
+collect fees in token B only (`collectFeeMode` 1), so token A never earns anything to
+send elsewhere. Should Meteora ever change either, a pull would pay the wrong token
+into the vault; the devnet suite asserts both on every run.
+
+One thing is not done: `/api/fees` still counts a shared coin's holders' part as the
 creator's, so the leaderboard overstates what a sharing creator earned.
 
 If a run fails after claiming, what did not go out is stranded in the pot and will

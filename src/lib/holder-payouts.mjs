@@ -86,10 +86,12 @@ export async function snapshotHolders(rpcUrl, mint) {
  * the pool, so what the vault already holds for the pot is only part of it: the rest
  * is the pot's share of what the pool still holds. A creator who never claims never
  * pulls, and reading the vault alone would have paid their holders nothing, ever.
- * `needsPull` says whether the payout has to pull first. `readPool` returns a DBC
- * pool's state.
+ * `needsPull` says whether the payout has to pull from the curve first, and
+ * `position`, when set, is the graduated position it has to pull from. `readPool`
+ * returns a DBC pool's state; `positionOf(vault, launch)` returns the vault's locked
+ * DAMM v2 position for that coin with its unclaimed quote-side fee in base units.
  */
-export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map(), readPool } = {}) {
+export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map(), readPool, positionOf } = {}) {
   const pot = new PublicKey(potAddress)
   const candidates = launches
     .filter((l) => l.baseMint && l.quoteMint)
@@ -115,12 +117,20 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
       if (!share) continue
       const waiting = BigInt(breakdown.userFees.find((u) => u.address.equals(pot))?.feeUnclaimed.toString() ?? '0')
       const inPool = BigInt(poolState.creatorQuoteFee.toString())
+      // After graduation the curve stops earning and the undivided fees build up in the
+      // locked position the vault owns instead.
+      const position = poolState.isMigrated && positionOf ? await positionOf(vault, launch) : null
+      const inPosition = position?.quoteUnits ?? 0n
       // A lower bound: fees keep arriving until the pull, and the payout hands out the
       // measured balance change, not this.
-      const amount = waiting + (inPool * BigInt(share.share)) / BigInt(state.totalShare)
+      const amount = waiting + ((inPool + inPosition) * BigInt(share.share)) / BigInt(state.totalShare)
       if (amount <= 0n) continue
       const price = prices.get(launch.quoteMint) ?? launch.quoteUsdPrice ?? 0
-      owed.push({ launch, vault, amount, usd: (Number(amount) / 1e6) * price, price, poolState, needsPull: inPool > 0n })
+      owed.push({
+        launch, vault, amount, usd: (Number(amount) / 1e6) * price, price, poolState,
+        needsPull: inPool > 0n,
+        position: inPosition > 0n ? position.entry : null,
+      })
     } catch (e) {
       console.error(`holder payout: vault ${vault.toBase58()} unreadable — ${e.message}`)
     }

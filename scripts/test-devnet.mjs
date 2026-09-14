@@ -24,7 +24,9 @@ import { readFileSync } from 'node:fs'
 import { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token'
 import { resolveVaultCreators } from '../src/lib/launches.mjs'
-import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { CpAmm, derivePositionNftAccount } from '@meteora-ag/cp-amm-sdk'
+import { lpPositions } from '../src/lib/lp-fees.mjs'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
@@ -91,7 +93,7 @@ const chainTest = (name, fn) => (onChain ? test(name, fn) : Promise.resolve())
 
 const RAISE = 1_000
 let quoteMint, config, baseMint, pool
-let sharedPool, sharedVault, sharedPot
+let sharedPool, sharedVault, sharedPot, sharedDamm
 
 await test('the fee split matches what the launch screen promises', () => {
   const cut = feeBreakdown(FEES.totalBps)
@@ -556,6 +558,99 @@ await chainTest('the pot pulls fees in without the creator, and spends no SOL do
   assert((await getAccount(connection, potAta)).amount > 0n, "the holders' share must reach the pot")
   assert.equal(await connection.getBalance(sharedPot.publicKey), 0,
     'and the pot must still hold no SOL — every fee and every account was paid by someone else')
+})
+
+await chainTest('a shared coin graduates, and its creator position belongs to the vault', async () => {
+  // PartialFill takes what is left of the curve and refunds the rest.
+  await send(await client.pool.swap2({
+    owner: payer.publicKey, payer: payer.publicKey, pool: sharedPool,
+    amountIn: new BN(5_000 * 1e6), minimumAmountOut: new BN(0),
+    swapMode: SwapMode.PartialFill, swapBaseForQuote: false, referralTokenAccount: null,
+  }))
+  await graduate(client, connection, sharedPool.toBase58(), payer)
+  const { poolState } = await client.state.getPool(sharedPool)
+  assert.equal(poolState.isMigrated, 1, 'the shared pool should have migrated')
+
+  sharedDamm = deriveDammV2PoolAddress(DAMM_V2_MIGRATION_FEE_ADDRESS[MigrationFeeOption.FixedBps100], poolState.baseMint, quoteMint)
+  const damm = await new CpAmm(connection).fetchPoolState(sharedDamm)
+  // What the whole design leans on. The program pays a position's fees into the vault
+  // only from token B, and a vault holds one mint — the quote.
+  assert.equal(damm.tokenAMint.toBase58(), poolState.baseMint.toBase58(), 'the base is token A')
+  assert.equal(damm.tokenBMint.toBase58(), quoteMint.toBase58(), 'the quote is token B, the side paid into the vault')
+  assert.equal(damm.collectFeeMode, 1, 'and fees are collected in token B only')
+
+  const held = (await lpPositions(connection, sharedVault.toBase58())).filter((p) => p.pool === sharedDamm.toBase58())
+  assert.equal(held.length, 1, "the creator's locked position must have been minted to the vault, the pool's creator when it migrated")
+})
+
+/** A quote-for-coin buy on the graduated pool, which is what earns a position its fees. */
+const tradeGraduated = async () => {
+  const cp = new CpAmm(connection)
+  const damm = await cp.fetchPoolState(sharedDamm)
+  await send(await cp.swap({
+    payer: payer.publicKey, pool: sharedDamm,
+    inputTokenMint: quoteMint, outputTokenMint: damm.tokenAMint,
+    amountIn: new BN(400 * 1e6), minimumAmountOut: new BN(0),
+    tokenAMint: damm.tokenAMint, tokenBMint: damm.tokenBMint,
+    tokenAVault: damm.tokenAVault, tokenBVault: damm.tokenBVault,
+    tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID,
+    referralTokenAccount: null,
+  }))
+  const [position] = (await lpPositions(connection, sharedVault.toBase58())).filter((p) => p.pool === sharedDamm.toBase58())
+  return { damm, position }
+}
+
+await chainTest('after graduation a creator claims through the vault in one transaction', async () => {
+  const { position } = await tradeGraduated()
+  assert(position.feeB > 0, 'trading after graduation should have earned the position quote-side fees')
+  assert.equal(position.feeA, 0, 'and nothing in the coin itself')
+
+  // What trade.js builds: pull the position's fees into the vault, take this share.
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const pull = await dfs.fundByClaimDammV2Fee({
+    signer: payer.publicKey, owner: payer.publicKey, feeVault: sharedVault,
+    dammV2Pool: sharedDamm, dammV2Position: new PublicKey(position.position),
+    dammV2PositionNftAccount: derivePositionNftAccount(new PublicKey(position.nftMint)),
+  })
+  const take = await dfs.claimUserFee({ feeVault: sharedVault, user: payer.publicKey, payer: payer.publicKey })
+  const tx = new Transaction().add(...pull.instructions, ...take.instructions)
+  const size = sizeOf(tx)
+  process.stdout.write(`(${size} bytes) `)
+  assert(size <= 1232, `the creator's graduated claim must fit one transaction, measured ${size} bytes`)
+
+  const ata = await getOrCreateAssociatedTokenAccount(connection, payer, quoteMint, payer.publicKey)
+  const before = (await getAccount(connection, ata.address)).amount
+  await send(tx)
+  assert((await getAccount(connection, ata.address)).amount > before, 'the creator must receive their share')
+
+  const theirs = (await dfs.getFeeBreakdown(sharedVault)).userFees.find((u) => u.address.equals(sharedPot.publicKey))
+  assert(BigInt(theirs.feeUnclaimed.toString()) > 0n, "and the holders' part waits in the vault")
+})
+
+await chainTest('after graduation the pot pulls from the position too, and still spends no SOL', async () => {
+  const { damm, position } = await tradeGraduated()
+  assert.equal(await connection.getBalance(sharedPot.publicKey), 0, 'the pot starts with no SOL')
+
+  // What the hourly payout builds. Token A's account belongs to someone who has never
+  // held the coin, so the SDK would rent it with the pot's SOL; the collector's create
+  // goes first and leaves the SDK's with nothing to pay for.
+  const stranger = Keypair.generate().publicKey
+  const receiver = getAssociatedTokenAddressSync(damm.tokenAMint, stranger)
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const pull = await dfs.fundByClaimDammV2Fee({
+    signer: sharedPot.publicKey, owner: stranger, feeVault: sharedVault,
+    dammV2Pool: sharedDamm, dammV2Position: new PublicKey(position.position),
+    dammV2PositionNftAccount: derivePositionNftAccount(new PublicKey(position.nftMint)),
+  })
+  await send(new Transaction()
+    .add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, receiver, stranger, damm.tokenAMint))
+    .add(...pull.instructions), [sharedPot])
+
+  const potAta = getAssociatedTokenAddressSync(quoteMint, sharedPot.publicKey)
+  const before = (await getAccount(connection, potAta)).amount
+  await send(await dfs.claimUserFee({ feeVault: sharedVault, user: sharedPot.publicKey, payer: payer.publicKey }), [sharedPot])
+  assert((await getAccount(connection, potAta)).amount > before, "the holders' share of graduated fees must reach the pot")
+  assert.equal(await connection.getBalance(sharedPot.publicKey), 0, 'and the pot still holds no SOL')
 })
 
 console.log(`\n${passed} passed${onChain ? '' : ', on-chain suite skipped'}`)

@@ -1326,11 +1326,13 @@ async function distributeToHolders(env) {
 
   const [{ Connection, PublicKey, Transaction }, { DynamicFeeSharingClient },
     { DynamicBondingCurveClient, deriveDbcPoolAuthority, deriveDammV2PoolAuthority },
-    { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction }] = await Promise.all([
+    { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction },
+    { getUnClaimLpFee, derivePositionNftAccount }] = await Promise.all([
     import('@solana/web3.js'),
     import('@meteora-ag/dynamic-fee-sharing-sdk'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'),
     import('@solana/spl-token'),
+    import('@meteora-ag/cp-amm-sdk'),
   ])
   // An account that does not exist yet holds nothing; the pot's first claim in a given
   // quote coin is what creates it.
@@ -1361,6 +1363,16 @@ async function distributeToHolders(env) {
     potAddress: FEES.holderPot,
     prices,
     readPool: async (address) => (await dbc.state.getPool(new PublicKey(address))).poolState,
+    // Counted in base units from the position itself: `lpPositions` rounds to display
+    // figures, and a payout must not hand out a figure that was rounded to get there.
+    positionOf: async (vault, launch) => {
+      const entry = (await lpPositions(connection, vault.toBase58()))
+        .find((p) => p.tokenA === launch.baseMint || p.tokenB === launch.baseMint)
+      if (!entry) return null
+      const fee = getUnClaimLpFee(entry.poolState, entry.positionState)
+      const quote = entry.tokenB === launch.quoteMint ? fee.feeTokenB : fee.feeTokenA
+      return { entry, quoteUnits: BigInt(quote.toString()) }
+    },
   })
   const done = []
   for (const o of owed) {
@@ -1418,6 +1430,31 @@ async function distributeToHolders(env) {
         })
         const tx = new Transaction()
           .add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, receiver, payer.publicKey, baseMint))
+          .add(...pull.instructions)
+        tx.feePayer = payer.publicKey
+        await sendAndConfirm(connection, tx, [payer, pot])
+      }
+      if (o.position) {
+        // After graduation the vault owns the coin's locked position — it was the pool's
+        // creator when the pool migrated — and the position's fees are pulled the same
+        // way, from DAMM v2. The program checks only the account it pays into the vault,
+        // which must be token B; every pool migrated so far has the quote there and
+        // collects fees in nothing else. Token A's account must still exist, and the SDK
+        // would rent it with the pot's SOL, so the collector opens it first, as above.
+        const p = o.position
+        const tokenA = p.poolState.tokenAMint
+        const receiver = getAssociatedTokenAddressSync(tokenA, payer.publicKey)
+        const pull = await dfs.fundByClaimDammV2Fee({
+          signer: pot.publicKey,
+          owner: payer.publicKey,
+          feeVault: o.vault,
+          dammV2Pool: new PublicKey(p.pool),
+          dammV2Position: new PublicKey(p.position),
+          dammV2PositionNftAccount: derivePositionNftAccount(new PublicKey(p.nftMint)),
+          dammV2PoolState: p.poolState,
+        })
+        const tx = new Transaction()
+          .add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, receiver, payer.publicKey, tokenA))
           .add(...pull.instructions)
         tx.feePayer = payer.publicKey
         await sendAndConfirm(connection, tx, [payer, pot])

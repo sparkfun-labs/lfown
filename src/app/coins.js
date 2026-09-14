@@ -1020,22 +1020,26 @@ function paintFees(coin, state, api) {
   const price = coin.quoteUsdPrice ?? 0
   const report = feesByMint.get(coin.baseMint)
   const curve = api.creatorFees(state)
-  // A shared coin's pool holds the creator's fees and the holders' together, so its
-  // own figure is not the creator's. Read once, like the position below.
-  const shared = api.vaultFees(state, { vault: coin.vault, creator: coin.creator }).catch((e) => {
-    console.error('vault fees unavailable:', e.message)
-    return null
-  })
 
-  // Looked up by creator address, not by whoever happens to be connected. Reading
+  // Looked up by the position's owner, not by whoever happens to be connected. Reading
   // it through the visitor's own wallet hid the graduated half from everyone except
-  // the creator, and showed nothing at all to someone browsing signed out.
+  // the creator, and showed nothing at all to someone browsing signed out. A shared
+  // coin's position was minted to its vault, which was the pool's creator when it
+  // migrated.
   const position = state.isMigrated
-    ? api.graduatedFees(state, coin.creator).catch((e) => {
+    ? api.graduatedFees(state, coin.vault ?? coin.creator).catch((e) => {
         console.error('graduated fees unavailable:', e.message)
         return null
       })
     : Promise.resolve(null)
+  // A shared coin's curve and position hold the creator's fees and the holders'
+  // together, so neither figure is the creator's. The vault splits both.
+  const shared = position
+    .then((lp) => api.vaultFees(state, { vault: coin.vault, creator: coin.creator, lp }))
+    .catch((e) => {
+      console.error('vault fees unavailable:', e.message)
+      return null
+    })
 
   const render = async () => {
     const lp = await position
@@ -1049,12 +1053,16 @@ function paintFees(coin, state, api) {
         }
       : curve
 
-    // DAMM v2 pays in both tokens and orders them by mint, so which side is the
-    // quote has to be read off the pool rather than assumed.
-    const quoteIsB = !lp || coin.quoteMint === lp.tokenB
-    const lpQuote = lp ? (quoteIsB ? lp.feeB : lp.feeA) : 0
-    const lpBase = lp ? (quoteIsB ? lp.feeA : lp.feeB) : 0
-    const lpClaimed = lp ? (quoteIsB ? lp.claimedB : lp.claimedA) : 0
+    // Read off the pool rather than assumed. On every pool migrated so far the base is
+    // token A and the quote token B, whatever order their mints sort in, and fees are
+    // collected in the quote only — but that is an observation, not a guarantee.
+    // A shared coin's position is already inside the vault's figures, split; adding it
+    // here as well would hand the holders' part to the creator a second time.
+    const own = vf ? null : lp
+    const quoteIsB = !own || coin.quoteMint === own.tokenB
+    const lpQuote = own ? (quoteIsB ? own.feeB : own.feeA) : 0
+    const lpBase = own ? (quoteIsB ? own.feeA : own.feeB) : 0
+    const lpClaimed = own ? (quoteIsB ? own.claimedB : own.claimedA) : 0
 
     const unclaimed = c.pending + lpQuote
     const claimed = c.claimed + lpClaimed
