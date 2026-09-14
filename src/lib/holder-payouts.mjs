@@ -25,9 +25,11 @@ import { allocate, deriveVault } from './fee-split.mjs'
 /**
  * Below this, in dollars, a coin is left alone for the next run.
  *
- * Paying someone a token they have never held means renting them an account for it,
- * about $0.40 of SOL that the payer never gets back. A pot worth less than a couple
- * of those costs more to hand out than it hands out.
+ * Paying someone a token they have never held means renting them an account for it:
+ * 0.00148844 SOL for a 165-byte token account, measured on mainnet, which the payer
+ * never gets back. Written in SOL rather than dollars because the dollar figure moves
+ * with the price and a comment does not. A pot has to be worth a handful of those
+ * before handing it out stops costing more than it hands out.
  */
 export const FLOOR_USD = 2
 
