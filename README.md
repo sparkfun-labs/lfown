@@ -23,10 +23,11 @@ public/
   assets/               logos, banner, the shared stylesheet
 src/
   worker.mjs            the Worker: routing, the API, the crons, the keeper
-  lib/                  shared by the Worker and the scripts: config, registry, fees, graduation, chart, telegram, x
+  lib/                  shared by the Worker and the scripts: config, registry, launches, fee report,
+                        fee split and holder payouts, LP fees, graduation, chart, telegram, x
   app/                  the browser app: launch flow, coins and trading, wallet, funding, vanity search
   partials/header.html  the one header every page carries
-scripts/                operator scripts: open configs, claim fees, graduate, test
+scripts/                operator scripts: keys, open configs, claim and forward fees, graduate, test
 wrangler.jsonc          Cloudflare config: assets, KV, R2, crons, rate limits
 ```
 
@@ -80,6 +81,11 @@ claimed by `FEES.recipient`, which this key has no authority over, and the DBC
 configs it creates are not updatable. Losing it costs the rent already spent and
 nothing else — but back it up anyway, and keep it off any machine you would not
 trust with a hot wallet.
+
+`node scripts/keygen.mjs NAME` makes any other key the same way — `holder-pot` is the
+one `FEES.holderPot` names. The secret goes to the file and nowhere else: it is never
+printed, only the public key is. It refuses to overwrite a file that exists, because a
+key something already depends on is not replaced by replacing its file — only lost.
 
 ## Opening a coin for launches
 
@@ -191,6 +197,11 @@ Discovery is the Wallet Standard handshake plus the older injected globals
 that register after page load repaint the buttons. With one wallet installed the
 connect button connects it; with several it opens a picker.
 
+A launch that shares fees with holders is two transactions, and the wallet signs both
+in one approval (`signAllOnly`): the Wallet Standard takes several inputs at once and
+injected wallets have `signAllTransactions`. A wallet that can do neither is told so
+before anything is sent, rather than left with half a launch.
+
 ## The header
 
 `src/partials/header.html` is injected into every page by
@@ -233,11 +244,14 @@ into each config when it is opened, and cannot be changed afterwards.
 
 Meteora keeps 20% of every trading fee before the rest is split, so 2.5% per trade
 lands as 1% creator, 1% LFOwn, 0.5% Meteora. `feeBreakdown()` does that arithmetic
-and the launch screen shows all three.
+and the launch screen shows all three — or four, when a creator gives part of their 1%
+to holders (see *Sharing fees with holders*).
 
 Fees are pull, not push: each trade parks the partner's share inside the pool
 account, in the ownership coin. `node scripts/claim-fees.mjs` reports what has
-accrued across every pool; `LFOWN_ARM=yes` claims it.
+accrued across every pool; `LFOWN_ARM=yes` claims it. Claims go straight to the
+treasury; `scripts/forward-fees.mjs` is for anything that ever lands on the collector
+instead, and sends it on the same way.
 
 The program accepts exactly one signer for a claim — the fee claimer — but it needs
 no SOL: the network fee and the destination account's rent are paid by a co-signer,
@@ -246,12 +260,14 @@ balance. `LFOWN_CLAIMER_KEYPAIR=` points at that key; `--unsigned` prints
 payer-signed transactions for a wallet or multisig to countersign instead.
 
 The creator's half works the same way but only their signature moves it, so it is
-claimed from the coin's own page rather than a script.
+claimed from the browser — a coin's own page, or `/profile` for every coin at once,
+packed into as few transactions as fit. A coin whose creator shares with holders is
+claimed through its vault instead; see below.
 
 ### Seeing it all
 
 `GET /api/fees` reports, per coin, what the curve earned and what the graduated
-position has earned since, split between creator, LFOwn and Meteora. Nothing is
+position has earned since, split between creator, holders, LFOwn and Meteora. Nothing is
 indexed: a curve records its lifetime fees and a position records what it has
 claimed, so adding the unclaimed remainder reconstructs the history from two account
 reads. `/coins` shows the totals and a per-coin line.
@@ -264,8 +280,10 @@ after graduation is slightly less favourable than shown.
 
 The curve's fee counters stop at migration. From then on the coin trades in a DAMM v2
 pool whose liquidity is two permanently locked positions — one LFOwn's, one the
-creator's — and locked liquidity still earns, **in both tokens** rather than only the
-quote. Those fees belong to a different program and need `claim_position_fee`.
+creator's, or the creator's vault's when they share — and locked liquidity still earns.
+These pools collect fees in the quote token only (`collectFeeMode` 1): on both coins
+graduated so far, every position shows nothing ever earned in the coin itself. Those
+fees belong to a different program and need `claim_position_fee`.
 
 `src/lib/lp-fees.mjs` reads them (`getUnClaimLpFee`, because the `feeAPending` field
 on a position is a checkpoint rather than a balance) and builds the claim. The hourly
@@ -295,10 +313,19 @@ them an account for it. So the pot never needs a SOL balance, and it holds nothi
 between runs: a coin worth less than `FLOOR_USD` is left in its vault, where it keeps
 accruing and only its shareholders can reach it.
 
-Sharing makes a launch two transactions — the vault has to exist before the pool is
-handed to it — signed in one approval. The vault is seeded by the coin's mint, which
-has to sign to open it, so a coin launched without one can never be given one
-afterwards: the mint key is thrown away once the pool exists.
+Sharing makes a launch two transactions, signed in one approval: all three instructions
+together measured 1287 bytes with the longest name and symbol the screen accepts,
+against a 1232-byte cap. The vault opens first (649 bytes) and the launch follows with
+the hand-over riding behind it (996), so a launch that fails halfway leaves an empty
+vault rather than a coin promising holders a share it has no way to pay. The vault is
+seeded by the coin's mint, which has to sign to open it, so a coin launched without one
+can never be given one afterwards: the mint key is thrown away once the pool exists.
+
+That cap is raised to 4096 bytes by SIMD-0296, through the v1 transaction format of
+SIMD-0385, on mainnet from epoch 1035 (15 Sep 2026). It changes nothing here yet:
+building v1 needs `@solana/web3.js` 3.x or `@solana/kit` 8, this repo is on 1.98, the
+Meteora SDKs return legacy transactions, and a wallet has to advertise v1 before it can
+be sent one.
 
 When it pays, and whom. A coin is looked at once an hour; it is paid only when its
 share is worth at least `FLOOR_USD` ($2), and each holder only when their cut is at
@@ -367,6 +394,11 @@ when `FEE_COLLECTOR_KEY` holds the config's fee claimer, and logs that it skippe
 otherwise. `FEES.recipient` (who signs) and `FEES.treasury` (where money lands) are
 separate on purpose: claims never pass through the collector, so the treasury is
 out of the key's reach whatever happens to it.
+
+The same hour then pays holders (see *Sharing fees with holders*), after the sweep:
+both spend the collector's SOL, and LFOwn's own claim failing for want of it is a
+better outcome than a holder's payout failing. What they did is kept in KV under
+`sweep:last` and, when a run paid anyone, `payouts:last`.
 
 ### Where the claimer lives
 
@@ -474,10 +506,13 @@ channel is simply not live.
     npm test
 
 Runs against devnet with a stand-in quote mint — a plain 6-decimal SPL token,
-mechanically identical to every ownership coin checked on chain. It covers the fee
-arithmetic, then config → launch → buy → sell → partial fill → graduation, asserting
-at each step. The on-chain half skips itself with the address to fund when the devnet
-wallet is empty.
+mechanically identical to every ownership coin checked on chain. Twenty-four tests:
+the fee and holder-split arithmetic offline, then config → launch → buy → sell →
+partial fill → graduation, then the whole holder share end to end — a shared launch in
+two transactions, the vault splitting by the slider, the creator claiming through it
+before and after graduation, the pot pulling and claiming with no SOL of its own, and
+the fee report splitting the result. The on-chain half skips itself with the address
+to fund when the devnet wallet is empty.
 
 `node scripts/canary-mainnet.mjs` is the same flow against a real ownership coin. It
 is a dry run unless `LFOWN_ARM=yes` is set, and it spends real funds when armed.
@@ -487,7 +522,9 @@ is a dry run unless `LFOWN_ARM=yes` is set, and it spends real funds when armed.
 Exercises the Worker's abuse limits offline — a fake RPC that counts program scans,
 KV and R2 in memory — so it runs anywhere and touches nothing: the JSON-RPC caps,
 the exit-size cap, the rebuild locks, the metadata route leaving the cache alone,
-and the misses remembered for chart, graduate and launch.
+and the misses remembered for chart, graduate and launch. It reads the cache keys out
+of the Worker's source rather than spelling their versions, so bumping one does not
+fail a healthy worker.
 
 ## API
 
@@ -501,7 +538,7 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 | `GET /api/launches` | every coin launched on an LFOwn config, read from chain with its on-chain name, symbol and uri. Served from KV, rebuilt behind the response once it is a quarter of an hour old. |
 | `GET /api/launch/:mint` | one coin, from the list when it is known and from chain when it is not. A miss is kept at the edge for five minutes. |
 | `GET /api/chart/:mint` | the coin's price history, rebuilt from its own trades. Only for pools on our configs. |
-| `GET /api/fees` | what every coin has earned and for whom |
+| `GET /api/fees` | what every coin has earned and for whom — its creator, its holders when the creator shares, the LFOwn DAO, and Meteora's curve cut |
 | `POST /api/image` | token image upload to R2, served back from `/i/:key` (CORS-open, wallets read it) |
 | `POST /api/metadata` | writes the Metaplex JSON the token's on-chain `uri` points at |
 | `POST /api/graduate` | asks the keeper to migrate a curve that has filled; every claim is checked against chain before a lamport is spent |
@@ -510,12 +547,16 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 A cron every 10 minutes rebuilds the catalogue into KV. Exit costs are priced on
 demand and cached 60s, which keeps each request well under the subrequest ceiling.
 
-Everything cached in KV carries a version in its key — `launches:v2`, `fees:v5`,
-`chart:v3:<mint>`, `announced:v2`. Changing the shape of one of those records means
+Everything cached in KV carries a version in its key — `launches:v2`, `fees:v6`,
+`catalogue:v3:…`, `chart:v3:<mint>`, `announced:v2`. Changing the shape of one of those records means
 bumping its number rather than migrating it: the old key simply stops being read and
 expires on its own, and a deploy never has to land at the same instant as a rewrite.
 `announced:v2` is the exception that is migrated, because losing it would re-announce
 every coin ever launched.
+
+A few records are logs rather than caches and carry no version: `sweep:last`,
+`payouts:last` and `payouts:stranded` — the last is the one to read if a holder payout
+ever fails halfway.
 
 ## Themes
 
