@@ -33,6 +33,14 @@ function usdGroup(parts) {
   const round = (v) => (cents ? Math.round((Number(v) || 0) * 100) / 100 : Math.round(Number(v) || 0))
   return { round, show: (v) => (cents ? '$' + round(v).toFixed(2) : '$' + fmt(round(v), 0)) }
 }
+
+/**
+ * A share that may not exist, for `usdGroup`. One part under a dollar switches the
+ * whole group to cents — right for a real $0.40, wrong for a holders' share of exactly
+ * nothing on a coin that never shared, which turned $2,198 into $2198.74 on every page
+ * the day holders were added to the totals.
+ */
+const presentShare = (v) => (Number(v) ? [v] : [])
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
 
 // The theme is handled by the header's own script: there are two toggles now, one
@@ -346,7 +354,7 @@ async function paintTotals() {
   if (!report?.totals?.generatedUsd) return
 
   const { generatedUsd, lfownUsd, creatorUsd, holdersUsd = 0 } = report.totals
-  const money = usdGroup([creatorUsd, holdersUsd, lfownUsd])
+  const money = usdGroup([creatorUsd, lfownUsd, ...presentShare(holdersUsd)])
   feesByMint = new Map(report.coins.map((c) => [c.baseMint, c]))
   box.innerHTML = `
     <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(lfownUsd))}</span></div>
@@ -1078,7 +1086,7 @@ function paintFees(coin, state, api) {
           const creatorUsd = report.creator * price
           // The report's price, like the DAO's figure, so the three add up to generated.
           const holdersUsd = report.holdersUsd ?? 0
-          const money = usdGroup([creatorUsd, holdersUsd, report.lfownUsd])
+          const money = usdGroup([creatorUsd, report.lfownUsd, ...presentShare(holdersUsd)])
           return `<dl class="fee-split">
            <div><dt>Generated</dt><dd>${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(report.lfownUsd))}</dd></div>
            <div><dt>To the creator</dt><dd>${money.show(creatorUsd)}</dd></div>

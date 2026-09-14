@@ -30,6 +30,14 @@ function usdGroup(parts) {
   return { round, show: (v) => (cents ? '$' + round(v).toFixed(2) : '$' + fmt(round(v), 0)) }
 }
 
+/**
+ * A share that may not exist, for `usdGroup`. One part under a dollar switches the
+ * whole group to cents — right for a real $0.40, wrong for a holders' share of exactly
+ * nothing on a coin that never shared, which turned $2,198 into $2198.74 on every page
+ * the day holders were added to the totals.
+ */
+const presentShare = (v) => (Number(v) ? [v] : [])
+
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
 // The wallet's own page here, not an explorer: a ranking whose rows lead off the
 // site is a ranking nobody explores. Solscan is one click further, on that page.
@@ -73,7 +81,7 @@ const chips = (coins) => coins.map((c) =>
 
 /** One of the top three, with its own numeral bled into the corner. */
 function seat(s, place) {
-  const money = usdGroup([s.keptUsd, s.holdersUsd, s.daoUsd])
+  const money = usdGroup([s.keptUsd, s.daoUsd, ...presentShare(s.holdersUsd)])
   return `<li class="seat">
     <div class="rk">${String(place).padStart(2, '0')}</div>
     <a class="who" href="${esc(creatorPage(s.wallet))}" title="${esc(s.wallet)}">
@@ -95,7 +103,7 @@ function seat(s, place) {
 
 /** Everyone below the podium, as a plain ranked table. */
 function row(s, place) {
-  const money = usdGroup([s.keptUsd, s.holdersUsd, s.daoUsd])
+  const money = usdGroup([s.keptUsd, s.daoUsd, ...presentShare(s.holdersUsd)])
   return `<tr>
     <td class="n">${String(place).padStart(2, '0')}</td>
     <td>
@@ -119,7 +127,7 @@ function paint(report) {
   }
 
   const t = report.totals ?? {}
-  const money = usdGroup([t.creatorUsd, t.holdersUsd, t.lfownUsd])
+  const money = usdGroup([t.creatorUsd, t.lfownUsd, ...presentShare(t.holdersUsd)])
   // A wallet that launched a coin nobody has traded belongs in the table, but not on
   // a podium — third place with nothing earned reads as a ranking of nobody.
   const earning = seats.filter((s) => s.generatedUsd > 0)

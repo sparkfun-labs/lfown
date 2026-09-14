@@ -26,6 +26,14 @@ function usdGroup(parts) {
   return { round, show: (v) => (cents ? '$' + round(v).toFixed(2) : '$' + fmt(round(v), 0)) }
 }
 
+/**
+ * A share that may not exist, for `usdGroup`. One part under a dollar switches the
+ * whole group to cents — right for a real $0.40, wrong for a holders' share of exactly
+ * nothing on a coin that never shared, which turned $2,198 into $2198.74 on every page
+ * the day holders were added to the totals.
+ */
+const presentShare = (v) => (Number(v) ? [v] : [])
+
 /** The image lives in the metadata JSON the launch published, not on chain. */
 async function artwork(coin) {
   if (coin.image !== undefined) return coin.image
@@ -99,7 +107,7 @@ async function render() {
     holders += row?.holdersUsd ?? 0
     dao += row?.lfownUsd ?? 0
   }
-  const money = usdGroup([kept, holders, dao])
+  const money = usdGroup([kept, dao, ...presentShare(holders)])
   const graduated = mine.filter((c) => c.isMigrated)
   mine.sort((a, b) => (earned.get(b.baseMint)?.totalUsd ?? 0) - (earned.get(a.baseMint)?.totalUsd ?? 0))
 
