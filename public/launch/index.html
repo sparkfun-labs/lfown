@@ -126,21 +126,55 @@ textarea{min-height:96px;resize:vertical}
 .with-unit .unit{position:absolute;right:12px;top:50%;transform:translateY(-50%);
   font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;color:var(--ink-soft)}
 .with-unit input{padding-right:88px}
-/* The slider that splits the creator's half with holders. `hidden` is spelled out
-   because the whole block is absent on a deployment with no pot address set, and a
-   label inside a grid has been reachable through a display rule before. */
-.form label[hidden],.split[hidden]{display:none}
-.split-read{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-bottom:10px}
-.split-read span{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
-.split-read b{font-family:var(--display);font-size:1.15rem;font-weight:600;color:var(--ink);margin-left:6px}
-.split-read .them b{color:var(--red)}
-.split input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;margin:6px 0;
-  background:linear-gradient(to right,var(--red) var(--fill,0%),var(--rule) var(--fill,0%));border-radius:2px;outline:none;cursor:pointer}
-.split input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;
-  background:var(--red);border:3px solid var(--card);box-shadow:0 0 0 1px var(--rule);cursor:pointer}
-.split input[type=range]::-moz-range-thumb{width:17px;height:17px;border-radius:50%;
-  background:var(--red);border:3px solid var(--card);box-shadow:0 0 0 1px var(--rule);cursor:pointer}
-.split input[type=range]:focus-visible{outline:2px solid var(--red);outline-offset:6px}
+/* The slider that splits the creator's half with holders: a card with the two shares in
+   large figures, a thin track, and a bar underneath that shows the whole fee as it
+   really lands — creator, holders, DAO. `hidden` is spelled out because the whole
+   block is absent on a deployment with no pot address set, and a grid item has been
+   reachable through a display rule before. */
+.form label[hidden],.split-wrap[hidden]{display:none}
+.split{border:1.5px solid var(--ink);background:var(--card);padding:clamp(18px,2.6vw,28px);
+  box-shadow:8px 8px 0 var(--ink);margin:4px 8px 8px 0}
+.split-title{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink);margin-bottom:clamp(14px,2vw,20px)}
+.split-read{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:clamp(14px,2vw,20px)}
+.split-read span{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);font-size:.6rem;
+  letter-spacing:.18em;text-transform:uppercase;color:var(--ink)}
+.split-read b{font-family:var(--display);font-weight:800;font-size:clamp(1.9rem,4.4vw,2.7rem);
+  letter-spacing:-.035em;line-height:1;color:var(--ink)}
+.split-read .split-them b{color:var(--red)}
+/* `border:0;padding:0` undo the form's rule for every input, which turned this track into
+   a bordered box. */
+.split input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:4px;margin:12px 0 10px;
+  border:0;padding:0;
+  background:linear-gradient(to right,var(--red) var(--fill,0%),var(--rule) var(--fill,0%));
+  border-radius:2px;outline:none;cursor:pointer}
+.split input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
+  background:var(--red);border:4px solid var(--card);box-shadow:0 1px 4px rgba(17,16,16,.35),0 0 0 1px var(--rule);cursor:pointer}
+.split input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
+  background:var(--red);border:4px solid var(--card);box-shadow:0 1px 4px rgba(17,16,16,.35),0 0 0 1px var(--rule);cursor:pointer}
+.split input[type=range]:focus{outline:none}
+.split input[type=range]:focus-visible{outline:2px solid var(--red);outline-offset:8px}
+.split-ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;
+  color:var(--ink);margin-bottom:clamp(16px,2.4vw,24px)}
+/* The whole fee, not just the creator's half: the three segments always add up to 100%. */
+.split-bar{display:flex;border:1.5px solid var(--ink);height:clamp(40px,5vw,50px);overflow:hidden}
+.split-bar .seg{display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;white-space:nowrap;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase}
+/* No transition on the widths. A segment that leaves or rejoins the layout does so at
+   once while its neighbour would still be animating, which opened a gap in the bar; and
+   wherever frames are not being drawn the animation freezes at its start and the gap
+   stays. The slider moves in steps of five, so nothing is lost by jumping. */
+.split-bar .seg + .seg{border-left:1.5px solid var(--ink)}
+.split-bar .seg-you{background:var(--card);color:var(--ink)}
+.split-bar .seg-them{background:var(--red);color:#fff}
+.split-bar .seg-dao{background:var(--ink);color:var(--card)}
+/* Too narrow for its word: keep the colour, drop the label rather than let it spill. */
+.split-bar .seg.is-narrow{color:transparent}
+/* Out of the layout, not just zero wide: at a flex-basis of 0% the segment kept two pixels,
+   a red sliver and the edge of its own label at the join. The other two still add to 100%. */
+.split-bar .seg.is-empty{display:none}
+.split-bar .seg.is-empty + .seg{border-left:0}
+.split-wrap .hint{margin-top:14px}
 
 .drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
 .drop-clear{
@@ -423,15 +457,26 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
         <p class="hint warn-text" id="devbuy-cap" hidden>Capped at 50% — that is what will be priced and launched.</p>
         <p class="hint" id="devbuy-cost">Bought atomically with the launch, so nobody can front-run you.</p>
       </label>
-      <div class="split" id="holder-split" hidden>
-        <span class="lab">Share your fees with holders</span>
-        <div class="split-read">
-          <span>You <b id="split-you">25%</b></span>
-          <span class="them">Holders <b id="split-them">25%</b></span>
+      <div class="split-wrap" id="holder-split" hidden>
+        <div class="split">
+          <span class="split-title">Share your fees with holders</span>
+          <div class="split-read">
+            <span class="split-you">You <b id="split-you">25%</b></span>
+            <span class="split-them">Holders <b id="split-them">25%</b></span>
+          </div>
+          <!-- autocomplete="off": browsers otherwise restore a range input's last value on
+               reload or back, and a split fixed for good at launch must never come back
+               silently set to something the creator chose on an earlier visit. -->
+          <input id="f-holders" type="range" min="0" max="50" step="5" value="25" autocomplete="off"
+                 aria-label="Share of trading fees given to holders" style="--fill:50%">
+          <div class="split-ends" aria-hidden="true"><span>0%</span><span>50%</span></div>
+          <div class="split-bar" aria-hidden="true">
+            <span class="seg seg-you" id="seg-you" style="flex-basis:25%">You</span>
+            <span class="seg seg-them" id="seg-them" style="flex-basis:25%">Holders</span>
+            <span class="seg seg-dao" id="seg-dao" style="flex-basis:50%">LFOwn DAO 50%</span>
+          </div>
         </div>
-        <input id="f-holders" type="range" min="0" max="50" step="5" value="25"
-               aria-label="Share of trading fees given to holders">
-        <p class="hint" id="split-hint">Half of every trading fee is yours. Give any part of it to the people holding the coin — they are paid pro rata, and the LFOwn DAO's half is untouched either way. Fixed at launch.</p>
+        <p class="hint" id="split-hint">Holders share 25% of every trading fee, pro rata. You keep 25%, the LFOwn DAO keeps 50%. Fixed at launch — it cannot be changed afterwards.</p>
       </div>
     <div class="actions">
       <button class="btn ghost" data-back="2">Back</button>

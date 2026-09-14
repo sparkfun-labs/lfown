@@ -330,6 +330,16 @@ async function paintCurve() {
     const cut = splitFor(pct)
     $('#split-you').textContent = `${cut.creator}%`
     $('#split-them').textContent = `${cut.holders}%`
+    // The bar under the track is the whole fee as it lands, so its three segments
+    // always add up to 100%. A segment too narrow for its word keeps its colour and
+    // drops the label; one at zero takes no room at all.
+    for (const [id, share] of [['#seg-you', cut.creator], ['#seg-them', cut.holders], ['#seg-dao', cut.partner]]) {
+      const seg = $(id)
+      seg.style.flexBasis = `${share}%`
+      seg.classList.toggle('is-empty', share === 0)
+      seg.classList.toggle('is-narrow', share > 0 && share < 12)
+    }
+    $('#seg-dao').textContent = `LFOwn DAO ${cut.partner}%`
     // The track fills up to the thumb; the range is 0..HOLDER_MAX_PCT, not 0..100.
     holders.style.setProperty('--fill', `${(pct / HOLDER_MAX_PCT) * 100}%`)
     $('#split-hint').textContent = pct === 0
