@@ -295,8 +295,9 @@ sweep, `scripts/claim-fees.mjs` and the coin page all cover both phases.
 ### Sharing fees with holders
 
 A creator can give part of their own half to the people holding the coin — a slider
-on the launch screen, 0 to 50 points of the whole trading fee. The DAO's half is
-untouched at every position.
+on the launch screen, 0 to 50 points of the whole trading fee, set to an even 25/25 by
+default so that sharing is what a launch does unless its creator moves it. The DAO's
+half is untouched at every position.
 
 It is enforced on chain rather than promised. Meteora's dynamic-fee-sharing program
 owns a vault that becomes the pool's creator, so the creator's fees are paid into it
