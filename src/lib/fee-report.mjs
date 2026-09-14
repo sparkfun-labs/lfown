@@ -19,6 +19,10 @@ const lamports = (x) => Number(x?.toString() ?? 0) / 1e6
 export async function feeReport(client, connection, launches, { prices = new Map() } = {}) {
   const cp = new CpAmm(connection)
   const rows = []
+  // Loaded only when some coin shares its fees: every other report never needs it.
+  const dfs = launches.some((l) => l.vault)
+    ? new (await import('@meteora-ag/dynamic-fee-sharing-sdk')).DynamicFeeSharingClient(connection, 'confirmed')
+    : null
 
   for (const l of launches) {
     const { poolState } = await client.state.getPool(new PublicKey(l.pool))
@@ -61,9 +65,33 @@ export async function feeReport(client, connection, launches, { prices = new Map
       } catch { /* a pool we cannot read leaves the curve figures intact */ }
     }
 
+    // A creator who shares fees handed their whole half to a vault, which splits it by
+    // share. Every figure above is that half undivided — on the curve and in the
+    // position alike — so it is split here, once, and every page reads the result.
+    // Left whole if the vault cannot be read: overstating one creator is better than
+    // a report that fails to build for everyone.
+    const creatorSide = curve.creator + graduated.creator
+    let creatorOwn = creatorSide
+    let holders = 0
+    if (l.vault && dfs) {
+      try {
+        const vault = await dfs.getFeeVault(new PublicKey(l.vault))
+        const totalShare = Number(vault.totalShare)
+        const live = vault.users.filter((u) => u.share > 0)
+        const mine = live.find((u) => u.address.toBase58() === l.creator)
+        const theirs = live.filter((u) => u.address.toBase58() !== l.creator).reduce((t, u) => t + Number(u.share), 0)
+        if (totalShare) {
+          creatorOwn = (creatorSide * Number(mine?.share ?? 0)) / totalShare
+          holders = (creatorSide * theirs) / totalShare
+        }
+      } catch (e) {
+        console.error(`fee report: vault ${l.vault} for ${l.symbol ?? l.baseMint} unreadable, creator figure left unsplit: ${e.message}`)
+      }
+    }
+
     // Meteora's cut is left out on purpose. It is taken off the top and never reaches
     // anyone here, so counting it made "generated" a number that matched neither of
-    // the two shares underneath it. What is left adds up exactly: creator + LFOwn.
+    // the shares underneath it. What is left adds up exactly: creator + holders + LFOwn.
     // `meteora` below still carries it, for anyone reconciling against the pool.
     const total = curve.creator + curve.partner + graduated.creator + graduated.partner
     rows.push({
@@ -82,7 +110,11 @@ export async function feeReport(client, connection, launches, { prices = new Map
       totalUsd: total * price,
       lfown: curve.partner + graduated.partner,
       lfownUsd: (curve.partner + graduated.partner) * price,
-      creator: curve.creator + graduated.creator,
+      // The creator's own share. For a coin that shares, the rest of their half is
+      // `holders`; for every other coin that is zero and this is the whole half.
+      creator: creatorOwn,
+      holders,
+      holdersUsd: holders * price,
       meteora: curve.protocol,
     })
   }
@@ -95,6 +127,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
       generatedUsd: rows.reduce((t, r) => t + r.totalUsd, 0),
       lfownUsd: rows.reduce((t, r) => t + r.lfownUsd, 0),
       creatorUsd: rows.reduce((t, r) => t + r.creator * r.quoteUsdPrice, 0),
+      holdersUsd: rows.reduce((t, r) => t + r.holdersUsd, 0),
       meteoraUsd: rows.reduce((t, r) => t + r.meteora * r.quoteUsdPrice, 0),
     },
   }

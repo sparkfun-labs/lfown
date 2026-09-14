@@ -345,12 +345,13 @@ async function paintTotals() {
   } catch { return }
   if (!report?.totals?.generatedUsd) return
 
-  const { generatedUsd, lfownUsd, creatorUsd } = report.totals
-  const money = usdGroup([creatorUsd, lfownUsd])
+  const { generatedUsd, lfownUsd, creatorUsd, holdersUsd = 0 } = report.totals
+  const money = usdGroup([creatorUsd, holdersUsd, lfownUsd])
   feesByMint = new Map(report.coins.map((c) => [c.baseMint, c]))
   box.innerHTML = `
-    <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(lfownUsd))}</span></div>
+    <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(lfownUsd))}</span></div>
     <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(creatorUsd)}</span></div>
+    ${holdersUsd ? `<div class="tot"><span class="lab">To holders</span><span class="big">${money.show(holdersUsd)}</span></div>` : ''}
     <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOwn DAO ↗</span><span class="big">${money.show(lfownUsd)}</span></a>`
 
   // The report lands after the cards are drawn, so fill in the lines it feeds.
@@ -1075,10 +1076,13 @@ function paintFees(coin, state, api) {
           // has generated equal to creator plus DAO exactly, and three independent
           // roundings can still leave the column visibly out.
           const creatorUsd = report.creator * price
-          const money = usdGroup([creatorUsd, report.lfownUsd])
+          // The report's price, like the DAO's figure, so the three add up to generated.
+          const holdersUsd = report.holdersUsd ?? 0
+          const money = usdGroup([creatorUsd, holdersUsd, report.lfownUsd])
           return `<dl class="fee-split">
-           <div><dt>Generated</dt><dd>${money.show(money.round(creatorUsd) + money.round(report.lfownUsd))}</dd></div>
+           <div><dt>Generated</dt><dd>${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(report.lfownUsd))}</dd></div>
            <div><dt>To the creator</dt><dd>${money.show(creatorUsd)}</dd></div>
+           ${holdersUsd ? `<div><dt>To holders</dt><dd>${money.show(holdersUsd)}</dd></div>` : ''}
            <div><dt>To the LFOwn DAO</dt><dd>${money.show(report.lfownUsd)}</dd></div>
          </dl>`
         })()

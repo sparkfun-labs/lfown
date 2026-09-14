@@ -27,6 +27,7 @@ import { resolveVaultCreators } from '../src/lib/launches.mjs'
 import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { CpAmm, derivePositionNftAccount } from '@meteora-ag/cp-amm-sdk'
 import { lpPositions } from '../src/lib/lp-fees.mjs'
+import { feeReport } from '../src/lib/fee-report.mjs'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
@@ -651,6 +652,34 @@ await chainTest('after graduation the pot pulls from the position too, and still
   await send(await dfs.claimUserFee({ feeVault: sharedVault, user: sharedPot.publicKey, payer: payer.publicKey }), [sharedPot])
   assert((await getAccount(connection, potAta)).amount > before, "the holders' share of graduated fees must reach the pot")
   assert.equal(await connection.getBalance(sharedPot.publicKey), 0, 'and the pot still holds no SOL')
+})
+
+await chainTest('the fee report splits a shared coin between its creator and its holders', async () => {
+  const shared = await client.state.getPool(sharedPool)
+  const plain = await client.state.getPool(pool)
+  const prices = new Map([[quoteMint.toBase58(), 1]])
+  const { coins, totals } = await feeReport(client, connection, [
+    { pool: sharedPool.toBase58(), baseMint: shared.poolState.baseMint.toBase58(), quoteMint: quoteMint.toBase58(),
+      creator: payer.publicKey.toBase58(), vault: sharedVault.toBase58(), symbol: 'SHRD' },
+    { pool: pool.toBase58(), baseMint: plain.poolState.baseMint.toBase58(), quoteMint: quoteMint.toBase58(),
+      creator: payer.publicKey.toBase58(), symbol: 'TEST' },
+  ], { prices })
+  const bySymbol = Object.fromEntries(coins.map((c) => [c.symbol, c]))
+  const close = (a, b) => Math.abs(a - b) < 1e-6
+
+  const s = bySymbol.SHRD
+  assert(s.holders > 0, "a shared coin must report its holders' share")
+  // 20 of the creator's 50 points went to holders, on the curve and after graduation alike.
+  assert(close(s.holders, ((s.creator + s.holders) * 20) / 50),
+    `holders must get two fifths of the creator's half, got ${s.holders} of ${s.creator + s.holders}`)
+  assert(close(s.creator + s.holders + s.lfown, s.total),
+    'creator, holders and the DAO must add up to what the coin generated — every page sums them to show it')
+  assert(close(s.creator + s.holders, s.lfown), "and the creator's half, split or not, still equals the DAO's")
+
+  const t = bySymbol.TEST
+  assert.equal(t.holders, 0, 'a coin that does not share gives holders nothing')
+  assert(close(t.creator, t.lfown), 'and its creator keeps the whole half')
+  assert(close(totals.holdersUsd, s.holdersUsd), 'the totals carry the holders too')
 })
 
 console.log(`\n${passed} passed${onChain ? '' : ', on-chain suite skipped'}`)

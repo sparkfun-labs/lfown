@@ -569,9 +569,11 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     // Rounded before they are added, so the bar cannot state a total its own parts
     // contradict — the same rule the coins page follows.
     var creator = Math.round(t.creatorUsd || 0)
+    // What sharing creators gave their holders is still fees their coins generated.
+    var holders = Math.round(t.holdersUsd || 0)
     var dao = Math.round(t.lfownUsd || 0)
-    if (!creator && !dao) return
-    put('.mq-fees', 'Total fees ' + usd(creator + dao))
+    if (!creator && !holders && !dao) return
+    put('.mq-fees', 'Total fees ' + usd(creator + holders + dao))
     put('.mq-dao', usd(dao) + ' to LFOwn DAO')
   }).catch(function () { /* the bar keeps the figure already in the markup */ })
 })()

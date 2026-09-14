@@ -345,8 +345,13 @@ collect fees in token B only (`collectFeeMode` 1), so token A never earns anythi
 send elsewhere. Should Meteora ever change either, a pull would pay the wrong token
 into the vault; the devnet suite asserts both on every run.
 
-One thing is not done: `/api/fees` still counts a shared coin's holders' part as the
-creator's, so the leaderboard overstates what a sharing creator earned.
+What the pages say. `/api/fees` splits a shared coin's creator half by the vault's own
+shares, on the curve and after graduation alike: `creator` is the creator's own share
+and `holders` what they gave away, so creator + holders + LFOwn is still exactly what
+the coin generated. Every page that prints "fees generated" sums all three — the
+leaderboard, the creator pages, `/coins`, a coin's panel and the landing's bar — and
+shows a holders line only where there is one. A creator is ranked by what their coins
+generated, holders' part included; "kept" is what they actually kept.
 
 If a run fails after claiming, what did not go out is stranded in the pot and will
 not come back on its own. It is logged and appended to `payouts:stranded` in KV with

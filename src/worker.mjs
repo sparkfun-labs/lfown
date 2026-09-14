@@ -33,7 +33,9 @@ const LAUNCHES_TTL = 86_400
 // v5: every row now carries the wallet that launched it. A deploy does not clear KV,
 // so without a bump the leaderboard would have read a day of rows with no wallet on
 // them and shown nothing at all.
-const FEES_KEY = 'fees:v5'
+// v6: `creator` became the creator's own share, with the rest of a sharing creator's
+// half in `holders`. A v5 report would read as if nobody had ever shared.
+const FEES_KEY = 'fees:v6'
 // How old the fee report may be before a request also triggers a rebuild behind it.
 // The stored copy outlives this by a long way, so an expiry never lands on a visitor.
 const FEES_FRESH = 60_000
@@ -969,7 +971,7 @@ async function watchGraduations(env) {
 const EMPTY_REPORT = () => ({
   updatedAt: new Date().toISOString(),
   coins: [],
-  totals: { generatedUsd: 0, lfownUsd: 0, creatorUsd: 0, meteoraUsd: 0 },
+  totals: { generatedUsd: 0, lfownUsd: 0, creatorUsd: 0, holdersUsd: 0, meteoraUsd: 0 },
   pending: true,
 })
 
