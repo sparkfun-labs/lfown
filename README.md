@@ -119,6 +119,12 @@ the launch page's catalogue:
 
     LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --wait
 
+Or set the price yourself — the ICO price of a raise that just closed, rather than
+whatever its first minutes of trading print. This works before the coin is listed; it
+reaches the catalogue, and can be launched on, once MetaDAO's market API lists it:
+
+    LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --price 0.014
+
 The graduation threshold lives inside the config, so it cannot vary per launch —
 a creator picks one of the tiers in `src/lib/config.mjs` ($5k / $15k / $50k,
 converted to backing coins at the price on the day the tier was opened). Open the
