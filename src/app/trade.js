@@ -83,6 +83,48 @@ export function creatorFees({ pool, config }) {
 }
 
 /**
+ * What a shared coin owes its creator and its holders.
+ *
+ * Read from two places, because fees only reach the vault when a shareholder pulls
+ * them in. Whatever trading has earned since the last pull is still in the pool as
+ * creator fees, undivided — so the pool's own figure would count the holders' part as
+ * the creator's. The vault splits by share the moment fees arrive, so each side's
+ * pending figure is what the vault already holds for them plus their share of what the
+ * pool still holds.
+ *
+ * Null for a coin with no vault, which is every coin whose creator kept it all.
+ */
+export async function vaultFees({ pool }, { vault, creator }) {
+  if (!vault) return null
+  const { DynamicFeeSharingClient } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const address = new PublicKey(vault)
+  const [state, breakdown] = await Promise.all([dfs.getFeeVault(address), dfs.getFeeBreakdown(address)])
+  const total = BigInt(state.totalShare)
+  const inPool = BigInt(pool.creatorQuoteFee.toString())
+  const nobody = { share: 0, pending: 0, claimed: 0 }
+
+  const side = (who) => {
+    const user = state.users.find((u) => u.share > 0 && u.address.toBase58() === who)
+    if (!user || !total) return nobody
+    const funded = breakdown.userFees.find((u) => u.address.toBase58() === who)
+    const share = BigInt(user.share)
+    return {
+      share: Number(share),
+      pending: Number(BigInt(funded?.feeUnclaimed.toString() ?? '0') + (inPool * share) / total) / 1e6,
+      claimed: Number(BigInt(user.feeClaimed.toString())) / 1e6,
+    }
+  }
+  const other = state.users.find((u) => u.share > 0 && u.address.toBase58() !== creator)
+  return {
+    vault: address.toBase58(),
+    totalShare: Number(total),
+    creator: side(creator),
+    holders: other ? side(other.address.toBase58()) : nobody,
+  }
+}
+
+/**
  * After graduation the creator's earnings move to a locked DAMM v2 position: a
  * different program, and fees in both tokens rather than only the quote. Reading
  * only the curve's counters would show a graduated coin earning nothing.
@@ -140,9 +182,44 @@ export async function buildCreatorClaim({ address, pool }, { creator }) {
  * Everything one coin owes its creator, as instructions rather than a transaction —
  * so several coins can be weighed together before any of them is committed to one.
  */
-export async function claimInstructions({ address, pool }, { creator, lp }) {
+export async function claimInstructions({ address, pool, config }, { creator, lp, vault }) {
   const owner = new PublicKey(creator)
   const out = []
+
+  // A shared coin's creator fees are not the creator's to take from the pool: the pool
+  // answers only to its creator, which is the vault. So they are pulled into the vault
+  // — which splits them by share on arrival — and the creator takes their own part, in
+  // the same transaction. Pulling in moves the holders' part too, which is what the
+  // program means by it; it cannot be taken, only left waiting for the hourly payout.
+  if (vault) {
+    const { DynamicFeeSharingClient } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
+    const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+    const feeVault = new PublicKey(vault)
+    const state = await dfs.getFeeVault(feeVault)
+    const mine = state.users.find((u) => u.share > 0 && u.address.equals(owner))
+    // Only a shareholder may pull fees in, and a creator who gave holders everything is
+    // not one. There is nothing of theirs to claim; the payout moves the holders' part.
+    if (!mine) return out
+
+    const inPool = BigInt(pool.creatorQuoteFee.toString())
+    if (inPool > 0n) {
+      const pull = await dfs.fundByClaimDbcCreatorTradingFee({
+        signer: owner, creator: owner, feeVault,
+        poolConfig: pool.config, virtualPool: address,
+        poolConfigState: config, virtualPoolState: { poolState: pool },
+      })
+      out.push(...pull.instructions)
+    }
+    const breakdown = await dfs.getFeeBreakdown(feeVault)
+    const waiting = BigInt(breakdown.userFees.find((u) => u.address.equals(owner))?.feeUnclaimed.toString() ?? '0')
+    if (waiting + (inPool * BigInt(mine.share)) / BigInt(state.totalShare) > 0n) {
+      const take = await dfs.claimUserFee({ feeVault, user: owner, payer: owner })
+      out.push(...take.instructions)
+    }
+    // A graduated shared coin's position belongs to the vault as well, and is not
+    // claimed here yet — see the README.
+    return out
+  }
 
   const onCurve = Number(pool.creatorQuoteFee.toString()) > 0 || Number(pool.creatorBaseFee.toString()) > 0
   if (onCurve) {
@@ -161,8 +238,8 @@ export async function claimInstructions({ address, pool }, { creator, lp }) {
   return out
 }
 
-export async function buildClaimAll(state, { creator, lp }) {
-  const ixs = await claimInstructions(state, { creator, lp })
+export async function buildClaimAll(state, { creator, lp, vault }) {
+  const ixs = await claimInstructions(state, { creator, lp, vault })
   if (!ixs.length) throw new Error('There is nothing to claim right now.')
   const tx = new Transaction().add(...ixs)
   const { blockhash } = await connection.getLatestBlockhash('confirmed')
@@ -205,7 +282,7 @@ export async function packClaims(entries, { creator }) {
 
   const batches = []
   for (const entry of entries) {
-    const ixs = await claimInstructions(entry.state, { creator, lp: entry.lp })
+    const ixs = await claimInstructions(entry.state, { creator, lp: entry.lp, vault: entry.coin?.vault })
     if (!ixs.length) continue
 
     const last = batches[batches.length - 1]

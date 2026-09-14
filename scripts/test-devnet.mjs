@@ -22,7 +22,8 @@ import BN from 'bn.js'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } from '@meteora-ag/dynamic-fee-sharing-sdk'
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
+import { TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token'
+import { resolveVaultCreators } from '../src/lib/launches.mjs'
 import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { FEES, feeBreakdown } from '../src/lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor, vaultShares, needsVault, deriveVault, allocate } from '../src/lib/fee-split.mjs'
@@ -425,6 +426,17 @@ await chainTest('a launch that shares fees with holders fits two signable transa
   sharedPot = holderPot
 })
 
+await chainTest('the registry credits the person who launched it, not the vault', async () => {
+  const [shared] = await resolveVaultCreators(connection, PublicKey, [{ creator: sharedVault.toBase58() }])
+  assert.equal(shared.creator, payer.publicKey.toBase58(),
+    'the leaderboard, the profile page and the claim button all go by this field')
+  assert.equal(shared.vault, sharedVault.toBase58(), 'and the vault is kept, to claim through')
+
+  const [plain] = await resolveVaultCreators(connection, PublicKey, [{ creator: payer.publicKey.toBase58() }])
+  assert.equal(plain.creator, payer.publicKey.toBase58(), 'a wallet is left exactly as it was')
+  assert.equal(plain.vault, undefined)
+})
+
 await chainTest('the vault splits the creator fees the way the slider said', async () => {
   // Trade so there is something to share, then pull the creator's side into the vault.
   await send(await client.pool.swap({
@@ -478,6 +490,72 @@ await chainTest('each side claims its own share and cannot touch the other', asy
   assert.equal(BigInt(holders.feeClaimed.toString()), 0n,
     "claiming the creator's share must leave the holders' share untouched")
   assert(BigInt(holders.feeUnclaimed.toString()) > 0n, 'which is still there waiting to be handed out')
+})
+
+await chainTest('a creator claims through the vault in one transaction', async () => {
+  await send(await client.pool.swap({
+    owner: payer.publicKey, pool: sharedPool,
+    amountIn: new BN(150 * 1e6), minimumAmountOut: new BN(0),
+    swapBaseForQuote: false, referralTokenAccount: null,
+  }))
+  const { poolState } = await client.state.getPool(sharedPool)
+  assert(BigInt(poolState.creatorQuoteFee.toString()) > 0n, 'trading should have left fees in the pool')
+
+  // What trade.js builds: pull the pool's creator fees into the vault, take this share.
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const pull = await dfs.fundByClaimDbcCreatorTradingFee({
+    signer: payer.publicKey, creator: payer.publicKey, feeVault: sharedVault,
+    poolConfig: config.publicKey, virtualPool: sharedPool,
+  })
+  const take = await dfs.claimUserFee({ feeVault: sharedVault, user: payer.publicKey, payer: payer.publicKey })
+  const tx = new Transaction().add(...pull.instructions, ...take.instructions)
+  const size = sizeOf(tx)
+  process.stdout.write(`(${size} bytes) `)
+  assert(size <= 1232, `the creator's claim must fit one transaction, measured ${size} bytes`)
+
+  const ata = await getOrCreateAssociatedTokenAccount(connection, payer, quoteMint, payer.publicKey)
+  const held = (await getAccount(connection, ata.address)).amount
+  await send(tx)
+  assert((await getAccount(connection, ata.address)).amount > held, 'the creator must receive their share')
+
+  const after = await dfs.getFeeBreakdown(sharedVault)
+  const mine = after.userFees.find((u) => u.address.equals(payer.publicKey))
+  // Within a unit: the program floors per share, the same dust it leaves in the vault.
+  assert(BigInt(mine.feeUnclaimed.toString()) <= 1n, 'nothing of the creator\'s is left behind')
+  const theirs = after.userFees.find((u) => u.address.equals(sharedPot.publicKey))
+  assert(BigInt(theirs.feeUnclaimed.toString()) > 0n, "and the holders' part is waiting in the vault for them")
+})
+
+await chainTest('the pot pulls fees in without the creator, and spends no SOL doing it', async () => {
+  await send(await client.pool.swap({
+    owner: payer.publicKey, pool: sharedPool,
+    amountIn: new BN(150 * 1e6), minimumAmountOut: new BN(0),
+    swapBaseForQuote: false, referralTokenAccount: null,
+  }))
+  assert.equal(await connection.getBalance(sharedPot.publicKey), 0, 'the pot starts with no SOL')
+
+  // What the hourly payout builds. The base-token account the pull insists on belongs
+  // to someone who has never held this coin, so the SDK sees it missing and adds its
+  // own create with the pot as payer — the path that would fail on an empty pot. The
+  // collector's create goes first, and the SDK's then has nothing left to pay for.
+  const stranger = Keypair.generate().publicKey
+  const { poolState } = await client.state.getPool(sharedPool)
+  const receiver = getAssociatedTokenAddressSync(poolState.baseMint, stranger)
+  const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
+  const pull = await dfs.fundByClaimDbcCreatorTradingFee({
+    signer: sharedPot.publicKey, creator: stranger, feeVault: sharedVault,
+    poolConfig: config.publicKey, virtualPool: sharedPool,
+  })
+  await send(new Transaction()
+    .add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, receiver, stranger, poolState.baseMint))
+    .add(...pull.instructions), [sharedPot])
+
+  const potAta = getAssociatedTokenAddressSync(quoteMint, sharedPot.publicKey)
+  await send(await dfs.claimUserFee({ feeVault: sharedVault, user: sharedPot.publicKey, payer: payer.publicKey }), [sharedPot])
+
+  assert((await getAccount(connection, potAta)).amount > 0n, "the holders' share must reach the pot")
+  assert.equal(await connection.getBalance(sharedPot.publicKey), 0,
+    'and the pot must still hold no SOL — every fee and every account was paid by someone else')
 })
 
 console.log(`\n${passed} passed${onChain ? '' : ', on-chain suite skipped'}`)

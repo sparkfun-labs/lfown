@@ -81,8 +81,15 @@ export async function snapshotHolders(rpcUrl, mint) {
  * A coin only has a vault if its creator asked for one at launch, and the address is
  * derived from the coin itself — so this needs no registry, just the launches list
  * and one account read each.
+ *
+ * Counted in two places. Fees reach a vault only when a shareholder pulls them out of
+ * the pool, so what the vault already holds for the pot is only part of it: the rest
+ * is the pot's share of what the pool still holds. A creator who never claims never
+ * pulls, and reading the vault alone would have paid their holders nothing, ever.
+ * `needsPull` says whether the payout has to pull first. `readPool` returns a DBC
+ * pool's state.
  */
-export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map() } = {}) {
+export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map(), readPool } = {}) {
   const pot = new PublicKey(potAddress)
   const candidates = launches
     .filter((l) => l.baseMint && l.quoteMint)
@@ -101,13 +108,19 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
   const owed = []
   for (const { launch, vault } of open) {
     try {
-      const breakdown = await dfs.getFeeBreakdown(vault)
-      const mine = breakdown.userFees.find((u) => u.address.equals(pot))
-      if (!mine) continue
-      const amount = BigInt(mine.feeUnclaimed.toString())
+      const [state, breakdown, poolState] = await Promise.all([
+        dfs.getFeeVault(vault), dfs.getFeeBreakdown(vault), readPool(launch.pool),
+      ])
+      const share = state.users.find((u) => u.share > 0 && u.address.equals(pot))
+      if (!share) continue
+      const waiting = BigInt(breakdown.userFees.find((u) => u.address.equals(pot))?.feeUnclaimed.toString() ?? '0')
+      const inPool = BigInt(poolState.creatorQuoteFee.toString())
+      // A lower bound: fees keep arriving until the pull, and the payout hands out the
+      // measured balance change, not this.
+      const amount = waiting + (inPool * BigInt(share.share)) / BigInt(state.totalShare)
       if (amount <= 0n) continue
       const price = prices.get(launch.quoteMint) ?? launch.quoteUsdPrice ?? 0
-      owed.push({ launch, vault, amount, usd: (Number(amount) / 1e6) * price, price })
+      owed.push({ launch, vault, amount, usd: (Number(amount) / 1e6) * price, price, poolState, needsPull: inPool > 0n })
     } catch (e) {
       console.error(`holder payout: vault ${vault.toBase58()} unreadable — ${e.message}`)
     }

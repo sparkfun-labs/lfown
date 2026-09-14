@@ -125,7 +125,7 @@ async function gather(address) {
   if (!mine.length) return { mine: [], rows: [], report }
 
   const earned = new Map((report?.coins ?? []).map((c) => [c.baseMint, c]))
-  const { loadPool, connection } = await import('./trade.js')
+  const { loadPool, vaultFees, connection } = await import('./trade.js')
   const { lpPositions } = await import('../lib/lp-fees.mjs')
 
   // One call for every locked position this wallet holds, rather than one per coin:
@@ -145,7 +145,18 @@ async function gather(address) {
     // On the curve every fee is quote-side. In a graduated pool the position earns
     // in both, and only the quote side has a price we can state in dollars here.
     const quoteIsB = lp ? lp.tokenB === coin.quoteMint : true
-    const curvePending = state ? Number(state.pool.creatorQuoteFee.toString()) / 1e6 : 0
+    // A shared coin's pool holds this wallet's fees and its holders' together, undivided
+    // until they are pulled into the vault — so the pool's figure would count the
+    // holders' part as this wallet's. The vault says what is actually theirs.
+    const shared = state && coin.vault
+      ? await vaultFees(state, { vault: coin.vault, creator: address }).catch((e) => {
+          console.error(`vault ${coin.vault}:`, e.message)
+          return null
+        })
+      : null
+    const curvePending = coin.vault
+      ? (shared?.creator.pending ?? 0)
+      : state ? Number(state.pool.creatorQuoteFee.toString()) / 1e6 : 0
     const lpQuote = lp ? (quoteIsB ? lp.feeB : lp.feeA) : 0
     const lpBase = lp ? (quoteIsB ? lp.feeA : lp.feeB) : 0
 
@@ -153,7 +164,7 @@ async function gather(address) {
       coin, state, lp, price,
       // A pool we could not read is not a pool with nothing in it. Told apart here
       // so the page never answers "nothing to claim" on the strength of a failure.
-      unreadable: !state,
+      unreadable: !state || Boolean(coin.vault && !shared),
       lifetimeUsd: (earned.get(coin.baseMint)?.creator ?? 0) * price,
       pendingQuote: curvePending + lpQuote,
       pendingBase: lpBase,

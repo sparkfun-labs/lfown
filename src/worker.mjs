@@ -1325,7 +1325,8 @@ async function distributeToHolders(env) {
   }
 
   const [{ Connection, PublicKey, Transaction }, { DynamicFeeSharingClient },
-    { deriveDbcPoolAuthority, deriveDammV2PoolAuthority }, { getAssociatedTokenAddressSync }] = await Promise.all([
+    { DynamicBondingCurveClient, deriveDbcPoolAuthority, deriveDammV2PoolAuthority },
+    { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction }] = await Promise.all([
     import('@solana/web3.js'),
     import('@meteora-ag/dynamic-fee-sharing-sdk'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'),
@@ -1355,7 +1356,12 @@ async function distributeToHolders(env) {
   // per coin — and without them the curve would be paid to hold its own tokens.
   const custodians = [deriveDbcPoolAuthority().toBase58(), deriveDammV2PoolAuthority().toBase58()]
 
-  const owed = await pendingHolderFees(dfs, connection, launches, { potAddress: FEES.holderPot, prices })
+  const dbc = new DynamicBondingCurveClient(connection, 'confirmed')
+  const owed = await pendingHolderFees(dfs, connection, launches, {
+    potAddress: FEES.holderPot,
+    prices,
+    readPool: async (address) => (await dbc.state.getPool(new PublicKey(address))).poolState,
+  })
   const done = []
   for (const o of owed) {
     if (o.usd < FLOOR_USD) continue
@@ -1390,6 +1396,32 @@ async function distributeToHolders(env) {
       // with it, so its balance is not this coin's either — the change across this one
       // claim is the only number that is all of this coin's and nothing else.
       const before = await balanceOf(from)
+      if (o.needsPull) {
+        // Fees reach the vault only when a shareholder pulls them out of the pool. A
+        // creator who never claims never pulls, so the pot does — its holders would
+        // otherwise be waiting on someone who may never come back.
+        //
+        // The pull needs a base-token account to exist even though these configs take
+        // every fee in the quote token, so nothing ever lands in it. The SDK would rent
+        // it with the signer's SOL, and the signer is the pot, which has none. So the
+        // collector opens it first, in the same transaction, and the SDK's own
+        // idempotent create finds it already there and costs nothing.
+        const baseMint = new PublicKey(o.launch.baseMint)
+        const receiver = getAssociatedTokenAddressSync(baseMint, payer.publicKey)
+        const pull = await dfs.fundByClaimDbcCreatorTradingFee({
+          signer: pot.publicKey,
+          creator: payer.publicKey,
+          feeVault: o.vault,
+          poolConfig: new PublicKey(o.launch.config),
+          virtualPool: new PublicKey(o.launch.pool),
+          virtualPoolState: { poolState: o.poolState },
+        })
+        const tx = new Transaction()
+          .add(createAssociatedTokenAccountIdempotentInstruction(payer.publicKey, receiver, payer.publicKey, baseMint))
+          .add(...pull.instructions)
+        tx.feePayer = payer.publicKey
+        await sendAndConfirm(connection, tx, [payer, pot])
+      }
       const claim = await dfs.claimUserFee({ feeVault: o.vault, user: pot.publicKey, payer: payer.publicKey })
       claim.feePayer = payer.publicKey
       await sendAndConfirm(connection, claim, [payer, pot])

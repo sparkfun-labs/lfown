@@ -5,6 +5,36 @@
 // directly against one of our configs is just as real as one opened through the UI.
 
 const METAPLEX = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
+const FEE_SHARING = 'dfsdo2UqvwfN8DuUVrMRNfQe11VaiNoKcMqLHVvDPzh'
+/** Anchor's account discriminator for `FeeVault`, read from the program's IDL. */
+const FEE_VAULT_DISCRIMINATOR = [192, 178, 69, 232, 58, 149, 157, 132]
+
+/**
+ * Who actually launched each coin.
+ *
+ * A creator who shares fees with holders hands the pool to a fee vault at launch, so
+ * from then on the pool's `creator` is that vault — and the leaderboard, the profile
+ * page, the creator pages and the coin page's claim button all go by this field. The
+ * vault remembers who opened it: `owner` is its first field, written from the
+ * launching wallet, and it is there even when a creator gave holders everything and
+ * holds no share of their own, which is the case the shareholder list cannot answer.
+ *
+ * Checked by program and discriminator, not by guessing from the address: anything
+ * else the fee-sharing program owns is left exactly as it was.
+ */
+export async function resolveVaultCreators(connection, PublicKey, entries) {
+  for (let i = 0; i < entries.length; i += 100) {
+    const slice = entries.slice(i, i + 100)
+    const infos = await connection.getMultipleAccountsInfo(slice.map((e) => new PublicKey(e.creator)))
+    infos.forEach((info, j) => {
+      if (!info || info.owner.toBase58() !== FEE_SHARING || info.data.length < 40) return
+      if (!FEE_VAULT_DISCRIMINATOR.every((b, k) => info.data[k] === b)) return
+      slice[j].vault = slice[j].creator
+      slice[j].creator = new PublicKey(info.data.subarray(8, 40)).toBase58()
+    })
+  }
+  return entries
+}
 
 /** Metaplex metadata PDA: ["metadata", program, mint]. */
 function metadataPda(mint, PublicKey) {
@@ -55,6 +85,11 @@ export async function describeLaunch(client, connection, PublicKey, baseMint, co
     activationPoint: Number(pool.activationPoint?.toString() ?? 0),
   }
 
+  // A coin page credited to a vault address would offer its creator no claim button.
+  await resolveVaultCreators(connection, PublicKey, [launch]).catch((e) => {
+    console.error(`describeLaunch: vault creator for ${baseMint} unresolved: ${e.message}`)
+  })
+
   const account = await connection.getAccountInfo(metadataPda(baseMint, PublicKey))
   if (account) {
     try { Object.assign(launch, decodeMetadata(new Uint8Array(account.data))) } catch {}
@@ -93,6 +128,9 @@ export function poolEntry(publicKey, poolState, { config, tier, mint: quoteMint,
  */
 export async function launchEntry(connection, PublicKey, publicKey, poolState, cfg) {
   const entry = poolEntry(publicKey, poolState, cfg)
+  await resolveVaultCreators(connection, PublicKey, [entry]).catch((e) => {
+    console.error(`launchEntry: vault creator for ${entry.baseMint} unresolved: ${e.message}`)
+  })
   const account = await connection.getAccountInfo(metadataPda(entry.baseMint, PublicKey))
   if (account) {
     try { Object.assign(entry, decodeMetadata(new Uint8Array(account.data))) } catch {}
@@ -119,6 +157,12 @@ export async function listLaunches(client, connection, PublicKey, configs) {
     }
     for (const p of found) pools.push(poolEntry(p.publicKey, p.account.poolState, cfg))
   }
+
+  // One more batched read, so a shared coin is credited to the person who launched it.
+  // Failing it costs attribution, not the list: every coin still appears.
+  await resolveVaultCreators(connection, PublicKey, pools).catch((e) => {
+    console.error(`listLaunches: vault creators unresolved: ${e.message}`)
+  })
 
   // One batched read for every token's on-chain name, symbol and image.
   const pdas = pools.map((p) => metadataPda(p.baseMint, PublicKey))

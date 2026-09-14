@@ -310,6 +310,35 @@ be sitting in the pot, where nothing reads it again. So who would be paid is dec
 is handed out is the change in the pot's balance across the claim rather than the
 figure read beforehand.
 
+Claiming, for the creator. The pool answers only to its creator, which is the vault,
+so a shared coin's creator fees cannot be taken straight from the pool. They are
+pulled into the vault — only a shareholder may do that — which splits them by share
+on arrival, and the creator takes their own part in the same transaction, 725 bytes.
+Pulling in moves the holders' part too; it cannot be taken, only left waiting. A
+creator who gave holders everything is not a shareholder and has nothing to claim.
+Every screen shows the creator their own part, because the pool's figure is the
+creator's and the holders' together, undivided until someone pulls.
+
+The hourly payout pulls as well. Fees reach a vault only when a shareholder pulls
+them in, and a creator who never claims never pulls; counting only what the vault
+already held would have paid their holders nothing. The pull insists on a base-token
+account that these quote-only configs never pay anything into, and the SDK would rent
+it with the signer's SOL — the pot's, which has none — so the collector opens it first
+in the same transaction. The devnet suite proves the pot ends a pull and a claim with
+exactly the zero SOL it started with.
+
+Who launched a coin. A shared coin's pool names the vault as its creator, and the
+leaderboard, the profile page, the creator pages and the claim button all group by
+that field. The vault's first field is its `owner`, written from the launching wallet,
+so `resolveVaultCreators` in `src/lib/launches.mjs` reads it back and credits the
+person — even at 50%, where they hold no share and the shareholder list cannot say.
+
+Two things are not done. A shared coin that graduates gets its locked DAMM v2 position
+minted to the vault, and neither the creator's claim nor the payout pulls from it yet
+(`fundByClaimDammV2Fee`); until they do, a shared coin's fees after graduation wait in
+that position. And `/api/fees` still counts a shared coin's holders' part as the
+creator's, so the leaderboard overstates what a sharing creator earned.
+
 If a run fails after claiming, what did not go out is stranded in the pot and will
 not come back on its own. It is logged and appended to `payouts:stranded` in KV with
 the coin, the quote mint and the amount, so it can be sent on by hand.

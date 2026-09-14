@@ -398,7 +398,7 @@ async function renderCoin(mint) {
     coin = await res.json()
   }
 
-  const { loadPool, quote, buildSwap, creatorFees, buildClaimAll,
+  const { loadPool, quote, buildSwap, creatorFees, vaultFees, buildClaimAll,
           graduatedFees, connection } = await code
   let state
   try { state = await loadPool(coin.pool) } catch (e) {
@@ -467,11 +467,11 @@ async function renderCoin(mint) {
 
   // The fee report is the slowest thing on this page by a wide margin, so the panel
   // is drawn from what the pool already knows and redrawn once the report lands.
-  paintFees(coin, state, { creatorFees, buildClaimAll, graduatedFees, connection })
+  paintFees(coin, state, { creatorFees, vaultFees, buildClaimAll, graduatedFees, connection })
   report.then((rep) => {
     if (!rep?.coins) return
     feesByMint = new Map(rep.coins.map((c) => [c.baseMint, c]))
-    paintFees(coin, state, { creatorFees, buildClaimAll, graduatedFees, connection })
+    paintFees(coin, state, { creatorFees, vaultFees, buildClaimAll, graduatedFees, connection })
   })
 
   /**
@@ -486,7 +486,7 @@ async function renderCoin(mint) {
       $('#stat-raised').textContent = `${fmt(next.raised)} / ${fmt(next.threshold)} ${coin.quoteSymbol}`
       $('#stat-progress').textContent = `${(next.progress * 100).toFixed(1)}%`
       $('#stat-price').textContent = `${next.price.toPrecision(4)} ${coin.quoteSymbol}`
-      paintFees(coin, next, { creatorFees, buildClaimAll, graduatedFees, connection })
+      paintFees(coin, next, { creatorFees, vaultFees, buildClaimAll, graduatedFees, connection })
       paintChart(coin, next, { refetch: true })
     } catch { /* the numbers stay as they were, which is better than a broken page */ }
   }
@@ -1020,6 +1020,12 @@ function paintFees(coin, state, api) {
   const price = coin.quoteUsdPrice ?? 0
   const report = feesByMint.get(coin.baseMint)
   const curve = api.creatorFees(state)
+  // A shared coin's pool holds the creator's fees and the holders' together, so its
+  // own figure is not the creator's. Read once, like the position below.
+  const shared = api.vaultFees(state, { vault: coin.vault, creator: coin.creator }).catch((e) => {
+    console.error('vault fees unavailable:', e.message)
+    return null
+  })
 
   // Looked up by creator address, not by whoever happens to be connected. Reading
   // it through the visitor's own wallet hid the graduated half from everyone except
@@ -1033,7 +1039,15 @@ function paintFees(coin, state, api) {
 
   const render = async () => {
     const lp = await position
+    const vf = await shared
     const mine = session?.address === coin.creator
+    const c = vf
+      ? {
+          pending: vf.creator.pending,
+          claimed: vf.creator.claimed,
+          lifetime: vf.totalShare ? (curve.lifetime * vf.creator.share) / vf.totalShare : 0,
+        }
+      : curve
 
     // DAMM v2 pays in both tokens and orders them by mint, so which side is the
     // quote has to be read off the pool rather than assumed.
@@ -1042,10 +1056,10 @@ function paintFees(coin, state, api) {
     const lpBase = lp ? (quoteIsB ? lp.feeA : lp.feeB) : 0
     const lpClaimed = lp ? (quoteIsB ? lp.claimedB : lp.claimedA) : 0
 
-    const unclaimed = curve.pending + lpQuote
-    const claimed = curve.claimed + lpClaimed
+    const unclaimed = c.pending + lpQuote
+    const claimed = c.claimed + lpClaimed
 
-    if (!report && !curve.lifetime && !unclaimed && !claimed) { box.innerHTML = ''; return }
+    if (!report && !c.lifetime && !unclaimed && !claimed && !vf?.holders.pending) { box.innerHTML = ''; return }
 
     const split = report
       ? (() => {
@@ -1063,7 +1077,7 @@ function paintFees(coin, state, api) {
       : ''
 
     const sources = [
-      curve.pending ? `${fmt(curve.pending, 4)} on the curve` : '',
+      c.pending ? `${fmt(c.pending, 4)} on the curve` : '',
       lpQuote ? `${fmt(lpQuote, 4)} since graduation` : '',
     ].filter(Boolean)
 
@@ -1071,6 +1085,9 @@ function paintFees(coin, state, api) {
     if (sources.length > 1) lines.push(sources.join(' · '))
     if (lpBase) lines.push(`plus ${fmt(lpBase, 4)} ${esc(coin.symbol)} from the graduated pool`)
     lines.push(`${fmt(claimed, 4)} ${esc(coin.quoteSymbol)} already claimed`)
+    if (vf?.holders.share) {
+      lines.push(`${fmt(vf.holders.pending, 4)} ${esc(coin.quoteSymbol)} more belongs to holders, paid out hourly`)
+    }
 
     box.innerHTML = `
       <div class="creator-box">
@@ -1088,7 +1105,7 @@ function paintFees(coin, state, api) {
         <p class="hint" id="claim-status"></p>
       </div>`
 
-    wire('#claim-all', () => api.buildClaimAll(state, { creator: session.address, lp }))
+    wire('#claim-all', () => api.buildClaimAll(state, { creator: session.address, lp, vault: coin.vault }))
   }
 
   const wire = (sel, build) => {
