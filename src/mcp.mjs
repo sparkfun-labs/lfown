@@ -214,9 +214,64 @@ async function handleMessage(msg, request, ctx) {
   }
 }
 
+const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+
+function landingPage(origin) {
+  const o = escapeHtml(origin)
+  const endpoint = `${o}/mcp`
+  const block = (text) => `<pre><code>${escapeHtml(text)}</code></pre>`
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LFOwn MCP server</title>
+<meta name="robots" content="noindex">
+<style>
+  :root{--ink:#141414;--paper:#f4efe6;--red:#e0342b;--mute:#5d5850}
+  @media (prefers-color-scheme:dark){:root{--ink:#f4efe6;--paper:#141414;--mute:#a39d93}}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 ui-sans-serif,system-ui,sans-serif}
+  main{max-width:720px;margin:0 auto;padding:48px 20px 64px}
+  h1{font-size:clamp(28px,6vw,44px);line-height:1;margin:0 0 12px;text-transform:uppercase;letter-spacing:-.02em}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;margin:36px 0 8px}
+  p{margin:0 0 12px}.mute{color:var(--mute)}
+  .url{display:flex;gap:8px;align-items:center;border:1.5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:14px 16px;margin:24px 0;font:600 17px ui-monospace,monospace;overflow-x:auto}
+  .url span{color:var(--red)}
+  pre{border:1.5px solid var(--ink);padding:12px 14px;overflow-x:auto;margin:8px 0 12px;font:13px/1.5 ui-monospace,monospace}
+  a{color:var(--red)}
+</style></head><body><main>
+<h1>LFOwn MCP server</h1>
+<p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor or any MCP client and ask it to <b>launch a token on LFOwn</b>.</p>
+<div class="url"><span>●</span>${endpoint}</div>
+<p class="mute">Remote MCP over Streamable HTTP · no key, no login · tools: list_launch_options, prepare_launch, submit_launch. Nothing is ever signed for you: the agent hands you a link, or a wallet you control signs.</p>
+
+<h2>Claude</h2>
+<p>Settings → Connectors → Add custom connector → paste the URL, leave OAuth empty.</p>
+<p>Claude Code:</p>${block(`claude mcp add --transport http lfown ${origin}/mcp`)}
+
+<h2>ChatGPT</h2>
+<p>Settings → Apps &amp; Connectors → Advanced settings → Developer mode, then create a connector with the URL and no authentication.</p>
+
+<h2>Cursor</h2>${block(`{ "mcpServers": { "lfown": { "url": "${origin}/mcp" } } }`)}
+
+<h2>VS Code</h2>${block(`{ "servers": { "lfown": { "type": "http", "url": "${origin}/mcp" } } }`)}
+
+<h2>Anything else</h2>
+<p>Use the URL as a remote HTTP MCP server. For stdio-only clients:</p>${block(`npx -y mcp-remote ${origin}/mcp`)}
+<p>No MCP? Read <a href="${o}/llms.txt">/llms.txt</a> or the <a href="${o}/api/agent/openapi.json">OpenAPI spec</a>.</p>
+<p class="mute"><a href="${o}/">← letsfuckingown.fun</a></p>
+</main></body></html>`
+}
+
 export async function handleMcp(url, request, env, ctx, deps) {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers })
   if (!originAllowed(request, url)) return failure(null, ERR.invalidRequest, 'origin not allowed', null, 403)
+  // Someone pasted the URL into a browser. MCP clients probe with GET and
+  // `Accept: text/event-stream` and must get the 405 below; a person should get a page
+  // that says what the URL is for, not an error.
+  if ((request.method === 'GET' || request.method === 'HEAD') && (request.headers.get('accept') ?? '').includes('text/html')) {
+    const origin = env.PUBLIC_ORIGIN || url.origin
+    return new Response(request.method === 'HEAD' ? null : landingPage(origin), {
+      headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' },
+    })
+  }
   // Nothing here streams or keeps a session, so there is no stream to open and none to end.
   if (request.method !== 'POST') {
     return new Response(null, { status: 405, headers: { ...headers, allow: 'POST, OPTIONS' } })

@@ -384,6 +384,10 @@ await test('mcp: mismatches, unknown versions and methods, other verbs and forei
   assert.equal(unknown.status, 404)
   assert.equal(unknown.body.error.code, -32601)
   assert.equal((await call('/mcp')).status, 405)
+  assert.equal((await call('/mcp', { headers: { accept: 'text/event-stream' } })).status, 405)
+  const page = await call('/mcp', { headers: { accept: 'text/html,application/xhtml+xml' } })
+  assert.equal(page.status, 200)
+  assert.match(page.body, /https:\/\/example\.test\/mcp/)
   assert.equal((await mcp({ jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'http://evil.example' })).status, 403)
 })
 
