@@ -737,7 +737,9 @@ signBtn.addEventListener('click', async () => {
       // next is sent because the next one depends on it.
       const signedAll = await wallet.signAllOnly?.(transactions)
       if (!signedAll) throw new Error(`${wallet.name} cannot sign two transactions at once, which sharing fees with holders needs. Set the holder share back to 0%, or use another wallet.`)
-      const signatures = await sendAllWithMint(signedAll, mint)
+      // Told as it goes: sending the vault and waiting for it looked, from the page,
+      // exactly like waiting for the wallet.
+      const signatures = await sendAllWithMint(signedAll, mint, { say })
       signature = signatures[signatures.length - 1]
     } else {
       // Wallet first, mint second: a transaction handed to Phantom with a signature

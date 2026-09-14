@@ -106,15 +106,34 @@ export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quo
     const quote = new PublicKey(quoteMint)
     vault = deriveVault(baseMint.publicKey, quote)
     const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
-    const open = await dfs.createFeeVaultPda({
-      base: baseMint.publicKey,
-      tokenMint: quote,
-      tokenProgram: TOKEN_PROGRAM_ID,
-      owner: payer,
-      payer,
-      userShare: vaultShares(share, { creator: payer, holders: FEES.holderPot }),
-    })
-    before.push(new Transaction().add(...open.instructions))
+    const wanted = vaultShares(share, { creator: payer, holders: FEES.holderPot })
+
+    // A retry after a launch that opened its vault and then failed. The vanity seed is
+    // still in the page, so this is the same coin address and so the same vault — and
+    // opening it again would fail on an account that already exists. If it is exactly
+    // the vault this launch wants, it is used as it is, and its rent is not paid twice.
+    // If the split differs, it cannot be changed, so the only way on is a new address.
+    const existing = await connection.getAccountInfo(vault)
+    if (existing) {
+      const found = await dfs.getFeeVault(vault)
+      const live = found.users.filter((u) => u.share > 0)
+      const same = found.owner.equals(payer)
+        && live.length === wanted.length
+        && wanted.every((w) => live.some((u) => u.share === w.share && u.address.equals(w.address)))
+      if (!same) {
+        throw new Error('A fee vault already exists for this coin address with a different split, and a vault cannot be changed. Reload the page to launch under a new address.')
+      }
+    } else {
+      const open = await dfs.createFeeVaultPda({
+        base: baseMint.publicKey,
+        tokenMint: quote,
+        tokenProgram: TOKEN_PROGRAM_ID,
+        owner: payer,
+        payer,
+        userShare: wanted,
+      })
+      before.push(new Transaction().add(...open.instructions))
+    }
 
     // Built by hand rather than through `client.creator.transferPoolCreator`, which
     // reads the pool from chain to find its config — and the pool does not exist
@@ -174,11 +193,24 @@ export async function sendWithMint(signedBytes, mint) {
  * launch. Both were signed in a single approval, so waiting here costs the creator
  * nothing but the seconds the chain takes.
  */
-export async function sendAllWithMint(signedList, mint) {
+export async function sendAllWithMint(signedList, mint, { say } = {}) {
+  const { confirm } = await import('./funding.js')
   const signatures = []
-  for (const bytes of signedList) {
+  for (const [i, bytes] of signedList.entries()) {
+    const last = i === signedList.length - 1
     const signature = await sendWithMint(bytes, mint)
-    await connection.confirmTransaction(signature, 'confirmed')
+    say?.(last
+      ? `Sent — waiting for the network to confirm (signature ${signature.slice(0, 12)}…)`
+      : 'Opening the fee vault — waiting for it to confirm before the launch goes out…')
+    // Polled, never `connection.confirmTransaction`: that one subscribes over a
+    // WebSocket, and /api/rpc only speaks HTTP. It gave up after 30 seconds with the
+    // vault opened and the launch never sent. The first wait is kept well inside the
+    // life of the blockhash both transactions were signed against, so the launch
+    // behind it is still valid when it goes out.
+    await confirm(connection, signature, {
+      what: last ? 'The launch' : 'Opening the fee vault',
+      timeoutMs: last ? 90_000 : 45_000,
+    })
     signatures.push(signature)
   }
   return signatures
