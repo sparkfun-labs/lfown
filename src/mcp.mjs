@@ -315,7 +315,7 @@ function landingPage(origin) {
   a{color:var(--red)}
 </style></head><body><main>
 <h1>LFOwn MCP server</h1>
-<p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor or any MCP client and ask it to <b>launch a token on LFOwn</b>.</p>
+<p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor, OpenClaw, Hermes or any MCP client and ask it to <b>launch a token on LFOwn</b>.</p>
 <div class="url"><span>●</span>${endpoint}</div>
 <p class="mute">Remote MCP over Streamable HTTP · no key, no login · tools: list_launch_options, validate_launch, prepare_launch, submit_launch. Nothing is ever signed for you: the agent hands you a link, or a wallet you control signs.</p>
 
@@ -329,6 +329,11 @@ function landingPage(origin) {
 <h2>Cursor</h2>${block(`{ "mcpServers": { "lfown": { "url": "${origin}/mcp" } } }`)}
 
 <h2>VS Code</h2>${block(`{ "servers": { "lfown": { "type": "http", "url": "${origin}/mcp" } } }`)}
+
+<h2>OpenClaw</h2>${block(`openclaw mcp add lfown --url ${origin}/mcp --transport streamable-http`)}
+
+<h2>Hermes Agent</h2>
+<p>In <code>~/.hermes/config.yaml</code>, then <code>/reload-mcp</code> in a chat:</p>${block(`mcp_servers:\n  lfown:\n    url: "${origin}/mcp"`)}
 
 <h2>Anything else</h2>
 <p>Use the URL as a remote HTTP MCP server. For stdio-only clients:</p>${block(`npx -y mcp-remote ${origin}/mcp`)}

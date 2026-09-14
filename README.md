@@ -10,7 +10,7 @@ Meteora's Dynamic Bonding Curve and signed by the visitor's own wallet; nothing 
 the signed bytes reaches the server.
 
 AI agents can launch coins too. Connect any MCP client — Claude, ChatGPT, Cursor, VS
-Code, Windsurf — to **`https://letsfuckingown.fun/mcp`**, or point an agent at
+Code, Windsurf, OpenClaw, Hermes — to **`https://letsfuckingown.fun/mcp`**, or point an agent at
 `https://letsfuckingown.fun/llms.txt`. See [Launching from an AI agent](#launching-from-an-ai-agent).
 
 ```
@@ -631,7 +631,7 @@ with no wallet at all.
 
 | For | Use |
 |---|---|
-| MCP clients (Claude, ChatGPT, Cursor, VS Code, …) | `https://letsfuckingown.fun/mcp` |
+| MCP clients (Claude, ChatGPT, Cursor, VS Code, OpenClaw, Hermes, …) | `https://letsfuckingown.fun/mcp` |
 | Agents that read the web | `https://letsfuckingown.fun/llms.txt` |
 | Frameworks and GPT actions | `https://letsfuckingown.fun/api/agent/openapi.json` |
 | Plain HTTP | `https://letsfuckingown.fun/api/agent` |
@@ -673,6 +673,24 @@ authentication. In a chat, pick it from the tools menu. Developer mode is on pai
 
 ```json
 { "mcpServers": { "lfown": { "serverUrl": "https://letsfuckingown.fun/mcp" } } }
+```
+
+**OpenClaw**
+
+    openclaw mcp add lfown --url https://letsfuckingown.fun/mcp --transport streamable-http
+
+or in its config:
+
+```json
+{ "mcp": { "servers": { "lfown": { "url": "https://letsfuckingown.fun/mcp", "transport": "streamable-http" } } } }
+```
+
+**Hermes Agent** — `~/.hermes/config.yaml`, then `/reload-mcp` in a chat:
+
+```yaml
+mcp_servers:
+  lfown:
+    url: "https://letsfuckingown.fun/mcp"
 ```
 
 **Any other agent or SDK** — whatever it calls a remote, HTTP or "Streamable HTTP"
