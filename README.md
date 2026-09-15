@@ -64,6 +64,7 @@ Before the first deploy:
     npx wrangler secret put HELIUS_RPC
     npx wrangler secret put FEE_COLLECTOR_KEY     # optional — see "Where the claimer lives"
     npx wrangler secret put HOLDER_POT_KEY        # optional — see "Sharing fees with holders"
+    npx wrangler secret put RESOLVED_API_KEY      # optional — 01Resolved financials on the launch page
     npx wrangler secret put TELEGRAM_BOT_TOKEN    # optional, with TELEGRAM_CHAT_ID
     npx wrangler secret put TELEGRAM_CHAT_ID
     npx wrangler secret put X_CONSUMER_KEY        # optional — all four, or none
@@ -600,7 +601,7 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 
 | Route | What |
 |---|---|
-| `GET /api/quote-assets` | live MetaDAO DAOs from `market-api.metadao.fi`, with their real treasury (`treasury_usdc_aum`), price and liquidity, plus icons and holders from Jupiter. A DAO whose treasury is under `MIN_TREASURY_USD` ($10) is dropped; nothing is filtered out for being thin. |
+| `GET /api/quote-assets` | live MetaDAO DAOs from `market-api.metadao.fi`, with their treasury, price and liquidity, plus icons and holders from Jupiter. With `RESOLVED_API_KEY` set, each coin 01Resolved tracks also carries its financials from `api.01resolved.com` — the treasury across every DAO wallet and LP position (shown instead of MetaDAO's vault-only figure; NAV per token, runway and market cap are carried for agents but not shown) — joined by mint, with 01Resolved's mark on the card linking to its page there. A DAO whose MetaDAO treasury is under `MIN_TREASURY_USD` ($10) is dropped; nothing is filtered out for being thin. |
 | `GET /api/exit/:mint?usd=1000,5000` | what a holder really receives selling that size into USDC right now, and through which venues. At most three sizes. |
 | `GET /api/config/:mint` | the DBC config per tier for that coin, `null` for tiers LFOwn has not opened |
 | `GET /api/launches` | every coin launched on an LFOwn config, read from chain with its on-chain name, symbol and uri. Served from KV, rebuilt behind the response once it is a quarter of an hour old. |
@@ -622,7 +623,7 @@ A cron every 10 minutes rebuilds the catalogue into KV. Exit costs are priced on
 demand and cached 60s, which keeps each request well under the subrequest ceiling.
 
 Everything cached in KV carries a version in its key — `launches:v2`, `fees:v6`,
-`catalogue:v3:…`, `chart:v3:<mint>`, `announced:v2`. Changing the shape of one of those records means
+`catalogue:v4:…`, `chart:v3:<mint>`, `announced:v2`. Changing the shape of one of those records means
 bumping its number rather than migrating it: the old key simply stops being read and
 expires on its own, and a deploy never has to land at the same instant as a rewrite.
 `announced:v2` is the exception that is migrated, because losing it would re-announce

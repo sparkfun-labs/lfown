@@ -17,7 +17,7 @@ import * as x from './lib/x.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
-const CATALOGUE_KEY = `catalogue:v3:t${MIN_TREASURY_USD}`
+const CATALOGUE_KEY = `catalogue:v4:t${MIN_TREASURY_USD}`
 // Bump these whenever the shape of what they hold changes. A deploy does not clear
 // KV, so without a bump the old payload keeps being served until it expires — which
 // is how a fix can ship and appear not to work for the next ten minutes.
@@ -135,7 +135,7 @@ async function readCatalogue(env) {
     const cached = await env.REGISTRY.get(CATALOGUE_KEY, 'json')
     if (cached) return cached
   }
-  const fresh = await buildRegistry(env.HELIUS_RPC)
+  const fresh = await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY })
   await writeCatalogue(env, fresh)
   return fresh
 }
@@ -1615,7 +1615,7 @@ export default {
       console.warn(`unrecognised cron ${event.cron}: running the catalogue job. Does it match FEE_SWEEP, WATCH or CATALOGUE in worker.mjs?`)
     }
     ctx.waitUntil((async () => {
-      await writeCatalogue(env, await buildRegistry(env.HELIUS_RPC))
+      await writeCatalogue(env, await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY }))
       if (env.REGISTRY) {
         await rebuildLaunches(env).catch((e) => console.error('launches rebuild failed:', e.message))
         // Warmed here so that visitors read it rather than build it.

@@ -85,6 +85,15 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .qcard dt{font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
 .qcard dd{margin:2px 0 0;font-size:.95rem;font-variant-numeric:tabular-nums}
 .qcard .treasury dd{color:var(--red);font-weight:500}
+.qitem{position:relative;display:flex;min-width:0}
+.qitem[hidden]{display:none}
+.qitem .qcard{flex:1}
+/* 01Resolved's mark, over the card's top-right corner. Kept outside the button's hover
+   lift on purpose: it stays put while the card moves, so it never slides from under a cursor. */
+.qitem .fin{position:absolute;top:14px;right:14px;z-index:1;display:block;line-height:0;opacity:.55;transition:opacity .15s}
+.qitem .fin img{width:22px;height:22px;border-radius:5px}
+.qitem .fin:hover,.qitem .fin:focus-visible{opacity:1}
+.qitem .fin:focus-visible{outline:2px solid var(--red);outline-offset:2px}
 
 /* The draw. Red-on-paper rather than a card of figures, because it has none to show
    — and it has to read as a different kind of thing from the coins beside it. */

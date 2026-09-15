@@ -95,7 +95,7 @@ const COIN = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 const CONFIG = 'So11111111111111111111111111111111111111112'
 const UNKNOWN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 const UNKNOWN2 = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
-kv.set('catalogue:v3:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
+kv.set('catalogue:v4:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
 kv.set(`config:${COIN}:starter`, JSON.stringify({ config: CONFIG, threshold: 2500, feeBps: 250, creatorSharePct: 50 }))
 
 const { default: worker } = await import(WORKER)
@@ -418,6 +418,34 @@ await test('mcp: mismatches, unknown versions and methods, other verbs and forei
   assert.equal(page.status, 200)
   assert.match(page.body, /https:\/\/example\.test\/mcp/)
   assert.equal((await mcp({ jsonrpc: '2.0', id: 1, method: 'ping' }, { origin: 'http://evil.example' })).status, 403)
+})
+
+await test('catalogue: 01Resolved figures join by mint, never by symbol, and replace the treasury only when real', async () => {
+  const { withFinancials } = await import(new URL('../src/lib/registry.mjs', import.meta.url).href)
+  const coins = [
+    { mint: 'MINT_A', symbol: 'AAA', treasury: 100 },
+    { mint: 'MINT_B', symbol: 'BBB', treasury: 200 },
+    { mint: 'MINT_C', symbol: 'CCC', treasury: 300 },
+  ]
+  const launches = [
+    { baseMint: 'MINT_A', organizationSlug: 'alpha' },
+    { baseMint: 'MINT_C', organizationSlug: 'gamma' },
+    { baseMint: 'OTHER', organizationSlug: 'bbb-impostor' },
+  ]
+  const projects = [
+    { organizationSlug: 'alpha', tokenSymbol: 'AAA', treasuryValue: 1500.5, netAssetValue: '0.25', monthsOfRunway: 12, marketCap: '9000' },
+    { organizationSlug: 'bbb-impostor', tokenSymbol: 'BBB', treasuryValue: 999999 },
+    { organizationSlug: 'gamma', tokenSymbol: 'CCC', treasuryValue: 0, netAssetValue: 'n/a' },
+  ]
+  const [a, b, c] = withFinancials(coins, projects, launches)
+  assert.equal(a.treasury, 1500.5)
+  assert.equal(a.treasuryMetadao, 100)
+  assert.equal(a.financials.navPerToken, 0.25)
+  assert.equal(a.financials.url, 'https://www.01resolved.com/alpha/financials')
+  assert.equal(b.treasury, 200, 'a matching symbol under another mint is not the same coin')
+  assert.equal(b.financials, null)
+  assert.equal(c.treasury, 300, 'a zero treasury from 01Resolved does not replace a real one')
+  assert.equal(c.financials.navPerToken, null)
 })
 
 console.log(`\n${passed} passed`)

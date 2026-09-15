@@ -134,7 +134,13 @@ export async function agentOptions(env, { readCatalogue }) {
       })
     }
     return tiers.length
-      ? { symbol: coin.symbol, name: coin.name, mint: coin.mint, usdPrice: coin.usdPrice, treasuryUsd: coin.treasury, holders: coin.holders, tiers }
+      ? {
+          symbol: coin.symbol, name: coin.name, mint: coin.mint, usdPrice: coin.usdPrice, treasuryUsd: coin.treasury, holders: coin.holders,
+          financials: coin.financials
+            ? { source: '01Resolved', navPerToken: coin.financials.navPerToken, runwayMonths: coin.financials.runwayMonths, marketCap: coin.financials.marketCap, url: coin.financials.url }
+            : null,
+          tiers,
+        }
       : null
   }))
   const cut = feeBreakdown(FEES.totalBps)

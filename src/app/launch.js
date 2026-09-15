@@ -25,6 +25,7 @@ const state = {
 
 const $ = (sel) => document.querySelector(sel)
 const usd = (n) => '$' + Math.round(n).toLocaleString('en-US')
+const price = (n) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
 /**
@@ -91,6 +92,7 @@ async function loadAssets() {
   box.appendChild(wild)
 
   for (const c of coins) {
+    const f = c.financials
     const card = document.createElement('button')
     card.type = 'button'
     card.className = 'qcard'
@@ -103,13 +105,31 @@ async function loadAssets() {
         <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>
       </div>
       <dl>
-        <div class="treasury"><dt>Treasury</dt><dd>${usd(c.treasury)}</dd></div>
+        <div class="treasury"><dt title="${f ? 'Every DAO wallet and LP position, from 01Resolved' : 'The treasury vault, from MetaDAO'}">Treasury</dt><dd>${usd(c.treasury)}</dd></div>
         <div><dt>Liquidity</dt><dd>${usd(c.liquidity)}</dd></div>
         <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
-        <div><dt>Price</dt><dd>$${c.usdPrice < 1 ? c.usdPrice.toFixed(4) : c.usdPrice.toFixed(2)}</dd></div>
+        <div><dt>Price</dt><dd>${price(c.usdPrice)}</dd></div>
       </dl>`
     card.addEventListener('click', () => select(c, card))
-    box.appendChild(card)
+
+    // A link cannot sit inside a button, so the card and its link share a slot in the grid.
+    const slot = document.createElement('div')
+    slot.className = 'qitem'
+    slot.appendChild(card)
+    if (f?.url) {
+      // A mark in the card's corner rather than a line of text under every card: laid over
+      // the button, not inside it, since a link cannot be nested in one.
+      const link = document.createElement('a')
+      link.className = 'fin'
+      link.href = safeUrl(f.url)
+      link.target = '_blank'
+      link.rel = 'noopener'
+      link.title = `Full financials of ${c.symbol} on 01Resolved`
+      link.setAttribute('aria-label', link.title)
+      link.innerHTML = '<img src="/assets/01resolved.png" alt="" width="22" height="22">'
+      slot.appendChild(link)
+    }
+    box.appendChild(slot)
   }
 }
 
@@ -166,7 +186,7 @@ search.addEventListener('input', () => {
   let shown = 0
   document.querySelectorAll('.qcard').forEach((card) => {
     const hit = !needle || card.dataset.search.includes(needle)
-    card.hidden = !hit
+    ;(card.closest('.qitem') ?? card).hidden = !hit
     if (hit) shown++
   })
   $('#no-match').hidden = shown > 0
