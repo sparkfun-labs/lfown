@@ -90,10 +90,12 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .qitem .qcard{flex:1}
 /* 01Resolved's mark, over the card's top-right corner. Kept outside the button's hover
    lift on purpose: it stays put while the card moves, so it never slides from under a cursor. */
-.qitem .fin{position:absolute;top:14px;right:14px;z-index:1;display:block;line-height:0;opacity:.55;transition:opacity .15s}
-.qitem .fin img{width:22px;height:22px;border-radius:5px}
-.qitem .fin:hover,.qitem .fin:focus-visible{opacity:1}
-.qitem .fin:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+.qitem .fin{position:absolute;top:12px;right:12px;z-index:1;display:flex;align-items:center;gap:6px;font-family:var(--display);font-size:.72rem;font-weight:500;line-height:1;color:var(--ink);text-decoration:none;white-space:nowrap}
+.qitem .fin img{width:20px;height:20px;border-radius:3px}
+.qitem .fin:hover span,.qitem .fin:focus-visible span{color:var(--red);text-decoration:underline;text-underline-offset:2px}
+.qitem .fin:focus-visible{outline:2px solid var(--red);outline-offset:3px}
+/* Room for the link beside the symbol and name, so a long name wraps before it reaches it. */
+.qitem:has(.fin) .qcard .top{padding-right:8.5rem}
 
 /* The draw. Red-on-paper rather than a card of figures, because it has none to show
    — and it has to read as a different kind of thing from the coins beside it. */

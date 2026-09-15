@@ -126,7 +126,7 @@ async function loadAssets() {
       link.rel = 'noopener'
       link.title = `Full financials of ${c.symbol} on 01Resolved`
       link.setAttribute('aria-label', link.title)
-      link.innerHTML = '<img src="/assets/01resolved.png" alt="" width="22" height="22">'
+      link.innerHTML = '<span>View on 01Resolved</span><img src="/assets/01resolved.png" alt="" width="20" height="20">'
       slot.appendChild(link)
     }
     box.appendChild(slot)
