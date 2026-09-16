@@ -12,7 +12,7 @@
 // coin, its treasury is the one shown. MetaDAO still decides which coins are listed at
 // all, so a 01Resolved outage changes some numbers and nothing else.
 
-import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD } from './config.mjs'
+import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD, COIN_DECIMALS, EXTRA_QUOTES, tokenUnit } from './config.mjs'
 
 // The market API rejects requests without a browser-shaped User-Agent.
 const UA = 'Mozilla/5.0 (compatible; LFOwn/1.0; +https://letsfuckingown.fun)'
@@ -89,18 +89,52 @@ async function jup(url, params) {
 
 /** What a holder actually receives selling `usd` worth of `mint` into USDC, right now. */
 export async function exitCost(mint, usdPrice, usd) {
-  const amount = Math.floor((usd / usdPrice) * 1e6)
+  const unit = tokenUnit(mint)
+  const amount = Math.floor((usd / usdPrice) * unit)
   try {
     const q = await jup(JUP.quote, { inputMint: mint, outputMint: USDC, amount, slippageBps: 50 })
-    const received = Number(q.outAmount) / 1e6
+    const received = Number(q.outAmount) / 1e6 // USDC
     return {
       usd,
       received,
-      lossPct: (received / (amount / 1e6) / usdPrice - 1) * 100,
+      lossPct: (received / (amount / unit) / usdPrice - 1) * 100,
       venues: [...new Set((q.routePlan ?? []).map((r) => r.swapInfo.label))],
     }
   } catch {
     return { usd, received: null, lossPct: null, venues: [] } // no route at this size
+  }
+}
+
+/**
+ * A hand-listed backing coin, in the catalogue's shape.
+ *
+ * Its `treasury` is what backs it, so the numbers that sort and compare coins keep
+ * working; `backing` says what that is, and the screens name it instead of calling it
+ * a treasury. Priced by the market once Jupiter has one, by its reference price until
+ * then — and `priceSource` says which, so nobody reads a raise price as a quote.
+ */
+export function extraCoin(q, found) {
+  const market = found?.usdPrice > 0 ? found.usdPrice : 0
+  return {
+    mint: q.mint,
+    symbol: q.symbol,
+    name: q.name,
+    decimals: q.decimals,
+    usdPrice: market || q.referencePrice,
+    priceSource: market ? 'market' : 'reference',
+    liquidity: found?.liquidity ?? 0,
+    treasury: q.backing.usd,
+    treasuryVault: null,
+    volume24h: 0,
+    pool: null,
+    since: null,
+    icon: q.icon ?? found?.icon ?? null,
+    holders: found?.holders ?? 0,
+    mcap: found?.mcap ?? 0,
+    exits: [],
+    featured: Boolean(q.featured),
+    backing: q.backing,
+    financials: null,
   }
 }
 
@@ -132,22 +166,38 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey 
 
   // Icons and holder counts only exist on Jupiter's side.
   const extra = new Map()
-  const mints = daos.map((d) => d.mint)
+  const mints = [...daos.map((d) => d.mint), ...EXTRA_QUOTES.map((q) => q.mint)]
   for (let i = 0; i < mints.length; i += 20) {
     try {
       const found = await jup(JUP.tokens, { query: mints.slice(i, i + 20).join(',') })
-      for (const t of found) extra.set(t.id, { icon: t.icon, holders: t.holderCount ?? 0, mcap: t.mcap ?? 0 })
+      for (const t of found) {
+        extra.set(t.id, {
+          icon: t.icon, holders: t.holderCount ?? 0, mcap: t.mcap ?? 0,
+          decimals: t.decimals, usdPrice: Number(t.usdPrice) || 0, liquidity: Number(t.liquidity) || 0,
+        })
+      }
     } catch { /* the catalogue is still usable without decoration */ }
   }
 
   const coins = []
   for (const d of daos) {
+    const { decimals, usdPrice: _, liquidity: __, ...decoration } = extra.get(d.mint) ?? { icon: null, holders: 0, mcap: 0 }
+    // Every amount of a backing coin is scaled by 6 decimals unless it is listed by hand.
+    // An ownership coin minted any other way would be mispriced a thousandfold on every
+    // trade, so it is left out rather than offered.
+    if (decimals !== undefined && decimals !== COIN_DECIMALS) {
+      console.error(`registry: ${d.symbol} has ${decimals} decimals, not ${COIN_DECIMALS}; not offered`)
+      continue
+    }
     coins.push({
       ...d,
-      ...(extra.get(d.mint) ?? { icon: null, holders: 0, mcap: 0 }),
+      decimals: COIN_DECIMALS,
+      ...decoration,
       exits: withExits ? await Promise.all(EXIT_SIZES.map((s) => exitCost(d.mint, d.usdPrice, s))) : [],
     })
   }
+
+  for (const q of EXTRA_QUOTES) coins.push(extraCoin(q, extra.get(q.mint)))
 
   let listed = coins
   if (resolvedKey) {
@@ -162,6 +212,7 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey 
     }
   }
 
-  listed.sort((a, b) => b.treasury - a.treasury)
+  // Featured coins lead; the rest by what backs them.
+  listed.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
   return { updatedAt: new Date().toISOString(), count: listed.length, coins: listed }
 }

@@ -108,6 +108,13 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 /* Room for the link beside the symbol and name, so a long name wraps before it reaches it. */
 .qitem:has(.fin) .qcard .top{padding-right:8.5rem}
 
+/* A coin backed by something other than a treasury, pinned first and marked as new. */
+.qcard.featured{border-color:var(--red);box-shadow:4px 4px 0 var(--red)}
+.qcard.featured .sym{color:var(--red)}
+.qcard.featured .badge{margin:0;align-self:flex-start;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:#fff;background:var(--red);padding:4px 7px}
+.qitem:has(.featured) .fin{color:var(--red)}
+.qitem:has(.featured) .qcard .top{padding-right:11.5rem}
+
 /* The draw. Red-on-paper rather than a card of figures, because it has none to show
    — and it has to read as a different kind of thing from the coins beside it. */
 .qcard.wild{justify-content:space-between;border-style:dashed}

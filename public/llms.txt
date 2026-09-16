@@ -2,6 +2,8 @@
 
 > LFOwn is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it.
 
+Also a dinosaur: `TRCH1` (Deaton, a Triceratops skull co-owned through Jurassic Finance) can be the pair. In the options it carries `backing` instead of a treasury, `decimals: 9` rather than 6, and `priceSource: "reference"` while its price is still the raise's rather than a market's. Amounts in this API are whole tokens, so nothing changes for you.
+
 Nothing is ever signed for the creator. The wallet that signs a launch is the wallet that earns its trading fees.
 
 ## Which way in

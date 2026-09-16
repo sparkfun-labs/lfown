@@ -10,6 +10,7 @@ import {
   deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import BN from 'bn.js'
+import { COIN_DECIMALS, tokenDecimals, tokenUnit } from '../lib/config.mjs'
 
 // Every call goes through rpc.js, which sends them in batches and retries the ones the
 // rate limiter refuses — see the note at the top of that file for why.
@@ -30,23 +31,28 @@ export async function loadPool(poolAddress) {
 
   const threshold = Number(config.migrationQuoteThreshold.toString())
   const raised = Number(pool.quoteReserve.toString())
+  // The coin is always 6 decimals; the coin it is paired with need not be.
+  const quoteMint = config.quoteMint.toBase58()
+  const quoteDecimals = tokenDecimals(quoteMint)
 
   return {
     address,
     pool,
     config,
-    quoteMint: config.quoteMint.toBase58(),
+    quoteMint,
+    quoteDecimals,
     isMigrated: Boolean(pool.isMigrated),
-    raised: raised / 1e6,
-    threshold: threshold / 1e6,
+    raised: raised / 10 ** quoteDecimals,
+    threshold: threshold / 10 ** quoteDecimals,
     progress: threshold ? Math.min(1, raised / threshold) : 0,
-    price: Number(getPriceFromSqrtPrice(pool.sqrtPrice, 6, 6)),
+    price: Number(getPriceFromSqrtPrice(pool.sqrtPrice, COIN_DECIMALS, quoteDecimals)),
   }
 }
 
 /** What this trade would return, priced on the curve as it stands right now. */
 export async function quote({ pool, config }, { amountIn, sellingBase, slippageBps = 100 }) {
   const currentPoint = new BN(await connection.getSlot())
+  const { inUnit, outUnit } = units(config.quoteMint, sellingBase)
   const result = await client.pool.swapQuote2({
     // The quote helpers read `virtualPool.poolState`, so they want the account
     // wrapper rather than the decoded state that every other call takes.
@@ -54,16 +60,23 @@ export async function quote({ pool, config }, { amountIn, sellingBase, slippageB
     config,
     swapBaseForQuote: sellingBase,
     swapMode: SwapMode.PartialFill, // a buy that would overfill the curve is trimmed, not rejected
-    amountIn: new BN(Math.floor(amountIn * 1e6)),
+    amountIn: new BN(Math.floor(amountIn * inUnit)),
     slippageBps,
     hasReferral: false,
     currentPoint,
   })
   return {
-    out: Number(result.outputAmount ?? result.amountOut ?? 0) / 1e6,
-    minimumOut: Number(result.minimumAmountOut ?? 0) / 1e6,
-    consumed: Number(result.actualInputAmount ?? result.amountIn ?? 0) / 1e6,
+    out: Number(result.outputAmount ?? result.amountOut ?? 0) / outUnit,
+    minimumOut: Number(result.minimumAmountOut ?? 0) / outUnit,
+    consumed: Number(result.actualInputAmount ?? result.amountIn ?? 0) / inUnit,
   }
+}
+
+/** Raw units per whole token on each side of a trade: the coin's going one way, its pair's the other. */
+function units(quoteMint, sellingBase) {
+  const coin = 10 ** COIN_DECIMALS
+  const pair = tokenUnit(quoteMint)
+  return sellingBase ? { inUnit: coin, outUnit: pair } : { inUnit: pair, outUnit: coin }
 }
 
 /**
@@ -75,8 +88,9 @@ export async function quote({ pool, config }, { amountIn, sellingBase, slippageB
  */
 export function creatorFees({ pool, config }) {
   const sharePct = Number(config.creatorTradingFeePercentage ?? 50)
-  const lifetime = (Number(pool.metrics.totalTradingQuoteFee.toString()) * sharePct) / 100 / 1e6
-  const pending = Number(pool.creatorQuoteFee.toString()) / 1e6
+  const unit = tokenUnit(config.quoteMint)
+  const lifetime = (Number(pool.metrics.totalTradingQuoteFee.toString()) * sharePct) / 100 / unit
+  const pending = Number(pool.creatorQuoteFee.toString()) / unit
   return {
     pending,
     claimed: Math.max(0, lifetime - pending),
@@ -104,10 +118,11 @@ export async function vaultFees({ pool }, { vault, creator, lp = null }) {
   const address = new PublicKey(vault)
   const [state, breakdown] = await Promise.all([dfs.getFeeVault(address), dfs.getFeeBreakdown(address)])
   const total = BigInt(state.totalShare)
+  const unit = tokenUnit(state.tokenMint)
   // After graduation the undivided fees sit in the locked position the vault owns
   // rather than on the curve. Same split, other place.
   const inPosition = lp
-    ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * 1e6))
+    ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * unit))
     : 0n
   const inPool = BigInt(pool.creatorQuoteFee.toString()) + inPosition
   const nobody = { share: 0, pending: 0, claimed: 0 }
@@ -119,8 +134,8 @@ export async function vaultFees({ pool }, { vault, creator, lp = null }) {
     const share = BigInt(user.share)
     return {
       share: Number(share),
-      pending: Number(BigInt(funded?.feeUnclaimed.toString() ?? '0') + (inPool * share) / total) / 1e6,
-      claimed: Number(BigInt(user.feeClaimed.toString())) / 1e6,
+      pending: Number(BigInt(funded?.feeUnclaimed.toString() ?? '0') + (inPool * share) / total) / unit,
+      claimed: Number(BigInt(user.feeClaimed.toString())) / unit,
     }
   }
   // Only the pot's slot is the holders'. A vault opened through the SDK can give its
@@ -228,7 +243,7 @@ export async function claimInstructions({ address, pool, config }, { creator, lp
     // must be the pool's token B; every pool migrated so far puts the quote there and
     // collects fees in nothing else. The token A account must still exist, and gets 0.
     const inPosition = lp
-      ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * 1e6))
+      ? BigInt(Math.round((lp.tokenB === state.tokenMint.toBase58() ? lp.feeB : lp.feeA) * tokenUnit(state.tokenMint)))
       : 0n
     if (inPosition > 0n) {
       const { derivePositionNftAccount } = await import('@meteora-ag/cp-amm-sdk')
@@ -331,13 +346,14 @@ export async function packClaims(entries, { creator }) {
 }
 
 /** Builds the swap for the wallet to sign. */
-export async function buildSwap({ address }, { owner, amountIn, minimumOut, sellingBase }) {
+export async function buildSwap({ address, config }, { owner, amountIn, minimumOut, sellingBase }) {
+  const { inUnit, outUnit } = units(config.quoteMint, sellingBase)
   const tx = await client.pool.swap2({
     owner: new PublicKey(owner),
     payer: new PublicKey(owner),
     pool: address,
-    amountIn: new BN(Math.floor(amountIn * 1e6)),
-    minimumAmountOut: new BN(Math.floor((minimumOut ?? 0) * 1e6)),
+    amountIn: new BN(Math.floor(amountIn * inUnit)),
+    minimumAmountOut: new BN(Math.floor((minimumOut ?? 0) * outUnit)),
     swapMode: SwapMode.PartialFill,
     swapBaseForQuote: sellingBase,
     referralTokenAccount: null,

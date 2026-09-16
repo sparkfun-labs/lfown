@@ -166,7 +166,7 @@ async function gather(address) {
       : null
     const curvePending = coin.vault
       ? (shared?.creator.pending ?? 0)
-      : state ? Number(state.pool.creatorQuoteFee.toString()) / 1e6 : 0
+      : state ? Number(state.pool.creatorQuoteFee.toString()) / 10 ** state.quoteDecimals : 0
     // Already inside the vault's figures for a shared coin, split — counted again here
     // it would give the holders' part to this wallet.
     const lpQuote = lp && !coin.vault ? (quoteIsB ? lp.feeB : lp.feeA) : 0

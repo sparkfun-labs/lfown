@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES } from './lib/config.mjs'
+import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -18,7 +18,7 @@ import { PUMP, pumpCandidates, launchUrl } from './lib/pumps.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
-const CATALOGUE_KEY = `catalogue:v4:t${MIN_TREASURY_USD}`
+const CATALOGUE_KEY = `catalogue:v5:t${MIN_TREASURY_USD}`
 // Bump these whenever the shape of what they hold changes. A deploy does not clear
 // KV, so without a bump the old payload keeps being served until it expires — which
 // is how a fix can ship and appear not to work for the next ten minutes.
@@ -487,6 +487,14 @@ const oneLine = (v, cap = 140) => {
   return clean.length > cap ? clean.slice(0, cap - 1) + '…' : clean
 }
 
+/** What stands behind a backing coin, in a phrase that follows its symbol. */
+function backedBy(quoteMint) {
+  const extra = EXTRA_QUOTES.find((q) => q.mint === quoteMint)
+  return extra
+    ? `a coin backed by ${extra.backing.label.replace(/^A /, 'a ')} on ${extra.backing.project}`
+    : 'an ownership coin launched on MetaDAO with a treasury behind it'
+}
+
 /**
  * Absolute http(s) only, or nothing. A creator's links are fetched by strangers'
  * servers and shown in strangers' wallets, so anything else is dropped at the door.
@@ -773,7 +781,7 @@ async function coinCard(env, mint, origin) {
   const symbol = oneLine(coin.symbol || '?', 24)
   const name = oneLine(coin.name || symbol, 60)
   const quote = oneLine(coin.quoteSymbol || '?', 24)
-  const raised = Number(coin.quoteReserve ?? 0) / 1e6
+  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
   const pct = coin.threshold ? Math.min(100, (raised / coin.threshold) * 100) : 0
   const progress = coin.isMigrated
     ? 'Graduated to its Meteora pool.'
@@ -781,7 +789,7 @@ async function coinCard(env, mint, origin) {
 
   return {
     title: `${symbol} — paired with ${quote} · LFOwn`,
-    description: `${name} is a memecoin on LFOwn, paired with ${quote}, an ownership coin launched on MetaDAO with a treasury behind it. ${progress}`,
+    description: `${name} is a memecoin on LFOwn, paired with ${quote}, ${backedBy(coin.quoteMint)}. ${progress}`,
     url: `${origin}/coins/${mint}`,
     image,
   }
@@ -1011,7 +1019,7 @@ async function watchGraduations(env) {
       continue
     }
     if (state.isMigrated) continue
-    if (Number(state.quoteReserve.toString()) / 1e6 < live[i].threshold) continue
+    if (Number(state.quoteReserve.toString()) / tokenUnit(live[i].quoteMint) < live[i].threshold) continue
     console.log(`graduation watch: ${live[i].symbol ?? live[i].baseMint} has filled`)
     return crankOne(env, live[i].baseMint)
   }
@@ -1127,7 +1135,7 @@ async function chartFor(env, mint) {
       baseVault: state.baseVault.toBase58(),
       quoteVault: state.quoteVault.toBase58(),
       baseDecimals: 6,
-      quoteDecimals: 6,
+      quoteDecimals: tokenDecimals(quoteMint),
       newest: null,
     }]
   }
@@ -1232,7 +1240,7 @@ async function crankOne(env, mint) {
   try {
     const signature = await graduate(client, connection, poolAddress.toBase58(), collector)
     console.log(`graduated on request ${mint}: ${signature}`)
-    await announceGraduation(env, record ?? { baseMint: mint, symbol: '?', quoteSymbol: '?', quoteReserve: pool.quoteReserve.toString() })
+    await announceGraduation(env, record ?? { baseMint: mint, symbol: '?', quoteSymbol: cfg.symbol, quoteMint: cfg.mint, quoteReserve: pool.quoteReserve.toString() })
       .catch((e) => console.error(`telegram graduation: ${e.message}`))
     // Its status just changed; the list is told rather than thrown away.
     await patchLaunches(env, mint, { isMigrated: true, quoteReserve: pool.quoteReserve.toString() })
@@ -1464,7 +1472,7 @@ async function distributeToHolders(env) {
         exclude: [...custodians, o.launch.pool].filter(Boolean),
       }
       if (!payoutInstructions({ ...plan, amount: o.amount }).batches.length) {
-        console.log(`holder payouts: ${name} has nobody over the floor yet — ${(Number(o.amount) / 1e6).toFixed(6)} left in its vault`)
+        console.log(`holder payouts: ${name} has nobody over the floor yet — ${(Number(o.amount) / tokenUnit(o.launch.quoteMint)).toFixed(6)} left in its vault`)
         continue
       }
 
@@ -1544,7 +1552,7 @@ async function distributeToHolders(env) {
         transactions++
       }
       done.push({ symbol: o.launch.symbol, baseMint: o.launch.baseMint, holders: payouts.length,
-        quote: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * o.price, transactions })
+        quote: Number(claimed) / tokenUnit(o.launch.quoteMint), usd: (Number(claimed) / tokenUnit(o.launch.quoteMint)) * o.price, transactions })
     } catch (e) {
       console.error(`holder payouts failed on ${name}: ${e.message}`)
       // Before the claim, nothing moved: the share is still in the vault and the next

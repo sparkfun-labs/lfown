@@ -16,7 +16,7 @@ import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynam
 import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
-import { FEES } from './config.mjs'
+import { FEES, tokenUnit } from './config.mjs'
 import { clampHolderPct, deriveVault, vaultShares } from './fee-split.mjs'
 
 /**
@@ -41,7 +41,7 @@ export async function devBuyCost(client, { config, percent }) {
   const input = quote.includedFeeInputAmount ?? quote.maximumAmountIn ?? quote.amountIn
   return {
     baseOut: baseOut / 1e6,
-    quoteIn: Number((input ?? 0).toString()) / 1e6,
+    quoteIn: Number((input ?? 0).toString()) / tokenUnit(state.quoteMint),
   }
 }
 

@@ -95,7 +95,7 @@ const COIN = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 const CONFIG = 'So11111111111111111111111111111111111111112'
 const UNKNOWN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 const UNKNOWN2 = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
-kv.set('catalogue:v4:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
+kv.set('catalogue:v5:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
 kv.set(`config:${COIN}:starter`, JSON.stringify({ config: CONFIG, threshold: 2500, feeBps: 250, creatorSharePct: 50 }))
 
 const { default: worker } = await import(WORKER)
@@ -446,6 +446,34 @@ await test('catalogue: 01Resolved figures join by mint, never by symbol, and rep
   assert.equal(b.financials, null)
   assert.equal(c.treasury, 300, 'a zero treasury from 01Resolved does not replace a real one')
   assert.equal(c.financials.navPerToken, null)
+})
+
+await test('dinosaurs: TRCH1 is 9 decimals everywhere, priced by its raise until it trades, and says what backs it', async () => {
+  const config = await import(new URL('../src/lib/config.mjs', import.meta.url).href)
+  const { extraCoin } = await import(new URL('../src/lib/registry.mjs', import.meta.url).href)
+  const { PublicKey } = await import('@solana/web3.js')
+  const TRCH1 = 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB'
+  assert.equal(config.tokenDecimals(TRCH1), 9)
+  assert.equal(config.tokenDecimals(new PublicKey(TRCH1)), 9, 'a PublicKey reads the same as its string')
+  assert.equal(config.tokenUnit(TRCH1), 1e9)
+  assert.equal(config.tokenUnit('METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta'), 1e6, 'ownership coins and memecoins stay 6')
+  assert.equal(config.tokenUnit(undefined), 1e6)
+
+  const q = config.EXTRA_QUOTES.find((e) => e.mint === TRCH1)
+  const unlisted = extraCoin(q, { holders: 27, usdPrice: 0 })
+  assert.equal(unlisted.usdPrice, q.referencePrice)
+  assert.equal(unlisted.priceSource, 'reference')
+  assert.equal(unlisted.decimals, 9)
+  assert.equal(unlisted.holders, 27)
+  assert.equal(unlisted.backing.kind, 'dinosaur')
+  assert.equal(unlisted.treasury, q.backing.usd, 'what backs it sorts like a treasury')
+  const trading = extraCoin(q, { usdPrice: 0.81, liquidity: 12_000 })
+  assert.equal(trading.usdPrice, 0.81)
+  assert.equal(trading.priceSource, 'market')
+
+  // A graduated position's fees, in whole tokens on each side.
+  const tele = await import(new URL('../src/lib/telegram.mjs', import.meta.url).href)
+  assert.match(tele.graduatedMessage({ symbol: 'RAWR', quoteSymbol: 'TRCH1', quoteMint: TRCH1, quoteReserve: '7197000000000', baseMint: 'X' }, 'https://x.test'), /raised 7,197 TRCH1/)
 })
 
 await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {

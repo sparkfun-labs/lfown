@@ -23,7 +23,7 @@ import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
-import { FEES } from '../src/lib/config.mjs'
+import { FEES, tokenUnit } from '../src/lib/config.mjs'
 import { buildRegistry } from '../src/lib/registry.mjs'
 import { listLaunches } from '../src/lib/launches.mjs'
 import { lpPositions, buildLpClaim } from '../src/lib/lp-fees.mjs'
@@ -80,7 +80,7 @@ let total = 0
 
 for (const p of pools) {
   const { poolState } = await client.state.getPool(new PublicKey(p.pool))
-  const waiting = Number(poolState.partnerQuoteFee.toString()) / 1e6
+  const waiting = Number(poolState.partnerQuoteFee.toString()) / tokenUnit(p.quoteMint)
   if (waiting <= 0) { console.log(`  ${(p.symbol ?? '?').padEnd(10)} nothing waiting`); continue }
 
   total += waiting * (p.quoteUsdPrice ?? 0)

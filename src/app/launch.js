@@ -3,7 +3,7 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
-import { TIERS, LEGACY_FEE_BPS, FEES, feeBreakdown } from '../lib/config.mjs'
+import { TIERS, LEGACY_FEE_BPS, FEES, feeBreakdown, tokenUnit } from '../lib/config.mjs'
 import { HOLDER_MAX_PCT, splitFor } from '../lib/fee-split.mjs'
 
 const state = {
@@ -26,6 +26,16 @@ const state = {
 const $ = (sel) => document.querySelector(sel)
 const usd = (n) => '$' + Math.round(n).toLocaleString('en-US')
 const price = (n) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
+
+/**
+ * What stands behind a backing coin, as a short label and a figure. An ownership coin
+ * has a treasury; a coin listed by hand says what it has instead — a dinosaur, so far.
+ */
+const backing = (a) => a.backing
+  ? { label: 'Backed by', value: a.backing.label.replace(/^A /, ''), usd: a.backing.usd }
+  : { label: 'Treasury', value: usd(a.treasury), usd: a.treasury }
+/** A price nobody has traded at yet is the raise's, and says so. */
+const priceOf = (a) => price(a.usdPrice) + (a.priceSource === 'reference' ? ' raise' : '')
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
 const short = (a) => `${a.slice(0, 4)}…${a.slice(-4)}`
 /**
@@ -71,7 +81,7 @@ function paintPaired(n = +document.querySelector('.step.on')?.dataset.step) {
        <span class="what">Paired with <b>a random ownership coin</b><br><small>Revealed before you sign.</small></span>`
     : `${a.icon ? `<img src="${safeUrl(a.icon)}" alt="">` : ''}
        <span class="what">Paired with <b>${esc(a.symbol)}</b>${a.name ? ` <small>${esc(a.name)}</small>` : ''}<br>
-       <small>Treasury ${usd(a.treasury)} · ${price(a.usdPrice)}</small></span>`
+       <small>${backing(a).label} ${esc(backing(a).value)} · ${priceOf(a)}</small></span>`
   const change = document.createElement('button')
   change.type = 'button'
   change.className = 'change'
@@ -119,12 +129,23 @@ async function loadAssets() {
     const f = c.financials
     const card = document.createElement('button')
     card.type = 'button'
-    card.className = 'qcard'
+    card.className = c.backing ? `qcard featured ${c.backing.kind}` : 'qcard'
     card.setAttribute('aria-pressed', 'false')
-    card.dataset.search = `${c.symbol} ${c.name ?? ''}`.toLowerCase()
+    card.dataset.search = `${c.symbol} ${c.name ?? ''} ${c.backing ? `${c.backing.kind} ${c.backing.label} ${c.backing.project}` : ''}`.toLowerCase()
     card.dataset.mint = c.mint
     card.dataset.symbol = c.symbol.toLowerCase()
-    card.innerHTML = `
+    card.innerHTML = c.backing ? `
+      <div class="top">
+        ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
+        <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>
+      </div>
+      <p class="badge">New · launch against a ${esc(c.backing.kind)}</p>
+      <dl>
+        <div class="treasury"><dt title="${esc(c.backing.detail ?? '')}">Backed by</dt><dd>${esc(c.backing.label.replace(/^A /, ''))}</dd></div>
+        <div><dt>Raised</dt><dd>${usd(c.backing.raised)}</dd></div>
+        <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
+        <div><dt title="${c.priceSource === 'reference' ? 'What its raise paid per token; it has no market yet' : 'Market price'}">Price</dt><dd>${priceOf(c)}</dd></div>
+      </dl>` : `
       <div class="top">
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
         <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>
@@ -141,7 +162,17 @@ async function loadAssets() {
     const slot = document.createElement('div')
     slot.className = 'qitem'
     slot.appendChild(card)
-    if (f?.url) {
+    if (c.backing?.url) {
+      const link = document.createElement('a')
+      link.className = 'fin'
+      link.href = safeUrl(c.backing.url)
+      link.target = '_blank'
+      link.rel = 'noopener'
+      link.title = `${c.symbol} on ${c.backing.project}`
+      link.setAttribute('aria-label', link.title)
+      link.innerHTML = `<span>View on ${esc(c.backing.project)}</span>`
+      slot.appendChild(link)
+    } else if (f?.url) {
       // A mark in the card's corner rather than a line of text under every card: laid over
       // the button, not inside it, since a link cannot be nested in one.
       const link = document.createElement('a')
@@ -570,7 +601,7 @@ function paintReview() {
     line('Paired with', state.blind ? 'Random — named the moment you sign' : esc(a.symbol)) +
     // The treasury is the one figure that would identify the coin outright, so a
     // blind launch simply does without it rather than printing a lookup key.
-    (state.blind ? '' : line(`Treasury of ${esc(a.symbol)}`, usd(a.treasury))) +
+    (state.blind ? '' : line(`${a.backing ? 'Backing of' : 'Treasury of'} ${esc(a.symbol)}`, a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
     line('Graduation target', `${c.threshold.toLocaleString('en-US')} ${esc(sym())} ≈ ${usd(c.threshold * a.usdPrice)} today`) +
     line('Dev buy', c.devBuy ? `${c.devBuy}% of supply — ${fmt(c.devBuyQuote, 4)} ${esc(sym())}` : 'none') +
     line('Trading fee', (() => {
@@ -730,7 +761,7 @@ signBtn.addEventListener('click', async () => {
       paintPaired()
       paintReview()
       paintFunding()
-      say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, treasury ${usd(a.treasury)}.
+      say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, ${a.backing ? `backed by ${esc(a.backing.label.toLowerCase())}` : `treasury ${usd(a.treasury)}`}.
         Nothing has been signed. Continue, or go back and pick another.`)
       // A beat to actually read it, rather than a wallet popping up over the reveal.
       await new Promise((r) => setTimeout(r, 2600))
@@ -792,7 +823,7 @@ signBtn.addEventListener('click', async () => {
       config,
       owner: wallet.address,
       token: { name: state.token.name, symbol: state.token.symbol, uri: uri ?? '' },
-      devBuyQuote: Math.round(devBuy * 1e6),
+      devBuyQuote: Math.round(devBuy * tokenUnit(a.mint)),
       seed: state.seed,
       quoteMint: state.asset?.mint,
       holderPct: state.curve.holders,

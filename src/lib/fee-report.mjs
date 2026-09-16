@@ -9,10 +9,11 @@ import {
   deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { CpAmm, getUnClaimLpFee } from '@meteora-ag/cp-amm-sdk'
-import { FEES } from './config.mjs'
+import { FEES, tokenUnit } from './config.mjs'
 import { vaultSplit } from './fee-split.mjs'
 
-const lamports = (x) => Number(x?.toString() ?? 0) / 1e6
+/** Raw units of `mint` in whole tokens. */
+const whole = (x, mint) => Number(x?.toString() ?? 0) / tokenUnit(mint)
 
 /**
  * Per coin: what the curve earned, what the graduated pool has earned since, and
@@ -31,6 +32,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
     const config = await client.state.getPoolConfig(poolState.config)
     const creatorPct = Number(config.creatorTradingFeePercentage ?? 50)
     const price = prices.get(l.quoteMint) ?? l.quoteUsdPrice ?? 0
+    const lamports = (x) => whole(x, l.quoteMint)
 
     // On the curve every fee is quote-side, split creator/partner after Meteora's cut.
     const shared = lamports(poolState.metrics.totalTradingQuoteFee)
@@ -59,7 +61,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
           const earnedQuote = lamports(quoteIsB ? s.metrics.totalClaimedBFee : s.metrics.totalClaimedAFee)
             + lamports(quoteIsB ? unclaimed.feeTokenB : unclaimed.feeTokenA)
           graduated.pending += lamports(quoteIsB ? unclaimed.feeTokenB : unclaimed.feeTokenA)
-          graduated.inCoin += lamports(quoteIsB ? unclaimed.feeTokenA : unclaimed.feeTokenB)
+          graduated.inCoin += whole(quoteIsB ? unclaimed.feeTokenA : unclaimed.feeTokenB, l.baseMint)
           // The two positions are equal halves: one LFOwn's, one the creator's.
           graduated.partner += earnedQuote / 2
           graduated.creator += earnedQuote / 2

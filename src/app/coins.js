@@ -4,6 +4,7 @@ import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
+import { tokenUnit } from '../lib/config.mjs'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -159,7 +160,7 @@ async function artwork(coin) {
 // ── list ─────────────────────────────────────────────────────────────────────
 /** One card. Artwork and fee figures arrive later and fill themselves in. */
 function coinCard(c) {
-  const raised = Number(c.quoteReserve) / 1e6
+  const raised = Number(c.quoteReserve) / tokenUnit(c.quoteMint)
   const pct = c.isMigrated
     ? 100
     : c.threshold ? Math.min(100, (raised / c.threshold) * 100) : 0
@@ -199,10 +200,10 @@ function coinCard(c) {
 const SORTS = {
   new: { label: 'Newest', of: (c) => c.activationPoint ?? 0 },
   fees: { label: 'Fees', of: (c) => feesByMint.get(c.baseMint)?.totalUsd ?? 0 },
-  raised: { label: 'Raised', of: (c) => (Number(c.quoteReserve) / 1e6) * (c.quoteUsdPrice ?? 0) },
+  raised: { label: 'Raised', of: (c) => (Number(c.quoteReserve) / tokenUnit(c.quoteMint)) * (c.quoteUsdPrice ?? 0) },
   progress: {
     label: 'Progress',
-    of: (c) => (c.isMigrated ? 1 : c.threshold ? Math.min(1, Number(c.quoteReserve) / 1e6 / c.threshold) : 0),
+    of: (c) => (c.isMigrated ? 1 : c.threshold ? Math.min(1, Number(c.quoteReserve) / tokenUnit(c.quoteMint) / c.threshold) : 0),
   },
 }
 
@@ -639,7 +640,8 @@ async function renderCoin(mint) {
   // one unit more than the wallet holds and the whole thing simply fails.
   maxBtn.addEventListener('click', () => {
     const pay = spendingVia()
-    const decimals = pay?.decimals ?? COIN_DECIMALS
+    // Spending the pair itself means its own decimals, which need not be the coin's.
+    const decimals = pay?.decimals ?? (side === 'buy' ? state.quoteDecimals : COIN_DECIMALS)
     const spendable = Math.max(0, trunc(heldNow - (pay?.native ? GAS_RESERVE.trade : 0), decimals))
     // Trimmed to the same precision the balance is shown at, so the field holds a
     // number somebody can read back rather than a six-decimal tail.

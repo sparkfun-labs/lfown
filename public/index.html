@@ -213,6 +213,75 @@ footer .x-link{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
 footer .x-link svg{width:13px;height:13px;fill:currentColor}
 footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
 
+
+/* ── dinosaurs: the first backing coin that is not an ownership coin ──────
+   One look in both themes, like the red goal band: a dig site at night. Bone on
+   dark earth, the strata underneath, and the exhibit tag a museum would pin on it. */
+.dino{
+  --earth:#15100B;--earth-2:#211810;--bone:#EFE2C6;--bone-soft:rgba(239,226,198,.66);--bone-rule:rgba(239,226,198,.2);
+  background:radial-gradient(120% 90% at 85% 0%, #2A1D12 0%, var(--earth) 58%);
+  color:var(--bone);border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);
+  overflow:hidden;isolation:isolate;padding-bottom:0;
+}
+.dino::before{ /* the age, too big to read at a glance and meant to be felt instead */
+  content:"66,000,000";position:absolute;right:-.06em;top:.06em;z-index:-1;
+  font-family:var(--display);font-weight:800;letter-spacing:-.06em;line-height:.8;
+  font-size:clamp(4rem,21vw,19rem);color:transparent;-webkit-text-stroke:1.5px rgba(239,226,198,.09);
+  white-space:nowrap;pointer-events:none;
+}
+.dino .flag-new{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
+  color:#fff;background:var(--red);border:1.5px solid var(--bone);padding:7px 12px;box-shadow:4px 4px 0 var(--bone)}
+.dino .flag-new i{width:7px;height:7px;border-radius:50%;background:#fff;animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{50%{opacity:.25}}
+.dino-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(30px,5vw,80px);align-items:center;margin-top:clamp(22px,3vw,34px)}
+@media(max-width:900px){.dino-grid{grid-template-columns:1fr}}
+.dino h2{
+  font-family:var(--display);font-weight:800;text-transform:uppercase;margin:0;
+  font-size:clamp(2.7rem,7.4vw,6.4rem);line-height:.86;letter-spacing:-.05em;
+}
+.dino h2 em{font-style:normal;color:var(--red);display:inline-block;transform:rotate(-2deg);text-shadow:4px 4px 0 var(--earth-2)}
+.dino .lede{font-size:clamp(1.05rem,1.5vw,1.3rem);color:var(--bone-soft);max-width:48ch;margin:clamp(20px,2.6vw,30px) 0 0}
+.dino .lede b{color:var(--bone);font-weight:500}
+.dino .cta-row{margin-top:clamp(24px,3vw,36px)}
+.dino .btn{border-color:var(--bone);box-shadow:5px 5px 0 var(--bone)}
+.dino .btn:hover{box-shadow:2px 2px 0 var(--bone)}
+.dino .btn.ghost{color:var(--bone)}
+.dino .btn.ghost:hover{background:var(--bone);color:var(--earth)}
+.dino .ca{margin-top:22px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--bone-soft)}
+.dino .ca button{font:inherit;letter-spacing:.02em;text-transform:none;color:var(--bone);background:transparent;border:1px dashed var(--bone-rule);padding:6px 9px;cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
+.dino .ca button:hover{border-color:var(--bone)}
+
+/* the exhibit tag */
+.specimen{position:relative;background:var(--bone);color:var(--earth);border:1.5px solid var(--ink);box-shadow:12px 12px 0 var(--red)}
+.specimen::before{ /* the string hole */
+  content:"";position:absolute;top:16px;left:16px;width:12px;height:12px;border-radius:50%;background:var(--earth);box-shadow:0 0 0 3px rgba(21,16,11,.18)}
+.specimen-head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px 12px 42px;border-bottom:1.5px dashed rgba(21,16,11,.35);
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase}
+.specimen-head b{color:var(--red);font-weight:600}
+.specimen-body{display:grid;grid-template-columns:132px 1fr;gap:18px;padding:18px;align-items:center}
+@media(max-width:420px){.specimen-body{grid-template-columns:92px 1fr;gap:14px}}
+.specimen-body img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border:1.5px solid var(--earth);background:#3a3024;filter:contrast(1.08) saturate(.9)}
+.specimen-name{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(1.9rem,3.6vw,2.6rem);letter-spacing:-.04em;line-height:.9}
+.specimen-latin{font-family:var(--serif);font-style:italic;font-size:1.05rem;margin-top:6px}
+.specimen-ticker{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;background:var(--earth);color:var(--bone);padding:4px 8px}
+.specimen dl{margin:0;border-top:1.5px solid var(--earth);display:grid;grid-template-columns:1fr 1fr}
+.specimen dl div{padding:11px 16px;border-bottom:1px solid rgba(21,16,11,.18)}
+.specimen dl div:nth-child(odd){border-right:1px solid rgba(21,16,11,.18)}
+.specimen dt{font-family:var(--mono);font-size:.5rem;letter-spacing:.16em;text-transform:uppercase;opacity:.7}
+.specimen dd{margin:3px 0 0;font-size:.98rem;font-variant-numeric:tabular-nums;font-weight:500}
+.specimen dd.hot{color:var(--red)}
+.specimen-foot{padding:10px 16px;font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.specimen-foot a{color:var(--earth)}
+.specimen-foot a:hover{color:var(--red)}
+
+/* the ground it came out of */
+.strata{margin-top:clamp(56px,8vw,100px);height:clamp(54px,7vw,84px);border-top:1.5px solid var(--ink);
+  background:linear-gradient(180deg,#5B4330 0 22%,#3D2C1E 22% 41%,#7A5B3E 41% 52%,#2B1F15 52% 74%,#4A3626 74% 86%,#1B140D 86%)}
+@media(prefers-reduced-motion:reduce){.dino .flag-new i{animation:none}}
+
+.hero .eyebrow .new-pair{display:inline-block;margin-left:10px;color:#fff;background:var(--red);padding:3px 8px;text-decoration:none}
+.hero .eyebrow .new-pair:hover{background:var(--ink);color:var(--paper)}
+
 /* ── motion: entrance + scroll reveals (CSS only, content never depends on JS) */
 @keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
 .load{animation:rise .85s cubic-bezier(.2,.7,.3,1) both}
@@ -333,7 +402,7 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
 
   <!-- HERO -->
   <div class="hero wrap">
-    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; <a href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">$LFOWN</a></div>
+    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; <a href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">$LFOWN</a><a class="new-pair" href="#dinosaurs">New: dinosaurs →</a></div>
     <div class="hero-grid">
       <div class="load">
         <h1>Memecoins<br>paired with<br><em>ownership</em><br>coins.</h1>
@@ -360,9 +429,53 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
 
   <div class="marquee-wrap"><div class="marquee" aria-hidden="true">
     <div class="track">
-      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div>
+      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Now paired with dinosaurs</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Now paired with dinosaurs</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div>
     </div>
   </div></div>
+
+  <!-- DINOSAURS -->
+  <section id="dinosaurs" class="dino">
+    <div class="wrap">
+      <span class="flag-new rv"><i></i>New pair · live now</span>
+      <div class="dino-grid">
+        <div>
+          <h2 class="rv">Launch memes<br>against<br><em>dinosaurs.</em></h2>
+          <p class="lede rv" style="animation-delay:.08s"><b>$TRCH1 is Deaton</b>, a Triceratops skull about 66 million years old, owned together on Solana. <b>Jurassic Finance</b>, a project funded on futard.io, raised <b>$660,000</b> to buy it. Each token is a piece of the skull: 1% of the supply is 1% of Deaton.</p>
+          <p class="lede rv" style="animation-delay:.12s">Pick TRCH1 as your pair, and every trade on your meme settles in a fossil instead of SOL.</p>
+          <div class="cta-row rv" style="animation-delay:.16s">
+            <a class="btn" href="/launch?quote=TRCH1">Launch against $TRCH1</a>
+            <a class="btn ghost" href="https://app.jurassic.finance/" target="_blank" rel="noopener">Jurassic Finance ↗</a>
+          </div>
+          <div class="ca rv" style="animation-delay:.2s">
+            <span>Contract</span>
+            <button type="button" id="dinoCa" data-ca="DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB" title="Copy the contract address">DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB</button>
+          </div>
+        </div>
+
+        <figure class="specimen rv" style="margin:0;animation-delay:.1s">
+          <div class="specimen-head"><span>Specimen <b>No. 001</b></span><span>Jurassic Finance</span></div>
+          <div class="specimen-body">
+            <img src="https://gateway.irys.xyz/9kC4VBpTGcwokbvMpBQsEMDgZrp2xFgSFKiRF21D8zvH" alt="Deaton, the Triceratops skull behind TRCH1" width="132" height="132" loading="lazy">
+            <div>
+              <div class="specimen-name">Deaton</div>
+              <div class="specimen-latin">Triceratops prorsus</div>
+              <span class="specimen-ticker">$TRCH1</span>
+            </div>
+          </div>
+          <dl>
+            <div><dt>Age</dt><dd>~66M years</dd></div>
+            <div><dt>Found</dt><dd>Hell Creek, ND</dd></div>
+            <div><dt>Raised</dt><dd class="hot">$660,000</dd></div>
+            <div><dt>Supply</dt><dd>1,000,000</dd></div>
+            <div><dt>Horns</dt><dd>All three original</dd></div>
+            <div><dt>1% of supply</dt><dd>1% of Deaton</dd></div>
+          </dl>
+          <figcaption class="specimen-foot"><span>Paired on LFOwn</span><a href="https://app.jurassic.finance/" target="_blank" rel="noopener">jurassic.finance ↗</a></figcaption>
+        </figure>
+      </div>
+    </div>
+    <div class="strata" aria-hidden="true"></div>
+  </section>
 
   <!-- IDEA -->
   <section id="idea" class="wrap">
@@ -510,10 +623,12 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     catch (e) { return '' }
   }
   function usd(n) { return '$' + Math.round(n).toLocaleString('en-US') }
+  // Raw units per token of a pair that is not 6 decimals; mirrors EXTRA_QUOTES in src/lib/config.mjs.
+  var UNIT = { 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB': 1e9 }
 
   fetch('/api/launches').then(function (r) { return r.json() }).then(function (body) {
     var top = (body.launches || []).map(function (c) {
-      var raised = Number(c.quoteReserve) / 1e6
+      var raised = Number(c.quoteReserve) / (UNIT[c.quoteMint] || 1e6)
       return { c: c, raised: raised, usd: raised * (c.quoteUsdPrice || 0) }
     }).sort(function (a, b) { return b.usd - a.usd }).slice(0, 3)
 
@@ -576,6 +691,20 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
     put('.mq-fees', 'Total fees ' + usd(creator + holders + dao))
     put('.mq-dao', usd(dao) + ' to LFOwn DAO')
   }).catch(function () { /* the bar keeps the figure already in the markup */ })
+})()
+</script>
+<script>
+// The dinosaur's contract address, copied on a click; the text stays selectable if the clipboard is refused.
+(function () {
+  var b = document.getElementById('dinoCa')
+  if (!b || !navigator.clipboard) return
+  b.addEventListener('click', function () {
+    navigator.clipboard.writeText(b.getAttribute('data-ca')).then(function () {
+      var was = b.textContent
+      b.textContent = 'Copied'
+      setTimeout(function () { b.textContent = was }, 1400)
+    }).catch(function () {})
+  })
 })()
 </script>
 <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>

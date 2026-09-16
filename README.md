@@ -127,6 +127,28 @@ reaches the catalogue, and can be launched on, once MetaDAO's market API lists i
 
     LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --price 0.014
 
+### Backing coins that are not ownership coins
+
+A coin backed by something other than a futarchy treasury never shows up in MetaDAO's
+market API, so it is listed by hand in `EXTRA_QUOTES` (`src/lib/config.mjs`). The first
+is **TRCH1**: Deaton, a Triceratops skull co-owned through Jurassic Finance
+(`DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB`). Each entry names:
+
+- **`decimals`**. TRCH1 has 9, whereas every ownership coin and every memecoin has 6.
+  `tokenDecimals(mint)` and `tokenUnit(mint)` are the only way the code turns raw
+  amounts of a backing coin into whole tokens, on the curve and in fee vaults, positions,
+  payouts, charts and posts. `create-config.mjs` builds the curve in those same decimals
+  and refuses any coin whose on-chain decimals the site does not know.
+- **`referencePrice`**. This is the raise price, used until Jupiter can price the coin.
+  The catalogue marks it `priceSource: "reference"`, and the launch card shows "raise"
+  next to it.
+- **`backing`**. What stands behind the coin: shown instead of a treasury on the launch
+  card, in the review and to agents. `featured` pins the card first.
+
+Opening it works like any other coin:
+
+    LFOWN_ARM=yes node scripts/create-config.mjs DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB starter
+
 The graduation threshold lives inside the config, so it cannot vary per launch —
 a creator picks one of the tiers in `src/lib/config.mjs` ($5k / $15k / $50k,
 converted to backing coins at the price on the day the tier was opened). Open the

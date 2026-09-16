@@ -6,6 +6,7 @@
 // kilobytes and opens instantly.
 
 import { esc, safeUrl } from './escape.js'
+import { tokenUnit } from '../lib/config.mjs'
 
 const view = document.querySelector('#view')
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
@@ -45,7 +46,7 @@ async function artwork(coin) {
 }
 
 function card(c, earned) {
-  const raised = Number(c.quoteReserve) / 1e6
+  const raised = Number(c.quoteReserve) / tokenUnit(c.quoteMint)
   const pct = c.isMigrated ? 100 : c.threshold ? Math.min(100, (raised / c.threshold) * 100) : 0
   const a = document.createElement('a')
   a.className = 'coin'

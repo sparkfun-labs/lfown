@@ -24,7 +24,7 @@
 // `own` like everyone else's; when the reserve is empty the launch goes ahead on a
 // random address and says so, because an agent must always be able to launch.
 
-import { FEES, TIERS, feeBreakdown } from './lib/config.mjs'
+import { FEES, TIERS, feeBreakdown, tokenUnit } from './lib/config.mjs'
 import { HOLDER_MAX_PCT, clampHolderPct, splitFor } from './lib/fee-split.mjs'
 
 /** What a launch shares with holders when the agent does not say. Same as the page. */
@@ -135,7 +135,10 @@ export async function agentOptions(env, { readCatalogue }) {
     }
     return tiers.length
       ? {
-          symbol: coin.symbol, name: coin.name, mint: coin.mint, usdPrice: coin.usdPrice, treasuryUsd: coin.treasury, holders: coin.holders,
+          symbol: coin.symbol, name: coin.name, mint: coin.mint, decimals: coin.decimals ?? 6, usdPrice: coin.usdPrice, treasuryUsd: coin.treasury, holders: coin.holders,
+          // A coin backed by something other than a DAO treasury says what, and whether its
+          // price is a market's or the raise's.
+          ...(coin.backing ? { backing: coin.backing, priceSource: coin.priceSource } : {}),
           financials: coin.financials
             ? { source: '01Resolved', navPerToken: coin.financials.navPerToken, runwayMonths: coin.financials.runwayMonths, marketCap: coin.financials.marketCap, url: coin.financials.url }
             : null,
@@ -257,7 +260,7 @@ async function chainChecks(env, request) {
   const symbol = request.coin.symbol
   if (request.devBuyPercent > 0) {
     const cost = await builder.devBuyCost(client, { config: request.tier.config, percent: request.devBuyPercent })
-    out.devBuyQuote = Math.ceil(cost.quoteIn * 1e6)
+    out.devBuyQuote = Math.ceil(cost.quoteIn * tokenUnit(request.coin.mint))
     out.devBuy = { percent: request.devBuyPercent, tokens: cost.baseOut, costs: cost.quoteIn, in: symbol }
   }
   if (request.creator) {
@@ -269,7 +272,7 @@ async function chainChecks(env, request) {
         held = Number((await connection.getTokenAccountBalance(ata)).value.amount)
       } catch { /* no account for it yet means none held */ }
       if (held < out.devBuyQuote) {
-        out.problems.push(`A ${request.devBuyPercent}% dev buy costs ${out.devBuy.costs} ${symbol} and the creator holds ${held / 1e6}. Fund the wallet with ${symbol}, lower devBuyPercent, or set it to 0.`)
+        out.problems.push(`A ${request.devBuyPercent}% dev buy costs ${out.devBuy.costs} ${symbol} and the creator holds ${held / tokenUnit(request.coin.mint)}. Fund the wallet with ${symbol}, lower devBuyPercent, or set it to 0.`)
       }
     }
     const lamports = await connection.getBalance(creator)
