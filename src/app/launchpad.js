@@ -6,12 +6,13 @@
 // That is what makes the catalogue a catalogue.
 
 import { Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js'
+import { rpcFetch } from './rpc.js'
 import { DynamicBondingCurveClient } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { FEES } from '../lib/config.mjs'
 import * as builder from '../lib/launch-builder.mjs'
 
 /** All RPC goes through our own Worker, so the upstream key stays server-side. */
-export const connection = new Connection(`${location.origin}/api/rpc`, 'confirmed')
+export const connection = new Connection(`${location.origin}/api/rpc`, { commitment: 'confirmed', fetch: rpcFetch })
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 /**

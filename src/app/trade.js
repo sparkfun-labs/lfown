@@ -4,13 +4,16 @@
 // a router: before graduation the pool is not on any DEX, so nothing else can price it.
 
 import { Connection, PublicKey, Transaction } from '@solana/web3.js'
+import { rpcFetch } from './rpc.js'
 import {
   DynamicBondingCurveClient, SwapMode, getPriceFromSqrtPrice,
   deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import BN from 'bn.js'
 
-export const connection = new Connection(`${location.origin}/api/rpc`, 'confirmed')
+// Every call goes through rpc.js, which sends them in batches and retries the ones the
+// rate limiter refuses — see the note at the top of that file for why.
+export const connection = new Connection(`${location.origin}/api/rpc`, { commitment: 'confirmed', fetch: rpcFetch })
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 /**

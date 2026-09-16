@@ -32,7 +32,8 @@ src/
   mcp.mjs               the same, as an MCP server at /mcp
   lib/                  shared by the Worker and the scripts: config, registry, launches, fee report,
                         fee split and holder payouts, LP fees, graduation, chart, telegram, x
-  app/                  the browser app: launch flow, coins and trading, wallet, funding, vanity search
+  app/                  the browser app: launch flow, coins and trading, wallet, funding, vanity search,
+                        rpc.js — the batching, retrying transport every Connection uses
   partials/header.html  the one header every page carries
 scripts/                operator scripts: keys, open configs, claim and forward fees, graduate, test
 wrangler.jsonc          Cloudflare config: assets, KV, R2, crons, rate limits
@@ -595,6 +596,14 @@ of the Worker's source rather than spelling their versions, so bumping one does 
 fail a healthy worker. It also covers the agent side: the `own` address reserve, the
 agent routes, and the MCP server in both protocol eras.
 
+    npm run test:rpc
+
+Exercises `src/app/rpc.js`, the browser's RPC transport, against a fake `fetch`: that a
+burst of calls leaves as batches of ten, that the same question asked twice at once is
+sent once, that a 429 is retried and honours `Retry-After`, that a transaction never
+shares a request, and that a refusal which never lets up is reported in words rather
+than as Cloudflare's HTML, and that a burst is paced rather than sent.
+
 ## API
 
 Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
@@ -611,13 +620,33 @@ Served by the Worker (`src/worker.mjs`). The Helius key stays server-side.
 | `POST /api/image` | token image upload to R2, served back from `/i/:key` (CORS-open, wallets read it) |
 | `POST /api/metadata` | writes the Metaplex JSON the token's on-chain `uri` points at |
 | `POST /api/graduate` | asks the keeper to migrate a curve that has filled; every claim is checked against chain before a lamport is spent |
-| `POST /api/rpc` | allowlisted read/send proxy to Helius, so the key never reaches the browser. Ten calls per request at most. |
+| `POST /api/rpc` | allowlisted read/send proxy to Helius, so the key never reaches the browser. Ten calls per request at most — the browser fills them, see below. |
 | `GET /api/agent` · `/api/agent/options` · `/api/agent/openapi.json` | the agent API's index, the coins and tiers an agent can launch on, and its OpenAPI spec. See [Launching from an AI agent](#launching-from-an-ai-agent). |
 | `POST /api/agent/validate` | checks a launch exactly as `launch` would, storing nothing: `{ok, problems, warnings}` |
 | `POST /api/agent/launch` | prepares a launch: a `/launch?draft=` link for a person to sign, or with `creator` the transactions, already signed by the mint and valid until `expiresAt`. With `id`, rebuilds an earlier draft under the same address. |
 | `POST /api/agent/submit` | sends a prepared launch signed by the creator, in order; takes the transaction objects or bare base64; refuses any transaction it did not prepare, and answers 410 once they expired |
 | `GET /api/agent/draft/:id` | a draft, as the launch page reads it back. Kept seven days. |
 | `POST /mcp` | the same operations as MCP tools, each with an `outputSchema` (Streamable HTTP, stateless; protocol 2026-07-28 and the legacy `initialize` versions) |
+
+**The browser batches its own RPC.** web3.js and the Meteora SDKs read one account at
+a time, and a profile with a dozen coins — then *Claim everything* — asked for several
+hundred in a few seconds. Our own limiter allowed it; the zone's WAF rate-limiting rule
+did not, and answered HTML with status 429 (Cloudflare error 1015), which the SDK could
+only report as `failed to get info about account …: Error: 429 <!doctype html>`. Every
+`Connection` in the app is now built with `fetch: rpcFetch` from `src/app/rpc.js`, which
+gathers the calls made in the same tick into one JSON-RPC array (ten at most, the
+proxy's limit), sends the same question once however many parts of a screen ask it,
+keeps three requests in flight rather than a hundred, and retries a refusal with
+backoff. A transaction is never batched: it goes out alone, at once.
+
+It also paces itself, because batching alone does not keep under a rule: three requests
+in flight, each answered in a fraction of a second, is still dozens per second. The zone
+rule on this deployment allows **50 requests per 10 seconds per IP across all of
+`/api/`** and blocks for 10 seconds when it is passed; the Worker's own `RPC_LIMITER`
+allows 200 a minute. `pacing` in `src/app/rpc.js` holds the app to 25 requests per 10
+seconds — 250 RPC calls in that time once batched — which stays under both and leaves
+room for the page's ordinary `/api/launches` and `/api/fees` calls, which the zone rule
+counts too. Raising or lowering the WAF rule means revisiting that number.
 
 A cron every 10 minutes rebuilds the catalogue into KV. Exit costs are priced on
 demand and cached 60s, which keeps each request well under the subrequest ceiling.
