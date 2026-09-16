@@ -460,7 +460,9 @@ async function renderCoin(mint) {
         <div class="quote" id="quote-out">Enter an amount.</div>
         <button class="btn" id="do-trade" disabled>Buy ${esc(coin.symbol)}</button>
         <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
-        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/swap?sell=${esc(coin.quoteMint)}&buy=${esc(coin.baseMint)}" target="_blank" rel="noopener">Buy on Jupiter ↗</a>
+        <!-- The coin's own page on Jupiter, where both sides can be traded. A swap link with
+             a pair Jupiter does not recognise yet falls back to its default, USDC into SOL. -->
+        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/tokens/${esc(coin.baseMint)}" target="_blank" rel="noopener">Trade on Jupiter ↗</a>
       </section>
     </div>
 
@@ -562,21 +564,9 @@ async function renderCoin(mint) {
     ? coin.symbol
     : payVia === coin.quoteMint ? coin.quoteSymbol : payWith(payVia).symbol)
 
-  /** The pair, in the order Jupiter takes it: what leaves the wallet, then what enters. */
-  const jupSwap = (from, to) =>
-    `https://jup.ag/swap?sell=${encodeURIComponent(from)}&buy=${encodeURIComponent(to)}`
-
   function syncLabels() {
     $('#amount-label').textContent = `Amount in ${spending()}`
     action.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${coin.symbol}`
-    // The Jupiter link follows the tab. Fixed on "buy", it sat under the Sell panel
-    // offering the opposite trade to the one being made — and, followed, it would
-    // have bought more of the coin somebody was trying to get out of.
-    const jup = $('#jup-link')
-    jup.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} on Jupiter ↗`
-    jup.href = side === 'buy'
-      ? jupSwap(coin.quoteMint, coin.baseMint)
-      : jupSwap(coin.baseMint, coin.quoteMint)
   }
 
   /** The asset being spent: whatever was picked to buy with, or the coin being sold. */
