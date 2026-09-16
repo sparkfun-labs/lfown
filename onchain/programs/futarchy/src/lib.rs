@@ -36,6 +36,10 @@ pub mod futarchy {
         instructions::initialize_dao::initialize_dao_handler(ctx, name, pool, pool_type, withdrawal_bps)
     }
 
+    pub fn bootstrap_dao(ctx: Context<BootstrapDAO>, name: String, withdrawal_bps: u16) -> Result<()> {
+        instructions::bootstrap_dao::bootstrap_dao_handler(ctx, name, withdrawal_bps)
+    }
+
     pub fn attach_position(ctx: Context<AttachPosition>) -> Result<()> {
         instructions::liquidity::attach_position_handler(ctx)
     }

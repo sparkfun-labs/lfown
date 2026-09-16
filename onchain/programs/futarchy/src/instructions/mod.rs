@@ -1,4 +1,5 @@
 pub mod add_option;
+pub mod bootstrap_dao;
 pub mod execute_action;
 pub mod finalize_proposal;
 pub mod initialize_dao;
@@ -10,6 +11,7 @@ pub mod set_option_actions;
 pub mod transfer_admin;
 
 pub use add_option::*;
+pub use bootstrap_dao::*;
 pub use execute_action::*;
 pub use finalize_proposal::*;
 pub use initialize_dao::*;

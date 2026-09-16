@@ -7,10 +7,12 @@
 // ownership coin such as META — every wallet but the payer is generated here, and the payer
 // is the local Solana CLI key (~/.config/solana/id.json), spending devnet SOL only.
 //
-//   1. a 60-second raise of 1,000 quote coins for 10M tokens, two backers, oversubscribed
+//   1. a 60-second raise of 1,000 quote coins for 10M tokens, two backers, oversubscribed,
+//      paying the future DAO's own addresses
 //   2. settle: 200 coins to the DAO treasury, 800 coins + 8M tokens + mint authority to the
-//      pool operator
-//   3. the operator opens the DAMM v2 pool with them and hands the DAO its position and mint
+//      DAO's liquidity authority — no pool operator
+//   3. bootstrap_dao: in one transaction the DAO opens, takes the mint, opens its DAMM v2
+//      pool at the raise price and opens the backers' claims
 //   4. a proposal funded by half the pool's liquidity; option 1 pays and mints for a grantee
 //   5. a trader backs option 1, the TWAP runs five minutes, option 1 wins and a stranger
 //      executes it
@@ -26,12 +28,12 @@ import {
   ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction,
 } from '@solana/web3.js'
 import {
-  ASSOCIATED_TOKEN_PROGRAM_ID, AccountLayout, AuthorityType, MINT_SIZE, MintLayout, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID, AccountLayout, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
   createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction,
-  createMintToInstruction, createSetAuthorityInstruction, createTransferInstruction, getAssociatedTokenAddressSync,
+  createMintToInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
 import {
-  deriveCustomizablePoolAddress, derivePositionAddress, derivePositionNftAccount, deriveTokenVaultAddress, getBaseFeeParams,
+  deriveCustomizablePoolAddress, derivePositionAddress, derivePositionNftAccount, deriveTokenVaultAddress,
 } from '@meteora-ag/cp-amm-sdk'
 
 const { BN } = anchor
@@ -52,8 +54,6 @@ const damm = new anchor.Program(JSON.parse(readFileSync(here('../idls/cp_amm.jso
 const FEE_AUTHORITY = new PublicKey(idl('amm').constants.find((c) => c.name === 'FEE_AUTHORITY').value)
 const DAMM_POOL_AUTHORITY = new PublicKey('HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC')
 const DAMM_EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from('__event_authority')], damm.programId)[0]
-const MIN_SQRT = 4_295_048_016n
-const MAX_SQRT = 79_226_673_521_066_979_257_578_248_091n
 
 const UNIT = 1_000_000n
 const bn = (v) => new BN(v.toString())
@@ -61,8 +61,6 @@ const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b }
 const pda = (program, seeds) => PublicKey.findProgramAddressSync(seeds.map((s) => (typeof s === 'string' ? Buffer.from(s) : s instanceof PublicKey ? s.toBuffer() : s)), program.programId)[0]
 const ata = (mint, owner, program = TOKEN_PROGRAM_ID) => getAssociatedTokenAddressSync(mint, owner, true, program)
 const meta = (pubkey, isWritable = true) => ({ pubkey, isSigner: false, isWritable })
-const isqrt = (n) => { if (n < 2n) return n; let x = n, y = (x + 1n) / 2n; while (y < x) { x = y; y = (x + n / x) / 2n } return x }
-const liquidityFor = (a, b, p) => { const fromA = a * ((p * MAX_SQRT) / (MAX_SQRT - p)); const fromB = (b << 128n) / (p - MIN_SQRT); return (fromA < fromB ? fromA : fromB) - 1n }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 
@@ -131,6 +129,8 @@ const liquidityAuthority = pda(fut, ['liquidity', dao])
 const baseKp = Keypair.generate()
 const baseMint = baseKp.publicKey
 const raise = pda(raiseP, ['raise', baseMint])
+// The raise's authority: the only account that may bootstrap the DAO and, as its admin,
+// create proposals. It never holds the raise's money.
 const operator = payer
 const GOAL = 1_000n * UNIT
 const POOL_QUOTE = 800n * UNIT
@@ -143,10 +143,10 @@ await must(send([
     quoteToPool: bn(POOL_QUOTE), durationSeconds: bn(60), claimDelaySeconds: bn(3_600),
   }).accountsStrict({
     baseMint, quoteMint: coin, raise, baseVault: ata(baseMint, raise), quoteVault: ata(coin, raise),
-    treasury, poolOperator: operator.publicKey, authority: payer.publicKey,
+    treasury, poolOperator: liquidityAuthority, authority: payer.publicKey,
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).instruction(),
-], [payer, baseKp], 'open raise'), `open raise ${raise.toBase58()} for token ${baseMint.toBase58()}`)
+], [payer, baseKp], 'open raise'), `open raise ${raise.toBase58()} for token ${baseMint.toBase58()}, paying DAO ${dao.toBase58()}`)
 
 const commitment = (user) => pda(raiseP, ['commitment', raise, user])
 const commit = async (user, amount) => send([await raiseP.methods.commit(bn(amount)).accountsStrict({
@@ -166,47 +166,32 @@ log(`waiting ${Math.ceil(wait / 1000)} s for the raise to end`)
 await sleep(Math.max(wait, 0))
 await must(send([await raiseP.methods.settle().accountsStrict({
   raise, baseMint, quoteMint: coin, baseVault: ata(baseMint, raise), quoteVault: ata(coin, raise),
-  treasury, treasuryQuote: ata(coin, treasury), poolOperator: operator.publicKey,
-  operatorQuote: ata(coin, operator.publicKey), operatorBase: ata(baseMint, operator.publicKey),
+  treasury, treasuryQuote: ata(coin, treasury), poolOperator: liquidityAuthority,
+  operatorQuote: ata(coin, liquidityAuthority), operatorBase: ata(baseMint, liquidityAuthority),
   cranker: payer.publicKey, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
 }).instruction()], [payer], 'settle'), 'settle the raise')
 assert.equal(await balance(ata(coin, treasury)), 200n * UNIT)
-log('✔ treasury 200 coins · operator 800 coins + 8M tokens + mint authority')
+assert.equal(await balance(ata(coin, liquidityAuthority)), POOL_QUOTE)
+log('✔ DAO treasury 200 coins · DAO liquidity authority 800 coins + 8M tokens + mint authority')
 
-// ── 2. the pool, and the DAO takes it over ──────────────────────────────────
+// ── 2. bootstrap: DAO, mint, pool and claims in one transaction ─────────────
+const nftMint = pda(fut, ['position_nft', dao])
 const pool = deriveCustomizablePoolAddress(baseMint, coin)
-const nft = Keypair.generate()
-const position = derivePositionAddress(nft.publicKey)
+const position = derivePositionAddress(nftMint)
 const tokenAVault = deriveTokenVaultAddress(baseMint, pool)
 const tokenBVault = deriveTokenVaultAddress(coin, pool)
-const sqrtPrice = isqrt((POOL_QUOTE << 128n) / POOL_TOKENS)
-await must(send([await damm.methods.initializeCustomizablePool({
-  poolFees: { baseFee: { data: getBaseFeeParams({ baseFeeMode: 0, feeTimeSchedulerParam: { startingFeeBps: 100, endingFeeBps: 100, numberOfPeriod: 0, totalDuration: 0 } }).data }, compoundingFeeBps: 0, padding: 0, dynamicFee: null },
-  sqrtMinPrice: bn(MIN_SQRT), sqrtMaxPrice: bn(MAX_SQRT), hasAlphaVault: false,
-  liquidity: bn(liquidityFor(POOL_TOKENS, POOL_QUOTE, sqrtPrice)), sqrtPrice: bn(sqrtPrice),
-  activationType: 1, collectFeeMode: 1, activationPoint: null,
-}).accountsStrict({
-  creator: operator.publicKey, positionNftMint: nft.publicKey, positionNftAccount: derivePositionNftAccount(nft.publicKey), payer: operator.publicKey,
-  poolAuthority: DAMM_POOL_AUTHORITY, pool, position, tokenAMint: baseMint, tokenBMint: coin, tokenAVault, tokenBVault,
-  payerTokenA: ata(baseMint, operator.publicKey), payerTokenB: ata(coin, operator.publicKey),
-  tokenAProgram: TOKEN_PROGRAM_ID, tokenBProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
-  systemProgram: SystemProgram.programId, eventAuthority: DAMM_EVENT_AUTHORITY, program: damm.programId,
-}).instruction()], [operator, nft], 'pool'), `open DAMM v2 pool ${pool.toBase58()} with 8M tokens + 800 coins`)
-
-const positionNftAccount = ata(nft.publicKey, liquidityAuthority, TOKEN_2022_PROGRAM_ID)
+const positionNftAccount = derivePositionNftAccount(nftMint)
 const liquidityBase = ata(baseMint, liquidityAuthority)
 const liquidityQuote = ata(coin, liquidityAuthority)
-await must(send([createSetAuthorityInstruction(baseMint, operator.publicKey, AuthorityType.MintTokens, mintAuthority)], [operator], 'mint'), 'operator hands the mint to the DAO')
-await must(send([await fut.methods.initializeDao(daoName, pool, { damm: {} }, 5_000)
-  .accountsStrict({ admin: operator.publicKey, dao, moderator, treasury, mintAuthority, liquidityAuthority, baseMint, quoteMint: coin, systemProgram: SystemProgram.programId })
-  .instruction()], [operator], 'dao'), `open DAO ${dao.toBase58()} (proposals take 50% of the position)`)
-await must(send([
-  createAssociatedTokenAccountIdempotentInstruction(operator.publicKey, positionNftAccount, liquidityAuthority, nft.publicKey, TOKEN_2022_PROGRAM_ID),
-  createTransferInstruction(derivePositionNftAccount(nft.publicKey), positionNftAccount, operator.publicKey, 1, [], TOKEN_2022_PROGRAM_ID),
-  createAssociatedTokenAccountIdempotentInstruction(operator.publicKey, liquidityBase, liquidityAuthority, baseMint),
-  createAssociatedTokenAccountIdempotentInstruction(operator.publicKey, liquidityQuote, liquidityAuthority, coin),
-  await fut.methods.attachPosition().accountsStrict({ admin: operator.publicKey, dao, liquidityAuthority, pool, position, positionNftAccount }).instruction(),
-], [operator], 'attach'), 'operator hands the position NFT to the DAO; the DAO attaches it')
+await must(send([await fut.methods.bootstrapDao(daoName, 5_000).accountsStrict({
+  authority: operator.publicKey, raise, dao, moderator, treasury, mintAuthority, liquidityAuthority,
+  baseMint, quoteMint: coin, liquidityBase, liquidityQuote, positionNftMint: nftMint, positionNftAccount,
+  poolAuthority: DAMM_POOL_AUTHORITY, pool, position, tokenAVault, tokenBVault, eventAuthority: DAMM_EVENT_AUTHORITY,
+  cpAmmProgram: damm.programId, raiseProgram: raiseP.programId, tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+}).instruction()], [operator], 'bootstrap'), `bootstrap: DAO ${dao.toBase58()}, DAMM v2 pool ${pool.toBase58()}, claims open`)
+const { sqrtPrice: poolSqrt } = await decode(damm, 'pool', pool)
+const opened = (Number(BigInt(poolSqrt.toString())) / 2 ** 64) ** 2
+log(`  pool opened at ${opened.toPrecision(6)} coins per token (raise price 0.0001)`)
 const positionLiquidity = async () => BigInt((await decode(damm, 'position', position)).unlockedLiquidity.toString())
 const startLiquidity = await positionLiquidity()
 
@@ -334,7 +319,6 @@ assert.ok(toProtocol > 0n && toTreasury >= toProtocol && toTreasury - toProtocol
 log(`✔ fees: ${fmt(toTreasury)} coins to the DAO treasury, ${fmt(toProtocol)} to LFOwn`)
 
 // ── 6. backers claim ────────────────────────────────────────────────────────
-await must(send([await raiseP.methods.openClaims().accountsStrict({ raise, poolOperator: operator.publicKey }).instruction()], [operator], 'open claims'), 'operator opens claims')
 for (const [who, name, tokens, refund] of [[alice, 'alice', 6_000_000n, 600n], [bob, 'bob', 4_000_000n, 400n]]) {
   await must(send([await raiseP.methods.claim().accountsStrict({
     raise, commitment: commitment(who.publicKey), baseMint, quoteMint: coin, baseVault: ata(baseMint, raise), quoteVault: ata(coin, raise),

@@ -58,6 +58,35 @@ pub fn liquidity_for_amounts(
     Some(if liquidity > U256::from(u128::MAX) { u128::MAX } else { liquidity.low_u128() })
 }
 
+/// The pool price at which `amount_a` of token A and `amount_b` of token B are worth the
+/// same: √(b / a) in Q64.64. `None` if either side is empty or the price falls outside
+/// DAMM v2's range.
+pub fn sqrt_price_for_amounts(amount_a: u64, amount_b: u64, sqrt_min_price: u128, sqrt_max_price: u128) -> Option<u128> {
+    if amount_a == 0 || amount_b == 0 {
+        return None;
+    }
+    let price = isqrt((U256::from(amount_b) << 128) / U256::from(amount_a));
+    if price <= U256::from(sqrt_min_price) || price >= U256::from(sqrt_max_price) {
+        return None;
+    }
+    Some(price.low_u128())
+}
+
+/// ⌊√n⌋ by Newton's method, starting from a power of two known to be above the root.
+fn isqrt(n: U256) -> U256 {
+    if n < U256::from(2u8) {
+        return n;
+    }
+    let mut x = U256::one() << ((n.bits() + 1) / 2);
+    loop {
+        let y = (x + n / x) >> 1;
+        if y >= x {
+            return x;
+        }
+        x = y;
+    }
+}
+
 /// What the pool will ask for to add `liquidity`, rounded up as the pool rounds it.
 pub fn amounts_for_liquidity(
     liquidity: u128,
@@ -138,6 +167,19 @@ mod tests {
             let price = 10f64.powf(-9.0 + (rng.next() % 1_200) as f64 / 100.0); // 1e-9 .. 1e3
             check(a, b, sqrt_price(price));
         }
+    }
+
+    #[test]
+    fn the_launch_price_is_the_raise_price() {
+        let p = sqrt_price_for_amounts(8_000_000_000_000, 800_000_000, MIN, MAX).unwrap();
+        let expected = sqrt_price(0.0001);
+        assert!((p as f64 / expected as f64 - 1.0).abs() < 1e-9, "{p} vs {expected}");
+        // ⌊√⌋ exactly: p² ≤ n < (p+1)².
+        let n = (U256::from(800_000_000u64) << 128) / U256::from(8_000_000_000_000u64);
+        let pp = U256::from(p);
+        assert!(pp * pp <= n && (pp + U256::one()) * (pp + U256::one()) > n);
+        assert_eq!(sqrt_price_for_amounts(0, 1, MIN, MAX), None);
+        assert_eq!(sqrt_price_for_amounts(1, 0, MIN, MAX), None);
     }
 
     #[test]

@@ -19,6 +19,10 @@ pub const MINT_AUTHORITY_SEED: &[u8] = b"mint_authority";
 #[constant]
 pub const LIQUIDITY_SEED: &[u8] = b"liquidity";
 
+/// Seeds: [POSITION_NFT_SEED, dao]. The mint of a bootstrapped pool's position NFT.
+#[constant]
+pub const POSITION_NFT_SEED: &[u8] = b"position_nft";
+
 #[derive(Copy, Clone, InitSpace, AnchorSerialize, AnchorDeserialize, PartialEq, Eq, Debug)]
 pub enum PoolType {
     DAMM,

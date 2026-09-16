@@ -726,6 +726,7 @@ dependencies = [
  "anchor-lang",
  "anchor-spl",
  "bytemuck",
+ "lfown_raise",
  "uint",
  "vault",
 ]

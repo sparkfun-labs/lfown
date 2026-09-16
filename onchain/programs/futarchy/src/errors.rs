@@ -114,4 +114,10 @@ pub enum FutarchyError {
 
     #[msg("Nothing to return to the pool")]
     NothingToReturn,
+
+    #[msg("The raise has not succeeded")]
+    RaiseNotSucceeded,
+
+    #[msg("The raise did not pay this DAO's treasury and liquidity authority")]
+    RaiseNotForThisDao,
 }
