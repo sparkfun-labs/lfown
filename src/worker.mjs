@@ -14,6 +14,7 @@ import { sendAndConfirm } from './lib/confirm.mjs'
 import { tradeHistory, ammLeg } from './lib/chart.mjs'
 import * as telegram from './lib/telegram.mjs'
 import * as x from './lib/x.mjs'
+import { PUMP, pumpCandidates, launchUrl } from './lib/pumps.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
@@ -515,8 +516,11 @@ const CHANNELS = [
   {
     id: 'telegram',
     // Telegram is a room people opted into, and it costs nothing.
-    events: ['launched', 'graduated'],
+    events: ['launched', 'graduated', 'pump'],
     ready: (env) => Boolean(env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID),
+    pump: (env, coin, change, origin) => telegram.announce(env, {
+      text: telegram.pumpMessage(coin, change, launchUrl(coin, origin)), preview: launchUrl(coin, origin),
+    }),
     launched: (env, coin, origin, image) => telegram.announce(env, {
       text: telegram.launchedMessage(coin, origin), photo: image, preview: telegram.coinUrl(coin, origin),
     }),
@@ -530,7 +534,11 @@ const CHANNELS = [
     // announcing every one buries the timeline in coins that may never fill their
     // curve — and each post carrying a link costs $0.20. A graduation is rare, it is
     // the moment that means something, and it stays affordable.
-    events: ['graduated'],
+    //
+    // And a big move in an ownership coin: rare by construction (see PUMP), and aimed
+    // squarely at the people who might launch — the whole point of paying for a post.
+    events: ['graduated', 'pump'],
+    pump: (env, coin, change, origin) => x.announce(env, { text: x.pumpMessage(coin, change, launchUrl(coin, origin)) }),
     ready: (env) => Boolean(env.X_CONSUMER_KEY && env.X_CONSUMER_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
     launched: async (env, coin, origin, image) =>
       x.announce(env, { text: x.launchedMessage(coin, origin), image: await imageBytes(env, image) }),
@@ -638,6 +646,48 @@ async function announceLaunches(env, launches) {
   }
 
   if (changed) await env.REGISTRY.put(ANNOUNCED_KEY, JSON.stringify(next))
+}
+
+/**
+ * Posts the biggest mover in the catalogue, if one qualifies, to every channel that
+ * has not already posted it today.
+ *
+ * One coin per run, and the run is every ten minutes: two coins pumping at once come
+ * out ten minutes apart rather than as a burst. Remembered per channel, so X refusing a
+ * post does not stop Telegram from having said it, nor Telegram's success stop X from
+ * trying again next run. A coin is only posted if it has a tier open — a link to launch
+ * against a coin nobody can launch against is worse than no post.
+ */
+async function announcePumps(env, catalogue) {
+  if (!env.REGISTRY) return
+  const channels = CHANNELS.filter((c) => c.ready(env) && c.events.includes('pump'))
+  if (!channels.length) return
+
+  const origin = env.PUBLIC_ORIGIN || 'https://letsfuckingown.fun'
+  const day = new Date().toISOString().slice(0, 10)
+  const counts = Object.fromEntries(await Promise.all(channels.map(async (c) =>
+    [c.id, Number(await env.REGISTRY.get(`pumps:v1:${c.id}:day:${day}`)) || 0])))
+  const open = channels.filter((c) => counts[c.id] < PUMP.dailyCap)
+  if (!open.length) return
+
+  for (const { coin, change } of pumpCandidates(catalogue?.coins)) {
+    const due = []
+    for (const c of open) {
+      if (!(await env.REGISTRY.get(`pumps:v1:${c.id}:${coin.mint}`))) due.push(c)
+    }
+    if (!due.length) continue
+    const tiers = await Promise.all(TIERS.map((t) => env.REGISTRY.get(`config:${coin.mint}:${t.id}`)))
+    if (!tiers.some(Boolean)) continue
+
+    for (const c of due) {
+      const result = await c.pump(env, coin, change, origin).catch((e) => ({ ok: false, error: e.message }))
+      if (!result?.ok) continue
+      await env.REGISTRY.put(`pumps:v1:${c.id}:${coin.mint}`, JSON.stringify({ change, at: new Date().toISOString() }), { expirationTtl: PUMP.cooldownSeconds })
+      await env.REGISTRY.put(`pumps:v1:${c.id}:day:${day}`, String(counts[c.id] + 1), { expirationTtl: 2 * 24 * 60 * 60 })
+      console.log(`pump posted on ${c.id}: ${coin.symbol} +${Math.round(change)}%`)
+    }
+    return
+  }
 }
 
 /** Posts one graduation to every channel that has not already said it. */
@@ -1615,7 +1665,9 @@ export default {
       console.warn(`unrecognised cron ${event.cron}: running the catalogue job. Does it match FEE_SWEEP, WATCH or CATALOGUE in worker.mjs?`)
     }
     ctx.waitUntil((async () => {
-      await writeCatalogue(env, await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY }))
+      const catalogue = await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY })
+      await writeCatalogue(env, catalogue)
+      await announcePumps(env, catalogue).catch((e) => console.error('pump posts failed:', e.message))
       if (env.REGISTRY) {
         await rebuildLaunches(env).catch((e) => console.error('launches rebuild failed:', e.message))
         // Warmed here so that visitors read it rather than build it.

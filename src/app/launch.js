@@ -52,9 +52,33 @@ function go(n) {
   })
   if (n === 3) paintCurve()
   if (n === 4) { paintReview(); paintWallet() }
+  paintPaired(n)
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 const unlock = (n) => { reached = Math.max(reached, n); go(n) }
+
+/**
+ * The backing coin, named above steps two to four. A random draw stays hidden here
+ * too: the name comes out at signing, not on a banner.
+ */
+function paintPaired(n = +document.querySelector('.step.on')?.dataset.step) {
+  const box = $('#paired')
+  const a = state.asset
+  box.hidden = !a || n < 2
+  if (box.hidden) return
+  box.innerHTML = state.blind
+    ? `<span class="dice">?</span>
+       <span class="what">Paired with <b>a random ownership coin</b><br><small>Revealed before you sign.</small></span>`
+    : `${a.icon ? `<img src="${safeUrl(a.icon)}" alt="">` : ''}
+       <span class="what">Paired with <b>${esc(a.symbol)}</b>${a.name ? ` <small>${esc(a.name)}</small>` : ''}<br>
+       <small>Treasury ${usd(a.treasury)} · ${price(a.usdPrice)}</small></span>`
+  const change = document.createElement('button')
+  change.type = 'button'
+  change.className = 'change'
+  change.textContent = 'Change'
+  change.addEventListener('click', () => go(1))
+  box.appendChild(change)
+}
 
 document.querySelectorAll('#stepper button').forEach((b) => b.addEventListener('click', () => go(+b.dataset.go)))
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => go(+b.dataset.back)))
@@ -99,6 +123,7 @@ async function loadAssets() {
     card.setAttribute('aria-pressed', 'false')
     card.dataset.search = `${c.symbol} ${c.name ?? ''}`.toLowerCase()
     card.dataset.mint = c.mint
+    card.dataset.symbol = c.symbol.toLowerCase()
     card.innerHTML = `
       <div class="top">
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
@@ -702,6 +727,7 @@ signBtn.addEventListener('click', async () => {
     // while cancelling still costs nothing, than discovered in a signature request.
     if (state.blind) {
       state.blind = false
+      paintPaired()
       paintReview()
       paintFunding()
       say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, treasury ${usd(a.treasury)}.
@@ -850,7 +876,21 @@ async function restoreSession() {
 }
 restoreSession()
 
-loadAssets().then(applyDraft)
+loadAssets().then(applyDraft).then(applyQuote)
+
+/**
+ * `/launch?quote=AVICI` — the link in a pump post. Picks that coin and moves on to the
+ * token step, so someone arriving from "AVICI +30% today" starts naming their meme
+ * rather than hunting for AVICI in the grid. A draft, when there is one, wins.
+ */
+function applyQuote() {
+  const wanted = new URLSearchParams(location.search).get('quote')
+  if (!wanted || state.draft) return
+  const symbol = wanted.replace(/^\$/, '').toLowerCase()
+  const card = [...document.querySelectorAll('.qcard:not(.wild)')]
+    .find((c) => c.dataset.mint === wanted || c.dataset.symbol === symbol)
+  card?.click()
+}
 
 /**
  * A launch an agent prepared for someone to sign: `/launch?draft=<id>`.

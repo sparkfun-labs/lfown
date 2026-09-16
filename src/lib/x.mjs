@@ -191,6 +191,20 @@ export function launchedMessage(coin, origin) {
   ], coinUrl(coin, origin))
 }
 
+/**
+ * An ownership coin is having a day. Aimed at the people holding it: they are the
+ * ones most likely to want a meme riding on it.
+ */
+export function pumpMessage(coin, change, launchUrl) {
+  // It appears twice in the headline, which `fit` never drops. MetaDAO symbols are a
+  // handful of characters; the cap only guarantees a post X cannot refuse for length.
+  const symbol = String(coin.symbol || '?').slice(0, 20)
+  return fit([
+    `📈 $${symbol} +${Math.round(change)}% today — launch a meme against ${symbol}`,
+    { text: `On LFOwn every meme is paired with an ownership coin instead of SOL, and its creator earns on every trade.`, drop: true },
+  ], launchUrl)
+}
+
 /** A curve has filled and its liquidity has moved to Meteora. */
 export function graduatedMessage(coin, origin) {
   const symbol = coin.symbol || '?'

@@ -61,6 +61,17 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .step{display:none}
 .step.on{display:block}
 .step-head{margin-bottom:clamp(20px,3vw,32px)}
+/* The coin this launch is paired with, above every step after the first: picked on step
+   one, it is otherwise out of sight for the rest of the flow — and a link that picks it
+   for you (/launch?quote=…) lands straight on step two. */
+.paired{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 clamp(20px,3vw,28px);padding:10px 14px;border:1.5px solid var(--ink);box-shadow:4px 4px 0 var(--red)}
+.paired img{width:30px;height:30px;border-radius:2px;object-fit:cover}
+.paired .dice{width:30px;height:30px;display:grid;place-items:center;border:1.5px solid var(--red);color:var(--red);font-family:var(--display);font-weight:800}
+.paired .what{font-size:.95rem;line-height:1.3}
+.paired .what b{font-family:var(--display);font-weight:800;font-size:1.1rem;letter-spacing:-.01em}
+.paired .what small{color:var(--ink-soft);font-size:.85rem}
+.paired .change{margin-left:auto;font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;background:none;color:var(--ink);border:1.5px solid var(--ink);padding:7px 10px;cursor:pointer}
+.paired .change:hover,.paired .change:focus-visible{color:var(--red);border-color:var(--red)}
 .step-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;
   font-size:clamp(1.4rem,3.4vw,2.2rem);line-height:1;margin:0 0 8px}
 .step-head p{color:var(--ink-soft);margin:0;max-width:62ch}
@@ -400,6 +411,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     <button type="button" data-go="4" disabled><span class="n">04</span> Review</button>
   </nav>
   <p class="hint" id="draft-note" hidden></p>
+  <div class="paired" id="paired" hidden></div>
 
   <!-- 01 ------------------------------------------------------------------ -->
   <section class="step on" data-step="1">

@@ -448,6 +448,33 @@ await test('catalogue: 01Resolved figures join by mint, never by symbol, and rep
   assert.equal(c.financials.navPerToken, null)
 })
 
+await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {
+  const { pumpCandidates, launchUrl } = await import(new URL('../src/lib/pumps.mjs', import.meta.url).href)
+  const coin = (symbol, change, liquidity = 50_000) => ({ symbol, mint: `M_${symbol}`, liquidity, financials: change === undefined ? null : { priceChange24h: change } })
+  const picked = pumpCandidates([
+    coin('AVICI', 31.2), coin('META', 19.9), coin('CARS', 64), coin('THIN', 90, 900),
+    coin('NONE'), coin('NAN', 'n/a'), coin('DOWN', -40),
+  ])
+  assert.deepEqual(picked.map((p) => p.coin.symbol), ['CARS', 'AVICI'])
+  assert.equal(launchUrl({ symbol: 'AVICI' }, 'https://x.test'), 'https://x.test/launch?quote=AVICI')
+})
+
+await test('pumps: the X post fits, keeps its headline, and the Telegram one is escaped', async () => {
+  const xlib = await import(new URL('../src/lib/x.mjs', import.meta.url).href)
+  const tg = await import(new URL('../src/lib/telegram.mjs', import.meta.url).href)
+  const url = 'https://letsfuckingown.fun/launch?quote=AVICI'
+  const post = xlib.pumpMessage({ symbol: 'AVICI' }, 31.4, url)
+  assert.match(post, /^📈 \$AVICI \+31% today — launch a meme against AVICI/)
+  assert.ok(post.endsWith(url))
+  const counted = post.replace(url, 'x'.repeat(23)).length
+  assert.ok(counted <= 280, `X would count ${counted}`)
+  const long = xlib.pumpMessage({ symbol: 'A'.repeat(120) }, 250, url)
+  assert.ok(long.replace(url, 'x'.repeat(23)).length <= 280, 'even an absurd symbol cannot push the post over the limit')
+  const html = tg.pumpMessage({ symbol: '<b>X</b>' }, 20.4, url)
+  assert.ok(!html.includes('<b>X</b>'), 'the symbol is escaped')
+  assert.match(html, /\+20%<\/b> today/)
+})
+
 console.log(`\n${passed} passed`)
 console.log('rpc calls seen:', JSON.stringify(rpcCalls))
 rpc.close()

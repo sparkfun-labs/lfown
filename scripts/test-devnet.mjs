@@ -427,12 +427,15 @@ await chainTest('a launch that shares fees with holders fits two signable transa
   // does not exist when the instruction is built, which is why it is built by hand,
   // but it does exist by the time it runs.
   //
-  // The 1232-byte cap that forces this is being raised to 4096 on mainnet at epoch
-  // 1035 (15 Sep 2026), by SIMD-0296 and the v1 transaction format of SIMD-0385.
-  // It does not help here yet: building v1 needs @solana/web3.js 3.x or @solana/kit
-  // 8, this repo is on 1.98.4, the Meteora SDKs hand back legacy transactions, and a
-  // wallet has to advertise v1 in `supportedTransactionVersions` before one can be
-  // sent to it. When all three catch up, these two collapse back into one.
+  // The 1232-byte cap that forces this was raised to 4096 on mainnet at the start of
+  // epoch 1035 (15 Sep 2026), by SIMD-0296 and the v1 transaction format of SIMD-0385
+  // — but only for v1. Legacy and v0, which is everything here, are still capped at
+  // 1232, so this split stands. Collapsing these two back into one needs all three of:
+  // @solana/kit 8 or @solana/web3.js 3.x to build v1 (1.99.0 reads it and cannot send
+  // it, and this repo is on 1.98.4), Meteora SDKs that hand back something other than
+  // a legacy Transaction, and a wallet advertising 1 in `supportedTransactionVersions`
+  // — which must be checked per wallet before sending, since one that does not
+  // understand v1 simply rejects it.
   const first = new Transaction().add(...openVault.instructions)
   const second = new Transaction().add(...launch.instructions, handOver)
   const sizes = [first, second].map(sizeOf)

@@ -356,11 +356,15 @@ vault rather than a coin promising holders a share it has no way to pay. The vau
 seeded by the coin's mint, which has to sign to open it, so a coin launched without one
 can never be given one afterwards: the mint key is thrown away once the pool exists.
 
-That cap is raised to 4096 bytes by SIMD-0296, through the v1 transaction format of
-SIMD-0385, on mainnet from epoch 1035 (15 Sep 2026). It changes nothing here yet:
-building v1 needs `@solana/web3.js` 3.x or `@solana/kit` 8, this repo is on 1.98, the
-Meteora SDKs return legacy transactions, and a wallet has to advertise v1 before it can
-be sent one.
+That cap was raised to 4096 bytes by SIMD-0296, through the v1 transaction format of
+SIMD-0385, at the start of mainnet epoch 1035 (15 Sep 2026) — and v1 transactions are
+in blocks now. It still changes nothing here, because the raise is for v1 alone: legacy
+and v0, which is everything this repo builds and everything the Meteora SDKs hand back,
+are capped at 1232 as before. Collapsing the two transactions into one needs all three
+of `@solana/kit` 8 or `@solana/web3.js` 3.x to build v1 (1.99 reads it but cannot send
+it, and this repo is on 1.98.4), SDKs that return something other than a legacy
+`Transaction`, and a wallet advertising `1` in `supportedTransactionVersions` — checked
+per wallet before sending, since one that does not understand v1 rejects it outright.
 
 When it pays, and whom. A coin is looked at once an hour; it is paid only when its
 share is worth at least `FLOOR_USD` ($2), and each holder only when their cut is at
@@ -568,6 +572,22 @@ than with a library. App-only auth cannot post as an account, so nothing shorter
 works: give the app read and write permissions, generate its access token and
 secret, and set all four with `wrangler secret put`. Any one of them missing and the
 channel is simply not live.
+
+
+### When an ownership coin pumps
+
+Someone holding AVICI while it is up a third is the person most likely to launch a meme
+against it. So the catalogue cron (every 10 minutes) looks at each coin's 24-hour move,
+from 01Resolved, and when one is up **20% or more** it posts to X and Telegram —
+*"📈 $AVICI +31% today — launch a meme against AVICI"* — with a link to
+`/launch?quote=AVICI`, which opens the launch page with that coin already picked.
+
+The rules live in `PUMP` in `src/lib/pumps.mjs`: at least $10k of liquidity (a thin coin
+jumps 50% on a few hundred dollars), a tier open for it, one post per coin per 24 hours
+however far it keeps going, at most three per channel per UTC day, and one coin per run
+so two pumps arrive ten minutes apart rather than together. What was posted is kept per
+channel under `pumps:v1:<channel>:<mint>`, so X refusing a post does not stop Telegram
+having said it, nor the reverse. A coin 01Resolved does not track never qualifies.
 
 ## Tests
 

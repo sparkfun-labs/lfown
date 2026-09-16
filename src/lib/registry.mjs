@@ -74,6 +74,8 @@ export function withFinancials(coins, projects, launches) {
         marketCap: num(project.marketCap),
         fdv: num(project.fdv),
         spendingLimit: num(project.spendingLimit),
+        // Percent, not a fraction: 15.6 means up 15.6%. Drives the pump posts.
+        priceChange24h: num(project.tokenPriceChangePercentage24h),
       },
     }
   })

@@ -81,6 +81,14 @@ export function launchedMessage(coin, origin) {
     links(coin, origin)
 }
 
+/** An ownership coin is having a day; the link opens the launch page on it. */
+export function pumpMessage(coin, change, launchUrl) {
+  const symbol = esc(coin.symbol || '?')
+  return `📈 <b>${symbol} +${Math.round(change)}%</b> today\n` +
+    `Launch a meme against ${symbol} — every trade on it pays its creator.\n\n` +
+    `<a href="${esc(launchUrl)}">Launch on LFOwn ↗</a>`
+}
+
 /** A curve has filled and its liquidity has moved to Meteora. */
 export function graduatedMessage(coin, origin) {
   const quote = esc(coin.quoteSymbol || '?')
