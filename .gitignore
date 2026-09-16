@@ -12,3 +12,11 @@ public/app/
 # per-machine Claude Code permissions; launch.json is shared on purpose
 .claude/settings.local.json
 *.log
+
+# The on-chain workspace: build output, local ledgers, test dependencies.
+onchain/target/
+onchain/.anchor/
+onchain/test-ledger/
+onchain/node_modules/
+onchain/.keys/
+onchain/tests/fixtures/*.so

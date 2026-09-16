@@ -1,0 +1,22 @@
+[toolchain]
+# Matches zcombinatorio/programs, whose futarchy, amm and vault programs are forked into
+# this workspace next. One Anchor version for everything that has to talk to each other.
+anchor_version = "0.32.1"
+package_manager = "npm"
+
+[features]
+resolution = true
+skip-lint = false
+
+[programs.localnet]
+lfown_raise = "FpYo9n8JojtoCL3JKpQfR7oWAJmJhFmnDWjk4p4tFcSM"
+amm = "8j3m29b1U422kh6pptzvbpAUfTRyqJ74ZCQZq9AJxvyZ"
+vault = "6BNBndhMSJwFEE9qVLz7NGXP6s5TfM3VowQ6o75eHPis"
+futarchy = "5cviD5QQ1WKi8aaqh9wCbirJVp1tFkZyoCYZNmdPNoAK"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "node --test tests/*.test.mjs"
