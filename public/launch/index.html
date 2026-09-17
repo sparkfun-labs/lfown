@@ -41,10 +41,10 @@
 main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
 h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
    font-size:clamp(2rem,5.4vw,3.6rem);line-height:.92;margin:0 0 10px}
-.lede{color:var(--ink-soft);max-width:56ch;margin:0 0 clamp(26px,4vw,44px);font-size:1.05rem}
+.lede{color:var(--ink-soft);max-width:56ch;margin:0 0 clamp(20px,3vw,32px);font-size:1.05rem}
 
 /* ── stepper ───────────────────────── */
-.stepper{display:flex;flex-wrap:wrap;gap:0;border:1.5px solid var(--ink);margin-bottom:clamp(24px,4vw,40px)}
+.stepper{display:flex;flex-wrap:wrap;gap:0;border:1.5px solid var(--ink);margin-bottom:clamp(18px,3vw,30px)}
 .stepper button{
   flex:1 1 0;min-width:140px;display:flex;align-items:baseline;gap:10px;text-align:left;
   font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600;
@@ -60,17 +60,11 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 
 .step{display:none}
 .step.on{display:block}
-.step-head{margin-bottom:clamp(18px,2.6vw,28px);display:flex;justify-content:space-between;align-items:flex-end;gap:14px 24px;flex-wrap:wrap}
-/* The title, its line and the stepper are the same on every step; past the first,
-   only the spacing around the form tightens. */
-#flow:not([data-step="1"]) .step-head{margin-bottom:clamp(14px,2vw,18px)}
-#flow:not([data-step="1"]) .step-head h2{font-size:clamp(1.3rem,2.6vw,1.8rem);margin-bottom:4px}
-#flow:not([data-step="1"]){padding-top:clamp(20px,3vw,32px);padding-bottom:12px}
-#flow:not([data-step="1"]) .stepper{margin-bottom:clamp(18px,2.6vw,26px)}
+.step-head{margin-bottom:clamp(16px,2.4vw,22px);display:flex;justify-content:space-between;align-items:flex-end;gap:14px 24px;flex-wrap:wrap}
 /* The coin this launch is paired with, above every step after the first: picked on step
    one, it is otherwise out of sight for the rest of the flow — and a link that picks it
    for you (/launch?quote=…) lands straight on step two. */
-.paired{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 clamp(20px,3vw,28px);padding:10px 14px;border:1.5px solid var(--ink);box-shadow:4px 4px 0 var(--red)}
+.paired{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 clamp(16px,2.4vw,22px);padding:10px 14px;border:1.5px solid var(--ink);box-shadow:4px 4px 0 var(--red)}
 .paired[hidden]{display:none}
 .paired img{width:30px;height:30px;border-radius:2px;object-fit:cover}
 .paired .dice{width:30px;height:30px;display:grid;place-items:center;border:1.5px solid var(--red);color:var(--red);font-family:var(--display);font-weight:800}
@@ -168,30 +162,42 @@ textarea{min-height:96px;resize:vertical}
 
 /* ── step 2: the token ─────────────── */
 .token-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:clamp(18px,3vw,36px);align-items:start}
-@media(max-width:860px){.token-grid{grid-template-columns:1fr}.token-side{order:-1}}
+@media(max-width:860px){.token-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.stepper button{min-width:0;padding:12px 10px;letter-spacing:.1em}}
-.token-grid .form{max-width:none;gap:clamp(12px,1.6vw,16px)}
-.token-grid textarea{min-height:92px}
-.token-side{display:grid;gap:clamp(12px,1.6vw,16px)}
-.random{display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;font:inherit;color:#fff;
-  background:var(--red);border:1.5px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:12px 14px;
+.token-grid .form{max-width:none;gap:10px}
+.token-grid .actions{margin-top:6px}
+/* Two lines of text with the same padding above the first as below the second:
+   2 × 1.5 × .98rem, plus 11px each side and the 1.5px borders. */
+.token-grid textarea{min-height:0;line-height:1.5;padding-top:11px;padding-bottom:11px;height:calc(2 * 1.5 * .98rem + 25px);resize:vertical}
+.token-side{display:grid;gap:12px}
+/* On a phone the two columns become one, and the Random button leads: it is the
+   quickest way through for someone with nothing in mind. */
+@media(max-width:860px){.token-side{display:contents}.token-side .random{order:-1}.token-side > label{order:1}}
+.token-grid .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:5px}
+.random{display:flex;align-items:center;gap:16px;width:100%;text-align:left;cursor:pointer;font:inherit;color:#fff;
+  background:var(--red);border:1.5px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:18px 18px;
   transition:transform .14s ease,box-shadow .14s ease}
 .random:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink)}
 .random:disabled{cursor:progress;opacity:.8}
-.random .die{font-size:2rem;line-height:1;display:inline-block}
+.random .die{font-size:2.8rem;line-height:1;display:inline-block}
 .random.busy .die{animation:roll .6s linear infinite}
 @keyframes roll{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.random.busy .die{animation:none}}
-.random b{display:block;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.01em;font-size:1.05rem;line-height:1.1}
-.random small{display:block;font-size:.8rem;opacity:.9;margin-top:2px}
-.drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:12px;display:flex;align-items:center;gap:14px}
+.random b{display:block;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.01em;font-size:1.45rem;line-height:1.05}
+.random small{display:block;font-size:.9rem;opacity:.92;margin-top:4px}
+.req{color:var(--red);font-weight:600}
+.drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:8px 12px;display:flex;align-items:center;gap:18px}
 .drop.over{border-color:var(--red);border-style:solid}
-.drop-frame{position:relative;width:108px;height:108px;flex:0 0 auto;border:1.5px solid var(--ink);background:var(--paper);display:grid;place-items:center;overflow:hidden}
+.drop-frame{position:relative;width:115px;height:115px;flex:0 0 auto;border:1.5px solid var(--ink);background:var(--paper);display:grid;place-items:center;overflow:hidden}
 .drop-frame img{width:100%;height:100%;object-fit:cover}
+/* An empty <img> draws a broken-image mark in some browsers; hidden has to mean gone. */
+.drop-frame img[hidden]{display:none}
 .drop-empty{font-family:var(--mono);font-size:.5rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);text-align:center;padding:6px}
 .drop-frame.drawing::after{content:"Drawing…";position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);color:#fff;
   font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase}
-.drop-copy{display:flex;flex-direction:column;gap:4px;min-width:0;padding-right:28px}
+.drop-copy{display:flex;flex-direction:column;gap:8px;min-width:0;flex:1;padding-right:28px}
+.drop-copy #pick{width:100%;max-width:320px;justify-content:center;padding:14px 12px;font-size:.72rem;white-space:nowrap}
+.drop-copy .hint{font-size:.86rem}
 .drop-copy .hint{margin:0}
 .drop-clear{
   position:absolute;top:8px;right:8px;width:26px;height:26px;line-height:1;font-size:19px;
@@ -206,11 +212,11 @@ textarea{min-height:96px;resize:vertical}
 .review-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,36px);align-items:start}
 @media(max-width:860px){.review-grid{grid-template-columns:1fr}}
 .review{border:1.5px solid var(--ink);background:var(--card);box-shadow:8px 8px 0 var(--red)}
-.review .coin{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1.5px solid var(--ink)}
+.review .coin{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1.5px solid var(--ink)}
 .review .coin img,.review .coin .noimg{width:56px;height:56px;object-fit:cover;border:1.5px solid var(--ink);background:var(--paper);flex:0 0 auto}
 .review .coin .sym{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
 .review .coin .nm{font-size:.88rem;color:var(--ink-soft);margin-top:3px}
-.review .line{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:8px 16px;border-bottom:1px dashed var(--rule);font-size:.93rem}
+.review .line{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:10px 18px;border-bottom:1px dashed var(--rule);font-size:.93rem}
 .review .line:last-child{border-bottom:0}
 .review .line > span:first-child{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
 .review .line > span:last-child{text-align:right;font-variant-numeric:tabular-nums}
@@ -219,7 +225,8 @@ textarea{min-height:96px;resize:vertical}
 .tier-pick button{font-family:var(--mono);font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;padding:6px 8px;background:transparent;border:0;border-right:1.5px solid var(--ink);color:var(--ink);cursor:pointer}
 .tier-pick button:last-child{border-right:0}
 .tier-pick button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
-.buy-panel{border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;display:grid;gap:7px}
+.buy-panel{border:1.5px solid var(--ink);background:var(--card);padding:16px 18px;display:grid;gap:8px}
+.buy-panel .hint:empty{display:none}
 .buy-panel > .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
 .buy-panel .lab-soft{color:var(--ink-soft);letter-spacing:.08em;text-transform:none;font-size:.62rem}
 .buy-panel .hint{margin:0}
@@ -230,7 +237,7 @@ textarea{min-height:96px;resize:vertical}
 .chips input{padding:8px 30px 8px 10px;font-size:.9rem}
 .chips .with-unit .unit{right:10px}
 .buy-panel .funding{margin-top:4px}
-.btn.sign{width:100%;justify-content:center;margin-top:4px;padding:14px 20px}
+.btn.sign{width:100%;justify-content:center;margin-top:6px;padding:15px 20px}
 
 .note{border-left:4px solid var(--red);padding:12px 0 12px 16px;font-size:.92rem;color:var(--ink-soft)}
 .note b{color:var(--ink);font-weight:500}
@@ -487,20 +494,9 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     <div class="token-grid">
       <div class="form">
         <div class="row2">
-          <label><span class="lab">Name</span><input id="f-name" placeholder="Solana" maxlength="32"></label>
-          <label><span class="lab">Ticker</span><input id="f-symbol" placeholder="SOL" maxlength="10"></label>
+          <label><span class="lab">Name <span class="req" aria-hidden="true">*</span></span><input id="f-name" placeholder="Solana" maxlength="32" required></label>
+          <label><span class="lab">Ticker <span class="req" aria-hidden="true">*</span></span><input id="f-symbol" placeholder="SOL" maxlength="10" required></label>
         </div>
-        <label><span class="lab">Description</span><textarea id="f-desc" placeholder="What is this coin about?" maxlength="500"></textarea></label>
-        <div class="row2">
-          <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
-          <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
-        </div>
-      </div>
-      <div class="token-side">
-        <button class="random" type="button" id="randomize">
-          <span class="die" aria-hidden="true">⚄</span>
-          <span><b id="randomize-label">No idea? Random coin</b><small>A name, a picture and a story that go together.</small></span>
-        </button>
         <div>
           <span class="lab">Image</span>
           <div class="drop" id="drop">
@@ -514,11 +510,20 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
           </div>
           <input type="file" id="f-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
         </div>
+        <label><span class="lab">Description</span><textarea id="f-desc" placeholder="What is this coin about?" maxlength="500"></textarea></label>
+        <div class="actions">
+          <button class="btn ghost" data-back="1">Back</button>
+          <button class="btn" id="to3" disabled>Continue</button>
+        </div>
       </div>
-    </div>
-    <div class="actions">
-      <button class="btn ghost" data-back="1">Back</button>
-      <button class="btn" id="to3" disabled>Continue</button>
+      <div class="token-side">
+        <button class="random" type="button" id="randomize">
+          <span class="die" aria-hidden="true">⚄</span>
+          <span><b id="randomize-label">No idea? Random coin</b><small>A name, a picture and a story that go together.</small></span>
+        </button>
+        <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
+        <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
+      </div>
     </div>
   </section>
 
@@ -550,11 +555,11 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
           <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" placeholder="Other" aria-label="Initial buy, percent of supply"><span class="unit">%</span></span>
         </div>
         <p class="hint warn-text" id="devbuy-cap" hidden>Capped at 50% — that is what will be priced and launched.</p>
-        <p class="hint" id="devbuy-cost">Bought atomically with the launch, so nobody can front-run you.</p>
+        <p class="hint" id="devbuy-cost">Bought in the launch itself, so nobody can buy before you.</p>
         <div class="funding" id="funding" hidden></div>
         <p class="hint" id="vanity"></p>
         <button class="btn sign" id="sign" disabled>Connect wallet to launch</button>
-        <p class="hint" id="sign-status">The transaction is built and signed in your browser. Nothing but the signed bytes reaches our servers.</p>
+        <p class="hint" id="sign-status"></p>
       </div>
     </div>
   </section>

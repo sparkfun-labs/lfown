@@ -369,9 +369,11 @@ randomBtn.addEventListener('click', async () => {
  */
 function startVanity() {
   if (state.vanity) return
+  // Quiet while it runs: it starts on arrival and is nearly always done before anyone
+  // signs, so a live counter was only ever a line of noise pushing the button down.
   const say = (text) => { const el = $('#vanity'); if (el) el.textContent = text }
   import('./vanity.js').then(({ grind, SUFFIX }) => {
-    const run = grind(SUFFIX, { onProgress: (n) => say(`Looking for an address ending in ${SUFFIX} — ${n.toLocaleString('en-US')} tried…`) })
+    const run = grind(SUFFIX)
     state.vanity = run
     run.promise
       .then((seed) => { state.seed = seed; say('') })
@@ -473,7 +475,7 @@ async function priceDevBuy(asset) {
   if (!percent || !state.configs?.[state.curve.tier]) {
     state.curve.devBuyQuote = 0
     state.funding.priced = null
-    hint.textContent = 'Bought atomically with the launch, so nobody can front-run you.'
+    hint.textContent = 'Bought in the launch itself, so nobody can buy before you.'
     paintFunding()
     return
   }
@@ -484,9 +486,8 @@ async function priceDevBuy(asset) {
     const cost = await devBuyCost({ config: state.configs[state.curve.tier].config, percent })
     state.curve.devBuyQuote = cost.quoteIn
     state.funding.priced = null // the shortfall moved; whatever was quoted for it is stale
-    hint.innerHTML = `<b>${fmt(cost.baseOut)} ${esc(state.token.symbol || 'tokens')}</b> for about
-      <b>${fmt(cost.quoteIn, 4)} ${esc(sym())}</b> (${usd(cost.quoteIn * asset.usdPrice)}),
-      bought in the same transaction as the launch so nobody can buy before you.`
+    hint.innerHTML = `<b>${fmt(cost.baseOut, 0)} ${esc(state.token.symbol || 'tokens')}</b> for
+      <b>${fmt(cost.quoteIn, 2)} ${esc(sym())}</b> (${usd(cost.quoteIn * asset.usdPrice)}), bought in the launch itself.`
     paintFunding()
   } catch (e) {
     state.curve.devBuyQuote = 0
@@ -550,8 +551,7 @@ async function paintFunding() {
     detail(state.blind
       ? `Pay in <b>SOL</b> or <b>USDC</b> — Jupiter swaps it into whatever was drawn, at the
          moment you launch. Connect your wallet to see what you have.`
-      : `Pay in <b>${esc(a.symbol)}</b> if you hold it, or in <b>SOL</b> or <b>USDC</b> — Jupiter
-         swaps it into ${esc(a.symbol)} first. Connect your wallet to see what you have.`)
+      : `Pay in <b>${esc(a.symbol)}</b>, or in <b>SOL</b> or <b>USDC</b> swapped by Jupiter. Connect your wallet to see your balance.`)
     return
   }
 
