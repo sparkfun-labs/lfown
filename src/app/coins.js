@@ -147,14 +147,42 @@ async function launches() {
   return cache
 }
 
+/** The metadata JSON the launch published: image, links, description. Fetched once per coin. */
+function metadata(coin) {
+  if (!coin.meta) {
+    coin.meta = coin.uri
+      ? fetch(coin.uri).then((r) => r.json()).catch(() => null) // a dead uri is not worth a broken page
+      : Promise.resolve(null)
+  }
+  return coin.meta
+}
+
 /** The image lives in the metadata JSON the launch published, not on chain. */
 async function artwork(coin) {
   if (coin.image !== undefined) return coin.image
-  coin.image = null
-  try {
-    if (coin.uri) coin.image = (await fetch(coin.uri).then((r) => r.json())).image || null
-  } catch { /* a dead uri is not worth a broken page */ }
+  coin.image = (await metadata(coin))?.image || null
   return coin.image
+}
+
+/**
+ * The creator's X and website, as the launch wrote them into the metadata: the site
+ * puts the website in `external_url` and X in `extensions.twitter`, other tools at the
+ * top level. X may be a full link or a bare handle. Anything that is not http(s), or
+ * not a plausible handle, is dropped rather than linked.
+ */
+export function socialLinks(meta) {
+  if (!meta || typeof meta !== 'object') return []
+  const links = []
+  const x = String(meta.extensions?.twitter ?? meta.twitter ?? '').trim()
+  const handle = x.replace(/^@/, '')
+  const xUrl = /^https?:\/\//i.test(x) ? x : /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : ''
+  if (safeUrl(xUrl)) links.push({ kind: 'x', label: 'X', href: xUrl })
+  const site = String(meta.external_url ?? meta.website ?? meta.extensions?.website ?? '').trim()
+  // A website that is only another X link says the same thing twice under a wrong name.
+  if (safeUrl(site) && site !== xUrl) links.push({ kind: 'site', label: /^https?:\/\/(www\.)?(x|twitter)\.com\//i.test(site) ? 'Post on X' : 'Website', href: site })
+  const tg = String(meta.extensions?.telegram ?? meta.telegram ?? '').trim()
+  if (safeUrl(tg)) links.push({ kind: 'tg', label: 'Telegram', href: tg })
+  return links
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────
@@ -429,6 +457,7 @@ async function renderCoin(mint) {
             <div class="pair" style="font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:6px">
               ${esc(coin.name ?? '')} · paired with ${esc(coin.quoteSymbol)}
             </div>
+            <div class="coin-links" id="coin-links" hidden></div>
           </div>
         </div>
         <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div>
@@ -473,6 +502,14 @@ async function renderCoin(mint) {
   artwork(coin).then((src) => {
     const slot = view.querySelector('.coin-head img')
     if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
+  })
+  metadata(coin).then((meta) => {
+    const box = view.querySelector('#coin-links')
+    const links = socialLinks(meta)
+    if (!box || !links.length) return
+    box.innerHTML = links.map((l) =>
+      `<a class="social ${l.kind}" href="${safeUrl(l.href)}" target="_blank" rel="noopener nofollow ugc">${esc(l.label)} ↗</a>`).join('')
+    box.hidden = false
   })
 
   paintChart(coin, state)
