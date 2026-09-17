@@ -28,7 +28,8 @@ import { FEES, TIERS, feeBreakdown, tokenUnit } from './lib/config.mjs'
 import { HOLDER_MAX_PCT, clampHolderPct, splitFor } from './lib/fee-split.mjs'
 
 /** What a launch shares with holders when the agent does not say. Same as the page. */
-export const DEFAULT_HOLDER_PCT = 25
+// Holders take three quarters of the creator's half: 37.5 of the 50, the creator 12.5.
+export const DEFAULT_HOLDER_PCT = 37.5
 
 const LIMITS = {
   name: 32,
@@ -588,7 +589,7 @@ const LAUNCH_PROPERTIES = {
   imageData: { type: 'string', description: 'base64 data URL; png, jpeg, webp or gif, under 2 MB' },
   website: { type: 'string', format: 'uri' },
   twitter: { type: 'string' },
-  holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share, as a ${SHARE_UNIT}. The DAO always takes 50; the creator keeps 50 minus this.` },
+  holderPct: { type: 'number', multipleOf: 0.5, minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share, as a ${SHARE_UNIT}. The DAO always takes 50; the creator keeps 50 minus this.` },
   devBuyPercent: { type: 'number', minimum: 0, maximum: LIMITS.devBuyMaxPercent, default: 0, description: 'Percent of supply bought at launch, paid in the ownership coin by the creator' },
   creator: { type: 'string', description: 'The Solana wallet that signs and earns the fees. Omit to get a link for a person to sign.' },
 }

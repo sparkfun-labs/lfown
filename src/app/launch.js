@@ -8,11 +8,11 @@ import { TIERS, FEES, tokenUnit } from '../lib/config.mjs'
 const state = {
   asset: null,
   token: {},
-  // Holders get half of the creator's share of every fee — 25 of the 50 — on every
-  // launch from this page. It used to be a slider, and a choice nobody arriving from a
-  // tweet has an opinion on is a reason to leave. Without a pot address there is
-  // nowhere to collect their part, so the creator keeps it all.
-  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: FEES.holderPot ? 25 : 0 },
+  // The LFOwn DAO takes half of every fee; of the other half, holders take three
+  // quarters and the creator one — 37.5 and 12.5 of the 50. It used to be a slider, and
+  // a choice nobody arriving from a tweet has an opinion on is a reason to leave.
+  // Without a pot address there is nowhere to collect their part, so the creator keeps it all.
+  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: FEES.holderPot ? 37.5 : 0 },
   // The ground mint seed, once the search has found one. See startVanity.
   vanity: null,
   seed: null,
@@ -633,10 +633,11 @@ function paintReview() {
     target = `<span class="warn-text">${esc(sym())} is not open for launches yet</span>`
   }
 
-  // What trading pays the person about to sign. Shares of the fee left after Meteora's
-  // cut, the unit the fee pages use; the DAO's half is not the creator's decision and
-  // is not repeated here.
-  const yours = creatorShare - (c.holders ?? 0)
+  // What trading pays the person about to sign, as parts of the half that is not the
+  // DAO's: 12.5 and 37.5 of 50 read as 25% and 75%.
+  const half = creatorShare || 50
+  const holdersPart = Math.round(((c.holders ?? 0) / half) * 100)
+  const yours = 100 - holdersPart
 
   $('#review').innerHTML =
     `<div class="coin">${t.image ? `<img src="${safeUrl(t.image)}" alt="">` : '<span class="noimg"></span>'}
@@ -647,7 +648,7 @@ function paintReview() {
     (state.blind ? '' : line(a.backing ? 'Backed by' : 'Treasury', a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
     line('Graduation target', target ?? '—') +
     line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn') +
-    (c.holders ? line('Holders earn', `<b>${c.holders}%</b>, paid out hourly`, 'earn') : '')
+    (c.holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '')
 
   $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
 }

@@ -45,9 +45,13 @@ export function splitFor(holderPct, creatorSharePct = 50) {
   }
 }
 
-/** Out of range, backwards, or not a number at all: all of it means "keep it all". */
+/**
+ * Out of range, backwards, or not a number at all: all of it means "keep it all".
+ * Half points are allowed, because the split LFOwn uses is 37.5: holders take three
+ * quarters of the creator's half.
+ */
 export function clampHolderPct(value) {
-  const n = Math.round(Number(value))
+  const n = Math.round(Number(value) * 2) / 2
   if (!Number.isFinite(n)) return 0
   return Math.min(HOLDER_MAX_PCT, Math.max(0, n))
 }
@@ -55,16 +59,17 @@ export function clampHolderPct(value) {
 /**
  * The vault's two shareholders.
  *
- * `share` is a u32 and only its ratio matters, so the percentages themselves are the
- * shares — 30 and 20 rather than a scaled pair nobody can read against the slider.
+ * `share` is a u32 and only its ratio matters, so the shares are the percentages
+ * doubled — whole numbers even for a half point: 37.5 for holders is 25 and 75, which
+ * reads straight off as the creator's quarter and the holders' three quarters.
  * A zero share is not written at all: a shareholder who can never be owed anything
  * is a slot spent, and there are only five.
  */
 export function vaultShares(holderPct, { creator, holders }) {
   const pct = clampHolderPct(holderPct)
   const shares = []
-  if (pct < HOLDER_MAX_PCT) shares.push({ address: new PublicKey(creator), share: HOLDER_MAX_PCT - pct })
-  if (pct > 0) shares.push({ address: new PublicKey(holders), share: pct })
+  if (pct < HOLDER_MAX_PCT) shares.push({ address: new PublicKey(creator), share: (HOLDER_MAX_PCT - pct) * 2 })
+  if (pct > 0) shares.push({ address: new PublicKey(holders), share: pct * 2 })
   return shares
 }
 

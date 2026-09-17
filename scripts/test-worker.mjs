@@ -303,7 +303,7 @@ await test('agent: options list the open coin, its tier priced in usd, and the f
   assert.equal(r.body.coins.length, 1)
   assert.equal(r.body.coins[0].symbol, 'TEST')
   assert.deepEqual(r.body.coins[0].tiers.map((t) => [t.id, t.thresholdUsd]), [['starter', 5000]])
-  assert.equal(r.body.holders.default, 25)
+  assert.equal(r.body.holders.default, 37.5)
 })
 
 await test('agent: a launch with no creator is kept as a draft and answered with a link', async () => {
@@ -474,6 +474,20 @@ await test('dinosaurs: TRCH1 is 9 decimals everywhere, priced by its raise until
   // A graduated position's fees, in whole tokens on each side.
   const tele = await import(new URL('../src/lib/telegram.mjs', import.meta.url).href)
   assert.match(tele.graduatedMessage({ symbol: 'RAWR', quoteSymbol: 'TRCH1', quoteMint: TRCH1, quoteReserve: '7197000000000', baseMint: 'X' }, 'https://x.test'), /raised 7,197 TRCH1/)
+})
+
+await test('fee split: holders take three quarters of the creator half, as whole vault shares', async () => {
+  const { clampHolderPct, vaultShares, splitFor } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+  const { DEFAULT_HOLDER_PCT } = await import(new URL('../src/agent.mjs', import.meta.url).href)
+  assert.equal(DEFAULT_HOLDER_PCT, 37.5)
+  assert.equal(clampHolderPct(37.5), 37.5)
+  assert.equal(clampHolderPct(37.3), 37.5)
+  assert.equal(clampHolderPct(99), 50)
+  const who = { creator: 'So11111111111111111111111111111111111111112', holders: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }
+  assert.deepEqual(vaultShares(37.5, who).map((s) => s.share), [25, 75])
+  assert.ok(vaultShares(37.5, who).every((s) => Number.isInteger(s.share)))
+  assert.deepEqual(vaultShares(50, who).map((s) => s.share), [100])
+  assert.deepEqual(splitFor(37.5), { holderPct: 37.5, creator: 12.5, holders: 37.5, partner: 50 })
 })
 
 await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {

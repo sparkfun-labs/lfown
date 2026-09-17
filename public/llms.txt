@@ -27,7 +27,7 @@ Nothing is ever signed for the creator. The wallet that signs a launch is the wa
    - `description` (optional, up to 500 characters)
    - `imageUrl` (optional, http(s)) or `imageData` (optional, base64 data URL); png, jpeg, webp or gif, under 2 MB
    - `website`, `twitter` (optional)
-   - `holderPct` (optional, 0 to 50, default 25): the holders' share — see *Fee shares* below
+   - `holderPct` (optional, 0 to 50 in steps of 0.5, default 37.5): the holders' share — see *Fee shares* below
    - `devBuyPercent` (optional, 0 to 50, default 0): percent of supply the creator buys at launch, paid in the ownership coin
    - `creator` (optional): the Solana wallet that signs and earns the fees
    - `id` (optional): a draft id from an earlier call — see *Retrying*
@@ -56,7 +56,7 @@ Every trade pays 2.5%. Meteora takes 0.5% of the trade first. **Every share in t
 - the LFOwn DAO always takes 50
 - the creator and the holders split the other 50: holders get `holderPct`, the creator keeps `50 - holderPct`
 
-With the default `holderPct: 25`: creator 25, holders 25, DAO 50. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 50, holders 50, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.
+With the default `holderPct: 37.5`: creator 12.5, holders 37.5, DAO 50 — of the half that is not the DAO's, holders get three quarters and the creator one. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 25, holders 75, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.
 
 ## Costs
 
