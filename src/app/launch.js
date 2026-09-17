@@ -1,15 +1,18 @@
-// LFOwn — the launch flow. No framework: four sections and a state object.
+// LFOwn — the launch flow. No framework: three sections and a state object.
 
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
-import { TIERS, LEGACY_FEE_BPS, FEES, feeBreakdown, tokenUnit } from '../lib/config.mjs'
-import { HOLDER_MAX_PCT, splitFor } from '../lib/fee-split.mjs'
+import { TIERS, FEES, tokenUnit } from '../lib/config.mjs'
 
 const state = {
   asset: null,
   token: {},
-  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: 0 },
+  // Holders get half of the creator's share of every fee — 25 of the 50 — on every
+  // launch from this page. It used to be a slider, and a choice nobody arriving from a
+  // tweet has an opinion on is a reason to leave. Without a pot address there is
+  // nowhere to collect their part, so the creator keeps it all.
+  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: FEES.holderPot ? 25 : 0 },
   // The ground mint seed, once the search has found one. See startVanity.
   vanity: null,
   seed: null,
@@ -60,15 +63,15 @@ function go(n) {
     if (i === n) b.setAttribute('aria-current', 'step')
     else b.removeAttribute('aria-current')
   })
-  if (n === 3) paintCurve()
-  if (n === 4) { paintReview(); paintWallet() }
+  $('#flow').dataset.step = String(n)
+  if (n === 3) { paintReview(); paintWallet(); loadTiers() }
   paintPaired(n)
   window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 const unlock = (n) => { reached = Math.max(reached, n); go(n) }
 
 /**
- * The backing coin, named above steps two to four. A random draw stays hidden here
+ * The backing coin, named above steps two and three. A random draw stays hidden here
  * too: the name comes out at signing, not on a banner.
  */
 function paintPaired(n = +document.querySelector('.step.on')?.dataset.step) {
@@ -93,7 +96,6 @@ function paintPaired(n = +document.querySelector('.step.on')?.dataset.step) {
 document.querySelectorAll('#stepper button').forEach((b) => b.addEventListener('click', () => go(+b.dataset.go)))
 document.querySelectorAll('[data-back]').forEach((b) => b.addEventListener('click', () => go(+b.dataset.back)))
 $('#to3').addEventListener('click', () => { unlock(3); startVanity() })
-$('#to4').addEventListener('click', () => unlock(4))
 
 // ── 01 · the backing assets ──────────────────────────────────────────────────
 async function loadAssets() {
@@ -259,6 +261,16 @@ for (const [key, sel] of Object.entries(fields)) {
 
 const drop = $('#drop'), fileInput = $('#f-file'), preview = $('#preview')
 const imageStatus = $('#image-status'), clearBtn = $('#clear-image')
+const dropEmpty = $('#drop-empty'), dropFrame = preview.parentElement
+
+/** Puts an image in the frame, or empties it. */
+function showImage(src) {
+  preview.hidden = !src
+  dropEmpty.hidden = Boolean(src)
+  clearBtn.hidden = !src
+  if (src) preview.src = src
+  else preview.removeAttribute('src')
+}
 
 $('#pick').addEventListener('click', () => fileInput.click())
 fileInput.addEventListener('change', () => fileInput.files[0] && upload(fileInput.files[0]))
@@ -271,17 +283,15 @@ clearBtn.addEventListener('click', () => {
   // a delete endpoint would let anyone break the image of a token already launched.
   state.token.image = undefined
   fileInput.value = ''
-  preview.hidden = true
-  preview.removeAttribute('src')
-  clearBtn.hidden = true
+  showImage(null)
   imageStatus.textContent = ''
 })
 
 async function upload(file) {
   if (file.size > 2 * 1024 * 1024) return (imageStatus.textContent = 'That file is over 2 MB.')
-  preview.src = URL.createObjectURL(file)
-  preview.hidden = false
-  clearBtn.hidden = false
+  randomRun++ // a picture of their own beats one still being drawn
+  dropFrame.classList.remove('drawing')
+  showImage(URL.createObjectURL(file))
   imageStatus.textContent = 'Uploading…'
   try {
     const res = await fetch('/api/image', { method: 'POST', headers: { 'content-type': file.type }, body: file })
@@ -294,13 +304,66 @@ async function upload(file) {
   }
 }
 
+// ── random coin ──────────────────────────────────────────────────────────────
+/**
+ * For someone with no idea: a ticker that is also the name, a description about it and
+ * a picture of it, invented together on our side (src/lib/random-token.mjs). The words
+ * arrive first and fill the form; the picture follows a few seconds later. Pressing
+ * again replaces all of it, and whatever arrives for an earlier press is dropped.
+ */
+let randomRun = 0
+const randomBtn = $('#randomize')
+randomBtn.addEventListener('click', async () => {
+  const run = ++randomRun
+  const label = $('#randomize-label')
+  randomBtn.disabled = true
+  randomBtn.classList.add('busy')
+  label.textContent = 'Inventing a coin…'
+  try {
+    const res = await fetch('/api/random/idea', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })
+    const idea = await res.json()
+    if (!res.ok) throw new Error(idea.error ?? 'no idea came back')
+    if (run !== randomRun) return
+    const values = { name: idea.name, symbol: idea.symbol, desc: idea.description }
+    for (const [key, value] of Object.entries(values)) {
+      const input = $(fields[key])
+      input.value = value
+      input.dispatchEvent(new Event('input'))
+    }
+
+    label.textContent = 'Drawing its picture…'
+    state.token.image = undefined
+    fileInput.value = ''
+    dropFrame.classList.add('drawing')
+    imageStatus.textContent = ''
+    const pic = await fetch('/api/random/image', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: idea.id }),
+    })
+    const drawn = await pic.json()
+    if (run !== randomRun) return
+    if (!pic.ok) throw new Error(drawn.error ?? 'the picture did not come out')
+    state.token.image = drawn.url
+    showImage(drawn.url)
+    imageStatus.textContent = 'Drawn for you. Keep it, upload your own, or roll again.'
+  } catch (e) {
+    if (run === randomRun) imageStatus.innerHTML = `<span class="warn-text">${esc(e.message)}</span>`
+  } finally {
+    if (run === randomRun) {
+      dropFrame.classList.remove('drawing')
+      randomBtn.disabled = false
+      randomBtn.classList.remove('busy')
+      label.textContent = state.token.name ? 'Roll again' : 'No idea? Random coin'
+    }
+  }
+})
+
 // ── the address ──────────────────────────────────────────────────────────────
 /**
  * Every coin launched here gets a mint address ending in `own`, found by generating
  * keys until one does — roughly 195,000 tries for three base58 characters.
  *
- * Started when the creator opens the curve step, which buys the search the half
- * minute they spend choosing a tier: by the time they sign it is long done. It runs
+ * Started when the creator leaves the token step, which buys the search the half
+ * minute they spend reviewing: by the time they sign it is usually done. It runs
  * on this machine and the winning key never leaves it.
  */
 function startVanity() {
@@ -320,123 +383,83 @@ function startVanity() {
   }).catch((e) => console.error('vanity module unavailable:', e.message))
 }
 
-// ── 03 · the curve ───────────────────────────────────────────────────────────
-async function paintCurve() {
+// ── 03 · target and dev buy ──────────────────────────────────────────────────
+/**
+ * The raise target, now part of the review. Starter is picked for the creator — it
+ * is what nearly every launch wants — and the others appear as a small switch only
+ * when LFOwn has opened them for this coin.
+ */
+let tiersFor = null
+async function loadTiers() {
   const a = state.asset
-  const box = $('#tiers')
-  box.innerHTML = '<span class="skel">Loading tiers…</span>'
-
-  let configs = {}
-  try {
-    ({ configs } = await fetch(`/api/config/${a.mint}`).then((r) => r.json()))
-  } catch { /* every tier will simply read as closed */ }
-
-  state.configs = configs
-  box.innerHTML = ''
-
-  // Only tiers LFOwn has actually opened. A row of "not open yet" cards is noise:
-  // a creator cannot act on it and it makes the catalogue look half-built.
-  const open = TIERS.filter((t) => configs[t.id])
-  for (const tier of open) {
-    const cfg = configs[tier.id]
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'tier'
-    btn.dataset.tier = tier.id
-    btn.setAttribute('aria-pressed', 'false')
-    btn.innerHTML = `
-      <span class="t-name">${tier.label}</span>
-      <span class="t-usd">${cfg.threshold.toLocaleString('en-US')} ${esc(sym())}</span>
-      <span class="t-sub">≈ ${usd(cfg.threshold * a.usdPrice)} at today's price</span>`
-    btn.addEventListener('click', () => {
-      state.curve.tier = tier.id
-      state.curve.threshold = cfg.threshold
-      document.querySelectorAll('.tier').forEach((t) => t.setAttribute('aria-pressed', 'false'))
-      btn.setAttribute('aria-pressed', 'true')
-      $('#to4').disabled = false
-      priceDevBuy(a)
-    })
-    box.appendChild(btn)
+  if (!a) return
+  if (tiersFor !== a.mint) {
+    tiersFor = a.mint
+    state.configs = null // loading
+    state.curve.tier = null
+    state.curve.threshold = 0
+    paintReview()
+    let configs = {}
+    try {
+      ;({ configs } = await fetch(`/api/config/${a.mint}`).then((r) => r.json()))
+    } catch { /* every tier simply reads as closed */ }
+    if (tiersFor !== a.mint) return // the backing changed while this was loading
+    state.configs = configs ?? {}
   }
-
-  // Starter first: it is the tier most launches want, and preselecting it makes the
-  // common path two clicks rather than three.
-  // A draft an agent prepared names its tier; it wins while it is still open.
-  ;(state.draft && box.querySelector(`.tier[data-tier="${state.draft.tier}"]`) || box.querySelector('.tier'))?.click()
-
-  if (!open.length) {
-    $('#to4').disabled = true
-    $('#tier-hint').textContent =
-      `${sym()} is listed but no tier is open for it yet. LFOwn has to open one before anyone can launch against it.`
+  if (!state.configs) return
+  const open = TIERS.filter((t) => state.configs?.[t.id])
+  if (!open.some((t) => t.id === state.curve.tier)) {
+    // A draft an agent prepared names its tier; it wins while it is still open.
+    const wanted = open.find((t) => t.id === state.draft?.tier) ?? open[0]
+    pickTier(wanted?.id ?? null)
+  } else {
+    paintReview()
   }
+}
 
-  // `max` on a number input only stops the steppers — it does not stop typing, and a
-  // dev buy of 90% asked the curve for more tokens than it holds. Clamped here so
-  // nothing above the cap is ever priced or signed; the field itself is corrected on
-  // the way out rather than mid-keystroke, which would fight the person typing.
-  const DEV_BUY_MAX = 50
+function pickTier(id) {
+  const cfg = id ? state.configs[id] : null
+  state.curve.tier = cfg ? id : null
+  state.curve.threshold = cfg?.threshold ?? 0
+  paintReview()
+  paintWallet()
+  priceDevBuy(state.asset)
+}
+
+// `max` on a number input only stops the steppers — it does not stop typing, and a
+// dev buy of 90% asked the curve for more tokens than it holds. Clamped here so
+// nothing above the cap is ever priced or signed.
+const DEV_BUY_MAX = 50
+{
   let timer
-  const devBuy = $('#f-devbuy')
+  const input = $('#f-devbuy')
   const cap = $('#devbuy-cap')
-  devBuy.addEventListener('input', () => {
-    const asked = Number(devBuy.value || 0)
-    state.curve.devBuy = Math.min(DEV_BUY_MAX, Math.max(0, asked))
-    // Said while they are still typing, not on the way out: a number silently
-    // rewritten after the fact reads as the field having eaten the keystroke.
-    cap.hidden = asked <= DEV_BUY_MAX
+  const chips = [...document.querySelectorAll('#devbuy-chips button')]
+  const setPct = (pct, { fromInput = false } = {}) => {
+    state.curve.devBuy = Math.min(DEV_BUY_MAX, Math.max(0, pct))
+    for (const c of chips) c.setAttribute('aria-pressed', String(!fromInput && +c.dataset.pct === state.curve.devBuy))
+    if (!fromInput) input.value = ''
     clearTimeout(timer)
-    timer = setTimeout(() => priceDevBuy(a), 300)
+    timer = setTimeout(() => { priceDevBuy(state.asset); paintFunding() }, fromInput ? 300 : 0)
+  }
+  for (const c of chips) c.addEventListener('click', () => { cap.hidden = true; setPct(+c.dataset.pct) })
+  input.addEventListener('input', () => {
+    const asked = Number(input.value || 0)
+    // Said while they are still typing: a number silently rewritten afterwards reads as
+    // the field having eaten the keystroke.
+    cap.hidden = asked <= DEV_BUY_MAX
+    if (!input.value) return setPct(0)
+    setPct(asked, { fromInput: true })
   })
-  devBuy.addEventListener('blur', () => {
-    if (Number(devBuy.value || 0) > DEV_BUY_MAX) devBuy.value = String(DEV_BUY_MAX)
+  input.addEventListener('blur', () => {
+    if (Number(input.value || 0) > DEV_BUY_MAX) input.value = String(DEV_BUY_MAX)
     cap.hidden = true
   })
-
-  // The choice only exists where there is an address to collect the holders' share.
-  // Without one the block stays out of the page entirely rather than offering
-  // something that would quietly do nothing.
-  const split = $('#holder-split')
-  const holders = $('#f-holders')
-  split.hidden = !FEES.holderPot
-  if (!FEES.holderPot) {
-    state.curve.holders = 0
-    return
+  state.setDevBuy = (pct) => {
+    const chip = chips.find((c) => +c.dataset.pct === pct)
+    if (chip) setPct(pct)
+    else { input.value = String(pct); setPct(pct, { fromInput: true }) }
   }
-  holders.max = String(HOLDER_MAX_PCT)
-  if (state.draft && !state.draft.applied) {
-    // Once only: going back to this step later must not undo what the person changed.
-    state.draft.applied = true
-    holders.value = String(state.draft.holderPct ?? holders.value)
-    if (state.draft.devBuyPercent > 0) {
-      devBuy.value = String(state.draft.devBuyPercent)
-      state.curve.devBuy = Math.min(DEV_BUY_MAX, state.draft.devBuyPercent)
-      priceDevBuy(a)
-    }
-  }
-  const paint = () => {
-    const pct = Number(holders.value || 0)
-    state.curve.holders = pct
-    const cut = splitFor(pct)
-    $('#split-you').textContent = `${cut.creator}%`
-    $('#split-them').textContent = `${cut.holders}%`
-    // The bar under the track is the whole fee as it lands, so its three segments
-    // always add up to 100%. A segment too narrow for its word keeps its colour and
-    // drops the label; one at zero takes no room at all.
-    for (const [id, share] of [['#seg-you', cut.creator], ['#seg-them', cut.holders], ['#seg-dao', cut.partner]]) {
-      const seg = $(id)
-      seg.style.flexBasis = `${share}%`
-      seg.classList.toggle('is-empty', share === 0)
-      seg.classList.toggle('is-narrow', share > 0 && share < 12)
-    }
-    $('#seg-dao').textContent = `LFOwn DAO ${cut.partner}%`
-    // The track fills up to the thumb; the range is 0..HOLDER_MAX_PCT, not 0..100.
-    holders.style.setProperty('--fill', `${(pct / HOLDER_MAX_PCT) * 100}%`)
-    $('#split-hint').textContent = pct === 0
-      ? "Half of every trading fee is yours. Give any part of it to the people holding the coin — the LFOwn DAO's half is untouched either way. Fixed at launch."
-      : `Holders share ${cut.holders}% of every trading fee, pro rata. You keep ${cut.creator}%, the LFOwn DAO keeps ${cut.partner}%. Fixed at launch — it cannot be changed afterwards.`
-  }
-  holders.addEventListener('input', paint)
-  paint()
 }
 
 /**
@@ -450,6 +473,7 @@ async function priceDevBuy(asset) {
     state.curve.devBuyQuote = 0
     state.funding.priced = null
     hint.textContent = 'Bought atomically with the launch, so nobody can front-run you.'
+    paintFunding()
     return
   }
 
@@ -459,13 +483,14 @@ async function priceDevBuy(asset) {
     const cost = await devBuyCost({ config: state.configs[state.curve.tier].config, percent })
     state.curve.devBuyQuote = cost.quoteIn
     state.funding.priced = null // the shortfall moved; whatever was quoted for it is stale
-    hint.innerHTML = `<b>${fmt(cost.baseOut)} ${esc(state.token.symbol || 'tokens')}</b> — costs about
+    hint.innerHTML = `<b>${fmt(cost.baseOut)} ${esc(state.token.symbol || 'tokens')}</b> for about
       <b>${fmt(cost.quoteIn, 4)} ${esc(sym())}</b> (${usd(cost.quoteIn * asset.usdPrice)}),
-      bought atomically with the launch so nobody can front-run you.`
+      bought in the same transaction as the launch so nobody can buy before you.`
+    paintFunding()
   } catch (e) {
     state.curve.devBuyQuote = 0
     state.funding.priced = null
-    hint.innerHTML = `<span class="warn-text">Could not price that dev buy: ${esc(explain(e, 'dev buy quote'))}</span>`
+    hint.innerHTML = `<span class="warn-text">Could not price that initial buy: ${esc(explain(e, 'dev buy quote'))}</span>`
   }
 }
 
@@ -508,7 +533,7 @@ async function paintFunding() {
   const run = ++fundingRun
   const options = state.blind ? [...PAY_WITH] : [{ mint: a.mint, symbol: a.symbol }, ...PAY_WITH]
 
-  box.innerHTML = `<span class="lab">Paying the ${fmt(need, 4)} ${esc(sym())} dev buy</span>
+  box.innerHTML = `<span class="lab">Paying the ${fmt(need, 4)} ${esc(sym())} initial buy</span>
     <div class="pay">${options.map((o) =>
       `<button type="button" data-mint="${esc(o.mint)}" aria-pressed="${String(o.mint === f.via)}">${esc(o.symbol)}</button>`).join('')}</div>
     <p class="detail" id="funding-detail">Checking your wallet…</p>`
@@ -550,7 +575,7 @@ async function paintFunding() {
       f.priced = null
       detail(state.blind
         ? `You already hold enough of the coin that was drawn. No ${esc(pay.symbol)} will be spent.`
-        : `You already hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b>, enough for this dev buy.
+        : `You already hold <b>${fmt(have, 4)} ${esc(a.symbol)}</b>, enough for this initial buy.
            No ${esc(pay.symbol)} will be spent.`)
       return
     }
@@ -569,7 +594,7 @@ async function paintFunding() {
     const bought = state.blind
       // The route is a list of the venues it passes through, and on a thin ownership
       // coin that list names it as surely as the symbol would.
-      ? `<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> covers the dev buy${impact(priced)}, swapped at launch.`
+      ? `<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> covers the initial buy${impact(priced)}, swapped at launch.`
       : `<b>${fmt(priced.in, dp)} ${esc(pay.symbol)}</b> buys about
          <b>${fmt(priced.out, 4)} ${esc(a.symbol)}</b> via ${esc(priced.route || 'Jupiter')}${impact(priced)}.`
     detail(`${bought}<br>` + (enough
@@ -584,37 +609,46 @@ async function paintFunding() {
   }
 }
 
-// ── 04 · review ──────────────────────────────────────────────────────────────
+// ── 03 · review ──────────────────────────────────────────────────────────────
 function paintReview() {
   const { asset: a, token: t, curve: c } = state
-  const line = (k, v) => `<div class="line"><span>${k}</span><span>${v}</span></div>`
+  if (!a) return
+  const line = (k, v, cls = '') => `<div class="line ${cls}"><span>${k}</span><span>${v}</span></div>`
 
   // The fee is read from the config that will actually charge it, not from what the
   // code currently intends: configs are immutable and older ones charge less.
   const cfg = state.configs?.[c.tier] ?? {}
-  const feeBps = cfg.feeBps ?? LEGACY_FEE_BPS
   const creatorShare = cfg.creatorSharePct ?? 50
+  const open = TIERS.filter((tier) => state.configs?.[tier.id])
+
+  let target = '<span class="skel">Loading…</span>'
+  if (open.length) {
+    const figure = `${c.threshold.toLocaleString('en-US')} ${esc(sym())} ≈ ${usd(c.threshold * a.usdPrice)}`
+    target = open.length > 1
+      ? `${figure}<br><span class="tier-pick">${open.map((tier) =>
+          `<button type="button" data-tier="${tier.id}" aria-pressed="${String(tier.id === c.tier)}">${tier.label}</button>`).join('')}</span>`
+      : figure
+  } else if (state.configs && tiersFor === a.mint) {
+    target = `<span class="warn-text">${esc(sym())} is not open for launches yet</span>`
+  }
+
+  // What trading pays the person about to sign. Shares of the fee left after Meteora's
+  // cut, the unit the fee pages use; the DAO's half is not the creator's decision and
+  // is not repeated here.
+  const yours = creatorShare - (c.holders ?? 0)
 
   $('#review').innerHTML =
-    `<div class="head">${esc(t.symbol || '—')} paired with ${state.blind ? 'a coin you have not met' : esc(a.symbol)}</div>` +
-    line('Token', `${esc(t.name || '—')} · ${esc(t.symbol || '—')}`) +
+    `<div class="coin">${t.image ? `<img src="${safeUrl(t.image)}" alt="">` : '<span class="noimg"></span>'}
+      <div><div class="sym">${esc(t.symbol || '—')}</div><div class="nm">${esc(t.name || '—')}</div></div></div>` +
     line('Paired with', state.blind ? 'Random — named the moment you sign' : esc(a.symbol)) +
     // The treasury is the one figure that would identify the coin outright, so a
     // blind launch simply does without it rather than printing a lookup key.
-    (state.blind ? '' : line(`${a.backing ? 'Backing of' : 'Treasury of'} ${esc(a.symbol)}`, a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
-    line('Graduation target', `${c.threshold.toLocaleString('en-US')} ${esc(sym())} ≈ ${usd(c.threshold * a.usdPrice)} today`) +
-    line('Dev buy', c.devBuy ? `${c.devBuy}% of supply — ${fmt(c.devBuyQuote, 4)} ${esc(sym())}` : 'none') +
-    line('Trading fee', (() => {
-      // Meteora's cut comes off the top, so the split is of what remains.
-      const cut = feeBreakdown(feeBps, creatorShare)
-      const pc = (b) => `${(b / 100).toFixed(2).replace(/\.?0+$/, '')}%`
-      const tail = `${pc(cut.partner)} to the LFOwn DAO, ${pc(cut.protocol)} to Meteora`
-      if (!c.holders) return `${feeBps / 100}% per trade — ${pc(cut.creator)} to you, ${tail}`
-      // The holders' part is carved out of the creator's, so it is that share of it
-      // rather than of the whole fee.
-      const theirs = (cut.creator * c.holders) / creatorShare
-      return `${feeBps / 100}% per trade — ${pc(cut.creator - theirs)} to you, ${pc(theirs)} to holders of ${esc(state.token.symbol || 'the coin')}, ${tail}`
-    })())
+    (state.blind ? '' : line(a.backing ? 'Backed by' : 'Treasury', a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
+    line('Graduation target', target ?? '—') +
+    line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn') +
+    (c.holders ? line('Holders earn', `<b>${c.holders}%</b>, paid out hourly`, 'earn') : '')
+
+  $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
 }
 
 // ── wallet ───────────────────────────────────────────────────────────────────
@@ -670,8 +704,9 @@ function paintWallet() {
   paintConnect()
   paintFunding()
   if (session) {
-    signBtn.textContent = `Launch ${state.token.symbol ?? ''} as ${short(session.address)}`.trim()
-    signBtn.disabled = false
+    signBtn.textContent = `Launch $${state.token.symbol ?? ''}`.trim()
+    signBtn.title = `Signed by ${session.address}`
+    signBtn.disabled = !state.curve.tier
     return
   }
   // Naming a wallet here promised a launch and delivered a connection prompt.
@@ -787,8 +822,8 @@ signBtn.addEventListener('click', async () => {
       }
 
       if (have < devBuy) {
-        say(`You hold ${fmt(have, 4)} ${esc(sym())} and the dev buy needs ${fmt(devBuy, 4)}.
-          Top up with SOL or USDC, or lower the dev buy.`, 'warn-text')
+        say(`You hold ${fmt(have, 4)} ${esc(sym())} and the initial buy needs ${fmt(devBuy, 4)}.
+          Top up with SOL or USDC, or lower the initial buy.`, 'warn-text')
         signBtn.disabled = false
         return
       }
@@ -836,11 +871,27 @@ signBtn.addEventListener('click', async () => {
       // transactions. One approval covers both, and each is confirmed before the
       // next is sent because the next one depends on it.
       const signedAll = await wallet.signAllOnly?.(transactions)
-      if (!signedAll) throw new Error(`${wallet.name} cannot sign two transactions at once, which sharing fees with holders needs. Set the holder share back to 0%, or use another wallet.`)
-      // Told as it goes: sending the vault and waiting for it looked, from the page,
-      // exactly like waiting for the wallet.
-      const signatures = await sendAllWithMint(signedAll, mint, { say })
-      signature = signatures[signatures.length - 1]
+      if (signedAll) {
+        // Told as it goes: sending the vault and waiting for it looked, from the page,
+        // exactly like waiting for the wallet.
+        const signatures = await sendAllWithMint(signedAll, mint, { say })
+        signature = signatures[signatures.length - 1]
+      } else {
+        // A wallet that cannot sign both at once is asked twice. Holders are part of
+        // every launch now, so turning a wallet away here would turn its owner away.
+        const { confirm } = await import('./funding.js')
+        for (const [i, tx] of transactions.entries()) {
+          const last = i === transactions.length - 1
+          say(last ? 'Now the launch itself — waiting for your signature…' : 'First the fee vault — waiting for your signature (1 of 2)…')
+          const bytes = await wallet.signOnly(tx)
+          if (!bytes) throw new Error(`${wallet.name} cannot sign a transaction without sending it, which a launch needs. Try Phantom, Solflare or Backpack.`)
+          signature = await sendWithMint(bytes, mint)
+          if (!last) {
+            say('Opening the fee vault — waiting for it to confirm before the launch goes out…')
+            await confirm(connection, signature, { what: 'Opening the fee vault', timeoutMs: 45_000 })
+          }
+        }
+      }
     } else {
       // Wallet first, mint second: a transaction handed to Phantom with a signature
       // slot it cannot account for is one it will not simulate, and it warns about it.
@@ -926,9 +977,10 @@ function applyQuote() {
 /**
  * A launch an agent prepared for someone to sign: `/launch?draft=<id>`.
  *
- * Everything is filled in and the page stops at the curve step, so the person still
- * sees every choice before the review — the agent proposed it, they decide it. The
- * draft holds nothing secret; its id is only hard to guess.
+ * Everything is filled in and the page stops at the review, so the person still sees
+ * every choice before signing — the agent proposed it, they decide it. The draft holds
+ * nothing secret; its id is only hard to guess. Its holder share is not used: every
+ * launch from this page shares a quarter of the fee with holders.
  */
 async function applyDraft() {
   const id = new URLSearchParams(location.search).get('draft')
@@ -949,6 +1001,7 @@ async function applyDraft() {
 
   state.draft = draft
   card.click()
+  if (draft.devBuyPercent > 0) state.setDevBuy(Math.min(DEV_BUY_MAX, draft.devBuyPercent))
   const values = { name: draft.name, symbol: draft.symbol, desc: draft.description, x: draft.twitter, site: draft.website }
   for (const [key, sel] of Object.entries(fields)) {
     const input = $(sel)
@@ -957,9 +1010,7 @@ async function applyDraft() {
   }
   if (draft.image) {
     state.token.image = draft.image
-    preview.src = draft.image
-    preview.hidden = false
-    clearBtn.hidden = false
+    showImage(draft.image)
     imageStatus.textContent = 'Image from the draft.'
   }
   const note = $('#draft-note')

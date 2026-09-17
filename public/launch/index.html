@@ -60,11 +60,18 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 
 .step{display:none}
 .step.on{display:block}
-.step-head{margin-bottom:clamp(20px,3vw,32px)}
+.step-head{margin-bottom:clamp(18px,2.6vw,28px);display:flex;justify-content:space-between;align-items:flex-end;gap:14px 24px;flex-wrap:wrap}
+/* The title, its line and the stepper are the same on every step; past the first,
+   only the spacing around the form tightens. */
+#flow:not([data-step="1"]) .step-head{margin-bottom:clamp(14px,2vw,18px)}
+#flow:not([data-step="1"]) .step-head h2{font-size:clamp(1.3rem,2.6vw,1.8rem);margin-bottom:4px}
+#flow:not([data-step="1"]){padding-top:clamp(20px,3vw,32px);padding-bottom:12px}
+#flow:not([data-step="1"]) .stepper{margin-bottom:clamp(18px,2.6vw,26px)}
 /* The coin this launch is paired with, above every step after the first: picked on step
    one, it is otherwise out of sight for the rest of the flow — and a link that picks it
    for you (/launch?quote=…) lands straight on step two. */
 .paired{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:0 0 clamp(20px,3vw,28px);padding:10px 14px;border:1.5px solid var(--ink);box-shadow:4px 4px 0 var(--red)}
+.paired[hidden]{display:none}
 .paired img{width:30px;height:30px;border-radius:2px;object-fit:cover}
 .paired .dice{width:30px;height:30px;display:grid;place-items:center;border:1.5px solid var(--red);color:var(--red);font-family:var(--display);font-weight:800}
 .paired .what{font-size:.95rem;line-height:1.3}
@@ -75,6 +82,7 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .step-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;
   font-size:clamp(1.4rem,3.4vw,2.2rem);line-height:1;margin:0 0 8px}
 .step-head p{color:var(--ink-soft);margin:0;max-width:62ch}
+.step-head h2 + p{margin-top:0}
 
 /* ── quote asset cards ─────────────── */
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:clamp(14px,2vw,20px)}
@@ -155,89 +163,78 @@ textarea{min-height:96px;resize:vertical}
 .with-unit .unit{position:absolute;right:12px;top:50%;transform:translateY(-50%);
   font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;color:var(--ink-soft)}
 .with-unit input{padding-right:88px}
-/* The slider that splits the creator's half with holders: a card with the two shares in
-   large figures, a thin track, and a bar underneath that shows the whole fee as it
-   really lands — creator, holders, DAO. `hidden` is spelled out because the whole
-   block is absent on a deployment with no pot address set, and a grid item has been
-   reachable through a display rule before. */
-.form label[hidden],.split-wrap[hidden]{display:none}
-.split{border:1.5px solid var(--ink);background:var(--card);padding:clamp(18px,2.6vw,28px);
-  box-shadow:8px 8px 0 var(--ink);margin:4px 8px 8px 0}
-.split-title{display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
-  color:var(--ink);margin-bottom:clamp(14px,2vw,20px)}
-.split-read{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:clamp(14px,2vw,20px)}
-.split-read span{display:flex;align-items:baseline;gap:10px;font-family:var(--mono);font-size:.6rem;
-  letter-spacing:.18em;text-transform:uppercase;color:var(--ink)}
-.split-read b{font-family:var(--display);font-weight:800;font-size:clamp(1.9rem,4.4vw,2.7rem);
-  letter-spacing:-.035em;line-height:1;color:var(--ink)}
-.split-read .split-them b{color:var(--red)}
-/* `border:0;padding:0` undo the form's rule for every input, which turned this track into
-   a bordered box. */
-.split input[type=range]{-webkit-appearance:none;appearance:none;display:block;width:100%;height:4px;margin:12px 0 10px;
-  border:0;padding:0;
-  background:linear-gradient(to right,var(--red) var(--fill,0%),var(--rule) var(--fill,0%));
-  border-radius:2px;outline:none;cursor:pointer}
-.split input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;
-  background:var(--red);border:4px solid var(--card);box-shadow:0 1px 4px rgba(17,16,16,.35),0 0 0 1px var(--rule);cursor:pointer}
-.split input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;
-  background:var(--red);border:4px solid var(--card);box-shadow:0 1px 4px rgba(17,16,16,.35),0 0 0 1px var(--rule);cursor:pointer}
-.split input[type=range]:focus{outline:none}
-.split input[type=range]:focus-visible{outline:2px solid var(--red);outline-offset:8px}
-.split-ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;
-  color:var(--ink);margin-bottom:clamp(16px,2.4vw,24px)}
-/* The whole fee, not just the creator's half: the three segments always add up to 100%. */
-.split-bar{display:flex;border:1.5px solid var(--ink);height:clamp(40px,5vw,50px);overflow:hidden}
-.split-bar .seg{display:flex;align-items:center;justify-content:center;min-width:0;overflow:hidden;white-space:nowrap;
-  font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase}
-/* No transition on the widths. A segment that leaves or rejoins the layout does so at
-   once while its neighbour would still be animating, which opened a gap in the bar; and
-   wherever frames are not being drawn the animation freezes at its start and the gap
-   stays. The slider moves in steps of five, so nothing is lost by jumping. */
-.split-bar .seg + .seg{border-left:1.5px solid var(--ink)}
-.split-bar .seg-you{background:var(--card);color:var(--ink)}
-.split-bar .seg-them{background:var(--red);color:#fff}
-.split-bar .seg-dao{background:var(--ink);color:var(--card)}
-/* Too narrow for its word: keep the colour, drop the label rather than let it spill. */
-.split-bar .seg.is-narrow{color:transparent}
-/* Out of the layout, not just zero wide: at a flex-basis of 0% the segment kept two pixels,
-   a red sliver and the edge of its own label at the join. The other two still add to 100%. */
-.split-bar .seg.is-empty{display:none}
-.split-bar .seg.is-empty + .seg{border-left:0}
-.split-wrap .hint{margin-top:14px}
 
-.drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+
+
+/* ── step 2: the token ─────────────── */
+.token-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,.75fr);gap:clamp(18px,3vw,36px);align-items:start}
+@media(max-width:860px){.token-grid{grid-template-columns:1fr}.token-side{order:-1}}
+@media(max-width:560px){.stepper button{min-width:0;padding:12px 10px;letter-spacing:.1em}}
+.token-grid .form{max-width:none;gap:clamp(12px,1.6vw,16px)}
+.token-grid textarea{min-height:92px}
+.token-side{display:grid;gap:clamp(12px,1.6vw,16px)}
+.random{display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;font:inherit;color:#fff;
+  background:var(--red);border:1.5px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:12px 14px;
+  transition:transform .14s ease,box-shadow .14s ease}
+.random:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink)}
+.random:disabled{cursor:progress;opacity:.8}
+.random .die{font-size:2rem;line-height:1;display:inline-block}
+.random.busy .die{animation:roll .6s linear infinite}
+@keyframes roll{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.random.busy .die{animation:none}}
+.random b{display:block;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.01em;font-size:1.05rem;line-height:1.1}
+.random small{display:block;font-size:.8rem;opacity:.9;margin-top:2px}
+.drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:12px;display:flex;align-items:center;gap:14px}
+.drop.over{border-color:var(--red);border-style:solid}
+.drop-frame{position:relative;width:108px;height:108px;flex:0 0 auto;border:1.5px solid var(--ink);background:var(--paper);display:grid;place-items:center;overflow:hidden}
+.drop-frame img{width:100%;height:100%;object-fit:cover}
+.drop-empty{font-family:var(--mono);font-size:.5rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);text-align:center;padding:6px}
+.drop-frame.drawing::after{content:"Drawing…";position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.45);color:#fff;
+  font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase}
+.drop-copy{display:flex;flex-direction:column;gap:4px;min-width:0;padding-right:28px}
+.drop-copy .hint{margin:0}
 .drop-clear{
   position:absolute;top:8px;right:8px;width:26px;height:26px;line-height:1;font-size:19px;
   background:transparent;border:1.5px solid var(--ink);color:var(--ink);cursor:pointer;
   display:flex;align-items:center;justify-content:center;padding:0;transition:background .15s,color .15s
 }
 .drop-clear:hover{background:var(--red);color:#fff;border-color:var(--red)}
-.drop.over{border-color:var(--red);border-style:solid}
-.drop img{width:72px;height:72px;object-fit:cover;border:1.5px solid var(--ink)}
-.drop-copy{display:flex;flex-direction:column;gap:4px}
-.drop-copy .hint{margin:0}
+.drop-clear[hidden]{display:none}
+.token-side .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:7px}
 
-.tiers{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-.tier{border:1.5px solid var(--ink);background:var(--card);padding:14px;text-align:left;font:inherit;color:inherit;cursor:pointer;
-  transition:transform .14s ease,box-shadow .14s ease}
-.tier:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:5px 5px 0 var(--ink)}
-.tier[aria-pressed="true"]{border-color:var(--red);box-shadow:5px 5px 0 var(--red)}
-.tier:disabled{opacity:.5;cursor:not-allowed}
-.tier .t-name{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--red);display:block;margin-bottom:6px}
-.tier .t-usd{font-family:var(--display);font-weight:800;font-size:1.3rem;letter-spacing:-.02em;display:block}
-.tier .t-sub{font-size:.82rem;color:var(--ink-soft);display:block;margin-top:3px}
+/* ── step 3: review ─────────────────── */
+.review-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:clamp(18px,3vw,36px);align-items:start}
+@media(max-width:860px){.review-grid{grid-template-columns:1fr}}
+.review{border:1.5px solid var(--ink);background:var(--card);box-shadow:8px 8px 0 var(--red)}
+.review .coin{display:flex;align-items:center;gap:14px;padding:10px 16px;border-bottom:1.5px solid var(--ink)}
+.review .coin img,.review .coin .noimg{width:56px;height:56px;object-fit:cover;border:1.5px solid var(--ink);background:var(--paper);flex:0 0 auto}
+.review .coin .sym{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
+.review .coin .nm{font-size:.88rem;color:var(--ink-soft);margin-top:3px}
+.review .line{display:flex;justify-content:space-between;align-items:center;gap:18px;padding:8px 16px;border-bottom:1px dashed var(--rule);font-size:.93rem}
+.review .line:last-child{border-bottom:0}
+.review .line > span:first-child{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
+.review .line > span:last-child{text-align:right;font-variant-numeric:tabular-nums}
+.review .earn b{color:var(--red);font-weight:600}
+.tier-pick{display:inline-flex;border:1.5px solid var(--ink)}
+.tier-pick button{font-family:var(--mono);font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;padding:6px 8px;background:transparent;border:0;border-right:1.5px solid var(--ink);color:var(--ink);cursor:pointer}
+.tier-pick button:last-child{border-right:0}
+.tier-pick button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.buy-panel{border:1.5px solid var(--ink);background:var(--card);padding:14px 16px;display:grid;gap:7px}
+.buy-panel > .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink)}
+.buy-panel .lab-soft{color:var(--ink-soft);letter-spacing:.08em;text-transform:none;font-size:.62rem}
+.buy-panel .hint{margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;padding:9px 11px;background:transparent;border:1.5px solid var(--ink);color:var(--ink);cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--red);border-color:var(--red);color:#fff}
+.chips .with-unit{flex:1 1 90px;min-width:90px}
+.chips input{padding:8px 30px 8px 10px;font-size:.9rem}
+.chips .with-unit .unit{right:10px}
+.buy-panel .funding{margin-top:4px}
+.btn.sign{width:100%;justify-content:center;margin-top:4px;padding:14px 20px}
 
 .note{border-left:4px solid var(--red);padding:12px 0 12px 16px;font-size:.92rem;color:var(--ink-soft)}
 .note b{color:var(--ink);font-weight:500}
 
-/* ── review ────────────────────────── */
-.review{border:1.5px solid var(--ink);background:var(--card);box-shadow:10px 10px 0 var(--red);max-width:660px}
-.review .line{display:flex;justify-content:space-between;gap:18px;padding:13px 20px;border-bottom:1px dashed var(--rule);font-size:.95rem}
-.review .line:last-of-type{border-bottom:0}
-.review .line span:first-child{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
-.review .line span:last-child{text-align:right;font-variant-numeric:tabular-nums}
-.review .head{background:var(--red);color:#fff;padding:11px 20px;border-bottom:1.5px solid var(--ink);
-  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
 
 .wallet-slot{position:relative;display:inline-flex}
 .wallet-menu{
@@ -282,12 +279,12 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
 .pay button:last-child{border-right:0}
 .pay button[aria-pressed="true"]{background:var(--red);color:#fff}
 .pay button:disabled{opacity:.45;cursor:not-allowed}
-.funding{border:1.5px solid var(--ink);background:var(--card);max-width:660px;margin-top:18px;padding:17px 20px}
+.funding{border:1.5px solid var(--ink);background:var(--paper);padding:12px 14px}
 .funding .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:9px}
-.funding .pay{margin-bottom:12px}
-.funding .detail{font-size:.92rem;color:var(--ink-soft);font-variant-numeric:tabular-nums;line-height:1.6}
+.funding .pay{margin-bottom:8px}
+.funding .detail{margin:0;font-size:.86rem;color:var(--ink-soft);font-variant-numeric:tabular-nums;line-height:1.6}
 .funding .detail b{color:var(--ink);font-weight:500}
-.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:clamp(24px,3.5vw,36px)}
+.actions{display:flex;gap:14px;flex-wrap:wrap;margin-top:clamp(18px,2.6vw,26px)}
 button.btn{font:inherit;cursor:pointer;font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
 button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 5px 0 var(--ink)}
 .warn-text{color:var(--red)}
@@ -325,6 +322,11 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
   </div>
 
 </header>
+
+<!-- Creators who have earned from their coins, scrolling under the bar: the plainest
+     proof that launching here pays. Filled from the same fee report as /leaderboard,
+     and absent until it loads, so a page never shows an empty strip. -->
+<div class="earners" id="earners" hidden><div class="earners-track" id="earnersTrack"></div></div>
 
 <!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
      filter makes an element the containing block for any position:fixed descendant
@@ -404,18 +406,57 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
     for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
   })()
 </script>
+<script>
+  // The earners strip. Per wallet, the creator's own share of every coin it launched, in
+  // dollars — the figure /leaderboard ranks by. Wallets under a dollar are left out.
+  (function () {
+    var box = document.getElementById('earners')
+    var track = document.getElementById('earnersTrack')
+    if (!box || !track || !window.fetch) return
+    fetch('/api/fees').then(function (r) { return r.json() }).then(function (report) {
+      var by = {}
+      var coins = (report && report.coins) || []
+      for (var i = 0; i < coins.length; i++) {
+        var c = coins[i]
+        if (!c.creatorWallet) continue
+        by[c.creatorWallet] = (by[c.creatorWallet] || 0) + (Number(c.creator) || 0) * (Number(c.quoteUsdPrice) || 0)
+      }
+      var rows = Object.keys(by).map(function (w) { return { w: w, usd: by[w] } })
+        .filter(function (r) { return r.usd >= 1 })
+        .sort(function (a, b) { return b.usd - a.usd })
+        .slice(0, 30)
+      if (!rows.length) return
+      var item = function (r) {
+        // Addresses are base58, so they need no escaping; the check keeps it that way.
+        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(r.w)) return ''
+        return '<a class="earner" href="/creator/' + r.w + '"><span class="dot"></span>' +
+          '<b>' + r.w.slice(0, 4) + '…' + r.w.slice(-4) + '</b> earned <em>$' +
+          Math.round(r.usd).toLocaleString('en-US') + '</em> in fees</a>'
+      }
+      // Repeated until one copy is wider than any screen, then doubled: the strip slides
+      // by exactly half its width and loops without a seam.
+      var one = rows.map(item).join('')
+      var group = one
+      while (group.length < 6000 && rows.length) group += one
+      track.innerHTML = '<div class="earners-grp">' + group + '</div><div class="earners-grp" aria-hidden="true">' + group + '</div>'
+      track.style.animationDuration = Math.max(30, rows.length * 9) + 's'
+      box.hidden = false
+    }).catch(function () { /* no strip is better than a broken one */ })
+  })()
+</script>
 
 <!--/lfown-header-->
 
-<main class="wrap">
-  <h1>Launch a coin<br>against ownership.</h1>
-  <p class="lede">Pick what your coin is paired with, then set it up. Every backing asset below has a treasury standing behind it — that is what makes the pairing worth anything.</p>
+<main class="wrap" id="flow" data-step="1">
+  <div class="intro">
+    <h1>Launch a memecoin<br>against ownership coin.</h1>
+    <p class="lede">Earn 25% of the fees generated by the memecoin.</p>
+  </div>
 
   <nav class="stepper" id="stepper">
     <button type="button" data-go="1" aria-current="step"><span class="n">01</span> Backing</button>
     <button type="button" data-go="2" disabled><span class="n">02</span> Token</button>
-    <button type="button" data-go="3" disabled><span class="n">03</span> Curve</button>
-    <button type="button" data-go="4" disabled><span class="n">04</span> Review</button>
+    <button type="button" data-go="3" disabled><span class="n">03</span> Review</button>
   </nav>
   <p class="hint" id="draft-note" hidden></p>
   <div class="paired" id="paired" hidden></div>
@@ -423,8 +464,9 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
   <!-- 01 ------------------------------------------------------------------ -->
   <section class="step on" data-step="1">
     <div class="step-head">
-      <h2>Choose the backing</h2>
-      <p>Every MetaDAO ownership coin with a live treasury. Thin ones are listed too — that is your call to make, not ours.</p>
+      <div>
+        <h2>Choose the backing</h2>
+      </div>
     </div>
     <label class="search">
       <span class="lab">Search</span>
@@ -437,31 +479,41 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
   <!-- 02 ------------------------------------------------------------------ -->
   <section class="step" data-step="2">
     <div class="step-head">
-      <h2>Your token</h2>
-      <p>What people will see on the chart.</p>
-    </div>
-    <div class="form">
-      <div class="row2">
-        <label><span class="lab">Name</span><input id="f-name" placeholder="Solana" maxlength="32"></label>
-        <label><span class="lab">Ticker</span><input id="f-symbol" placeholder="SOL" maxlength="10"></label>
-      </div>
       <div>
-        <span class="lab">Image</span>
-        <div class="drop" id="drop">
-          <img id="preview" alt="" hidden>
-          <div class="drop-copy">
-            <button class="btn ghost" type="button" id="pick">Choose a file</button>
-            <p class="hint">PNG, JPEG, WebP or GIF, up to 2 MB.</p>
-          </div>
-          <button class="drop-clear" type="button" id="clear-image" hidden aria-label="Remove image">&times;</button>
-        </div>
-        <input type="file" id="f-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
-        <p class="hint" id="image-status"></p>
+        <h2>Your token</h2>
+        <p>What people will see on the chart.</p>
       </div>
-      <label><span class="lab">Description</span><textarea id="f-desc" placeholder="What is this coin about?" maxlength="500"></textarea></label>
-      <div class="row2">
-        <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
-        <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
+    </div>
+    <div class="token-grid">
+      <div class="form">
+        <div class="row2">
+          <label><span class="lab">Name</span><input id="f-name" placeholder="Solana" maxlength="32"></label>
+          <label><span class="lab">Ticker</span><input id="f-symbol" placeholder="SOL" maxlength="10"></label>
+        </div>
+        <label><span class="lab">Description</span><textarea id="f-desc" placeholder="What is this coin about?" maxlength="500"></textarea></label>
+        <div class="row2">
+          <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
+          <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
+        </div>
+      </div>
+      <div class="token-side">
+        <button class="random" type="button" id="randomize">
+          <span class="die" aria-hidden="true">⚄</span>
+          <span><b id="randomize-label">No idea? Random coin</b><small>A name, a picture and a story that go together.</small></span>
+        </button>
+        <div>
+          <span class="lab">Image</span>
+          <div class="drop" id="drop">
+            <div class="drop-frame"><img id="preview" alt="" hidden><span class="drop-empty" id="drop-empty">No image yet</span></div>
+            <div class="drop-copy">
+              <button class="btn ghost" type="button" id="pick">Choose a file</button>
+              <p class="hint">PNG, JPEG, WebP or GIF, up to 2 MB.</p>
+              <p class="hint" id="image-status"></p>
+            </div>
+            <button class="drop-clear" type="button" id="clear-image" hidden aria-label="Remove image">&times;</button>
+          </div>
+          <input type="file" id="f-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+        </div>
       </div>
     </div>
     <div class="actions">
@@ -473,62 +525,38 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
   <!-- 03 ------------------------------------------------------------------ -->
   <section class="step" data-step="3">
     <div class="step-head">
-      <h2>The curve</h2>
-      <p>Your raise is denominated in the backing coin, not in dollars.</p>
-    </div>
-    <div class="form">
       <div>
-        <span class="lab">Raise target</span>
-        <div class="tiers" id="tiers"></div>
-        <p class="hint" id="tier-hint">This raise becomes your pool's entire liquidity. The target is a fixed number of backing coins, so the dollar figure moves with them.</p>
+        <h2>Review</h2>
+        <p>Check it over before you sign. Everything below is fixed once the transaction lands.</p>
       </div>
-      <label>
-        <span class="lab">Dev buy (max 50%)</span>
-        <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" placeholder="0"><span class="unit">% supply</span></span>
+    </div>
+    <div class="review-grid">
+      <!-- Back sits under the summary rather than under the whole grid: the buy panel
+           grows with a dev buy and would push it below the fold. -->
+      <div>
+        <div class="review" id="review"></div>
+        <div class="actions">
+          <button class="btn ghost" data-back="2">Back</button>
+        </div>
+      </div>
+      <div class="buy-panel">
+        <span class="lab">Initial buy <span class="lab-soft">— optional, max 50% of supply</span></span>
+        <div class="chips" id="devbuy-chips">
+          <button type="button" data-pct="0" aria-pressed="true">None</button>
+          <button type="button" data-pct="1" aria-pressed="false">1%</button>
+          <button type="button" data-pct="5" aria-pressed="false">5%</button>
+          <button type="button" data-pct="10" aria-pressed="false">10%</button>
+          <button type="button" data-pct="20" aria-pressed="false">20%</button>
+          <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" placeholder="Other" aria-label="Initial buy, percent of supply"><span class="unit">%</span></span>
+        </div>
         <p class="hint warn-text" id="devbuy-cap" hidden>Capped at 50% — that is what will be priced and launched.</p>
         <p class="hint" id="devbuy-cost">Bought atomically with the launch, so nobody can front-run you.</p>
-      </label>
-      <div class="split-wrap" id="holder-split" hidden>
-        <div class="split">
-          <span class="split-title">Share your fees with holders</span>
-          <div class="split-read">
-            <span class="split-you">You <b id="split-you">25%</b></span>
-            <span class="split-them">Holders <b id="split-them">25%</b></span>
-          </div>
-          <!-- autocomplete="off": browsers otherwise restore a range input's last value on
-               reload or back, and a split fixed for good at launch must never come back
-               silently set to something the creator chose on an earlier visit. -->
-          <input id="f-holders" type="range" min="0" max="50" step="5" value="25" autocomplete="off"
-                 aria-label="Share of trading fees given to holders" style="--fill:50%">
-          <div class="split-ends" aria-hidden="true"><span>0%</span><span>50%</span></div>
-          <div class="split-bar" aria-hidden="true">
-            <span class="seg seg-you" id="seg-you" style="flex-basis:25%">You</span>
-            <span class="seg seg-them" id="seg-them" style="flex-basis:25%">Holders</span>
-            <span class="seg seg-dao" id="seg-dao" style="flex-basis:50%">LFOwn DAO 50%</span>
-          </div>
-        </div>
-        <p class="hint" id="split-hint">Holders share 25% of every trading fee, pro rata. You keep 25%, the LFOwn DAO keeps 50%. Fixed at launch — it cannot be changed afterwards.</p>
+        <div class="funding" id="funding" hidden></div>
+        <p class="hint" id="vanity"></p>
+        <button class="btn sign" id="sign" disabled>Connect wallet to launch</button>
+        <p class="hint" id="sign-status">The transaction is built and signed in your browser. Nothing but the signed bytes reaches our servers.</p>
       </div>
-    <div class="actions">
-      <button class="btn ghost" data-back="2">Back</button>
-      <button class="btn" id="to4">Continue</button>
     </div>
-  </section>
-
-  <!-- 04 ------------------------------------------------------------------ -->
-  <section class="step" data-step="4">
-    <div class="step-head">
-      <h2>Review</h2>
-      <p>Check it over before you sign. Everything below is fixed once the transaction lands.</p>
-    </div>
-    <div class="review" id="review"></div>
-    <p class="hint" id="vanity"></p>
-    <div class="funding" id="funding" hidden></div>
-    <div class="actions">
-      <button class="btn ghost" data-back="3">Back</button>
-      <button class="btn" id="sign" disabled>Connect wallet to launch</button>
-    </div>
-    <p class="hint" id="sign-status" style="margin-top:14px">The transaction is built and signed in your browser. Nothing but the signed bytes reaches our servers.</p>
   </section>
 </main>
 

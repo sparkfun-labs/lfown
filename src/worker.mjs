@@ -15,6 +15,7 @@ import { tradeHistory, ammLeg } from './lib/chart.mjs'
 import * as telegram from './lib/telegram.mjs'
 import * as x from './lib/x.mjs'
 import { PUMP, pumpCandidates, launchUrl } from './lib/pumps.mjs'
+import * as random from './lib/random-token.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
@@ -235,6 +236,9 @@ async function handleApi(url, request, env, ctx) {
 
   if (path === '/api/rpc') {
     if (await limited(env.RPC_LIMITER, request)) return tooMany()
+  } else if (path.startsWith('/api/random/')) {
+    // Every call here runs a model. Its own ceiling, well under the heavy routes'.
+    if (await limited(env.RANDOM_LIMITER, request)) return tooMany()
   } else if (HEAVY.some((p) => path === p || path.startsWith(`${p}/`))) {
     if (await limited(env.HEAVY_LIMITER, request)) return tooMany()
   }
@@ -386,6 +390,49 @@ async function handleApi(url, request, env, ctx) {
     const ext = type.split('/')[1].replace('jpeg', 'jpg')
     const key = `${crypto.randomUUID()}.${ext}`
     await env.IMAGES.put(key, body, { httpMetadata: { contentType: type, cacheControl: 'public, max-age=31536000, immutable' } })
+    return json({ url: `${env.PUBLIC_ORIGIN || url.origin}/i/${key}` })
+  }
+
+  // The launch page's Random button: an idea first, its picture second. See
+  // src/lib/random-token.mjs for why the picture is asked for by id.
+  if (path === '/api/random/idea' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    if (!env.AI) return json({ error: 'random coins are not available here' }, { status: 501 })
+    if (!(await random.takeFromCap(env.REGISTRY))) {
+      return json({ error: 'The random generator has had a busy day. Try again tomorrow, or name your own.' }, { status: 429 })
+    }
+    let idea = null
+    for (let attempt = 0; attempt < 2 && !idea; attempt++) {
+      idea = await random.writeIdea(env.AI).catch((e) => {
+        console.error(`random idea failed: ${e.message}`)
+        return null
+      })
+    }
+    if (!idea) return json({ error: 'No idea came back this time. Press it again.' }, { status: 502 })
+    const id = crypto.randomUUID()
+    await env.REGISTRY?.put(random.ideaKey(id), JSON.stringify(idea), { expirationTtl: random.IDEA_TTL })
+    return json({ id, name: idea.ticker, symbol: idea.ticker, description: idea.description })
+  }
+
+  if (path === '/api/random/image' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    if (!env.AI || !env.IMAGES || !env.REGISTRY) return json({ error: 'random images are not available here' }, { status: 501 })
+    const body = await request.json().catch(() => null)
+    const id = String(body?.id ?? '')
+    const idea = /^[0-9a-f-]{36}$/.test(id) ? await env.REGISTRY.get(random.ideaKey(id), 'json') : null
+    if (!idea) return json({ error: 'that idea has expired — press Random again' }, { status: 404 })
+    // One picture per idea: deleted before drawing, so the same id cannot be replayed
+    // into a stream of free images.
+    await env.REGISTRY.delete(random.ideaKey(id))
+    let bytes
+    try {
+      bytes = await random.drawIdea(env.AI, idea.image)
+    } catch (e) {
+      console.error(`random image failed: ${e.message}`)
+      return json({ error: 'The picture did not come out. Upload your own, or press Random again.' }, { status: 502 })
+    }
+    const key = `${crypto.randomUUID()}.jpg`
+    await env.IMAGES.put(key, bytes, { httpMetadata: { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' } })
     return json({ url: `${env.PUBLIC_ORIGIN || url.origin}/i/${key}` })
   }
 

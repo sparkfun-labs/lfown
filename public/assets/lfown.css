@@ -69,6 +69,22 @@ body::after{
 .mono{font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
 
 /* ── nav ───────────────────────────── */
+/* The earners strip, under the bar. Slim on purpose: it sits above every page, the
+   launch flow included, which has to fit a laptop screen without scrolling. */
+.earners{position:relative;overflow:hidden;white-space:nowrap;border-bottom:1.5px solid var(--ink);background:var(--card)}
+.earners[hidden]{display:none}
+.earners-track{display:flex;width:max-content;animation:earners-slide 60s linear infinite;will-change:transform}
+.earners:hover .earners-track{animation-play-state:paused}
+.earners-grp{display:flex;flex:0 0 auto}
+.earner{display:inline-flex;align-items:center;gap:7px;padding:7px 22px;text-decoration:none;color:var(--ink-soft);
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.08em}
+.earner b{color:var(--ink);font-weight:600}
+.earner em{font-style:normal;color:var(--red);font-weight:600}
+.earner .dot{width:6px;height:6px;border-radius:50%;background:var(--red);flex:0 0 auto}
+.earner:hover b{color:var(--red)}
+@keyframes earners-slide{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+@media(prefers-reduced-motion:reduce){.earners-track{animation:none}}
+
 header.top{
   position:sticky;top:0;z-index:50;background:var(--bar);
   backdrop-filter:blur(8px);border-bottom:1.5px solid var(--ink);

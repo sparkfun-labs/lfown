@@ -73,6 +73,14 @@ Before the first deploy:
     npx wrangler secret put X_ACCESS_TOKEN
     npx wrangler secret put X_ACCESS_SECRET
 
+The launch page's **Random coin** button uses Workers AI, bound as `AI` in
+`wrangler.jsonc`: Llama 3.3 writes a ticker (also the name), a description and an image
+prompt together, and FLUX.1 schnell draws the picture into the `IMAGES` bucket. The
+picture is requested by the id of an idea the Worker wrote, never by a prompt from the
+browser. Presses are limited per address (`RANDOM_LIMITER`) and to 1,500 per day across
+the site (`src/lib/random-token.mjs`). Without the binding, the button answers that it
+is unavailable.
+
 Then add a **rate limiting rule on `/api/*`** in the zone's WAF (Security → WAF →
 Rate limiting rules; one rule is included on the free plan). The Worker enforces
 its own per-address ceilings — see *Security* — and the zone rule is the layer

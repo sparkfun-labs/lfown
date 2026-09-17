@@ -139,6 +139,11 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 
 </header>
 
+<!-- Creators who have earned from their coins, scrolling under the bar: the plainest
+     proof that launching here pays. Filled from the same fee report as /leaderboard,
+     and absent until it loads, so a page never shows an empty strip. -->
+<div class="earners" id="earners" hidden><div class="earners-track" id="earnersTrack"></div></div>
+
 <!-- Outside the header on purpose. `header.top` carries a backdrop-filter, and a
      filter makes an element the containing block for any position:fixed descendant
      — the drawer inherited the header's 68 pixels of height and stopped there. -->
@@ -215,6 +220,44 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
     // otherwise still be sitting open over the page it just navigated to.
     var links = drawer.querySelectorAll('a')
     for (var j = 0; j < links.length; j++) links[j].addEventListener('click', function () { show(false) })
+  })()
+</script>
+<script>
+  // The earners strip. Per wallet, the creator's own share of every coin it launched, in
+  // dollars — the figure /leaderboard ranks by. Wallets under a dollar are left out.
+  (function () {
+    var box = document.getElementById('earners')
+    var track = document.getElementById('earnersTrack')
+    if (!box || !track || !window.fetch) return
+    fetch('/api/fees').then(function (r) { return r.json() }).then(function (report) {
+      var by = {}
+      var coins = (report && report.coins) || []
+      for (var i = 0; i < coins.length; i++) {
+        var c = coins[i]
+        if (!c.creatorWallet) continue
+        by[c.creatorWallet] = (by[c.creatorWallet] || 0) + (Number(c.creator) || 0) * (Number(c.quoteUsdPrice) || 0)
+      }
+      var rows = Object.keys(by).map(function (w) { return { w: w, usd: by[w] } })
+        .filter(function (r) { return r.usd >= 1 })
+        .sort(function (a, b) { return b.usd - a.usd })
+        .slice(0, 30)
+      if (!rows.length) return
+      var item = function (r) {
+        // Addresses are base58, so they need no escaping; the check keeps it that way.
+        if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(r.w)) return ''
+        return '<a class="earner" href="/creator/' + r.w + '"><span class="dot"></span>' +
+          '<b>' + r.w.slice(0, 4) + '…' + r.w.slice(-4) + '</b> earned <em>$' +
+          Math.round(r.usd).toLocaleString('en-US') + '</em> in fees</a>'
+      }
+      // Repeated until one copy is wider than any screen, then doubled: the strip slides
+      // by exactly half its width and loops without a seam.
+      var one = rows.map(item).join('')
+      var group = one
+      while (group.length < 6000 && rows.length) group += one
+      track.innerHTML = '<div class="earners-grp">' + group + '</div><div class="earners-grp" aria-hidden="true">' + group + '</div>'
+      track.style.animationDuration = Math.max(30, rows.length * 9) + 's'
+      box.hidden = false
+    }).catch(function () { /* no strip is better than a broken one */ })
   })()
 </script>
 
