@@ -172,19 +172,19 @@ textarea{min-height:96px;resize:vertical}
 .token-side{display:grid;gap:12px}
 /* On a phone the two columns become one, and the Random button leads: it is the
    quickest way through for someone with nothing in mind. */
-@media(max-width:860px){.token-side{display:contents}.token-side .random{order:-1}.token-side > label{order:1}}
+@media(max-width:860px){.token-side{display:contents}.token-side .random{order:-1}}
 .token-grid .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:5px}
 .random{display:flex;align-items:center;gap:16px;width:100%;text-align:left;cursor:pointer;font:inherit;color:#fff;
-  background:var(--red);border:1.5px solid var(--ink);box-shadow:5px 5px 0 var(--ink);padding:18px 18px;
+  background:var(--red);border:1.5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:30px 26px;gap:20px;
   transition:transform .14s ease,box-shadow .14s ease}
 .random:hover:not(:disabled){transform:translate(-2px,-2px);box-shadow:7px 7px 0 var(--ink)}
 .random:disabled{cursor:progress;opacity:.8}
-.random .die{font-size:2.8rem;line-height:1;display:inline-block}
+.random .die{font-size:4rem;line-height:1;display:inline-block}
 .random.busy .die{animation:roll .6s linear infinite}
 @keyframes roll{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.random.busy .die{animation:none}}
-.random b{display:block;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.01em;font-size:1.45rem;line-height:1.05}
-.random small{display:block;font-size:.9rem;opacity:.92;margin-top:4px}
+.random b{display:block;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:clamp(1.6rem,2.4vw,2.1rem);line-height:1}
+.random small{display:block;font-size:1rem;opacity:.92;margin-top:8px}
 .req{color:var(--red);font-weight:600}
 .drop{position:relative;border:1.5px dashed var(--rule);background:var(--card);padding:8px 12px;display:flex;align-items:center;gap:18px}
 .drop.over{border-color:var(--red);border-style:solid}
@@ -515,6 +515,10 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
           <input type="file" id="f-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
         </div>
         <label><span class="lab">Description</span><textarea id="f-desc" placeholder="What is this coin about?" maxlength="500"></textarea></label>
+        <div class="row2">
+          <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
+          <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
+        </div>
         <div class="actions">
           <button class="btn ghost" data-back="1">Back</button>
           <button class="btn" id="to3" disabled>Continue</button>
@@ -525,8 +529,6 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
           <span class="die" aria-hidden="true">⚄</span>
           <span><b id="randomize-label">No idea? Random coin</b><small>A name, a picture and a story that go together.</small></span>
         </button>
-        <label><span class="lab">X / Twitter</span><input id="f-x" placeholder="https://x.com/…"></label>
-        <label><span class="lab">Website</span><input id="f-site" placeholder="https://…"></label>
       </div>
     </div>
   </section>
