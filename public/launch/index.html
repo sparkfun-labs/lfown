@@ -238,6 +238,10 @@ textarea{min-height:96px;resize:vertical}
 .chips .with-unit .unit{right:10px}
 .buy-panel .funding{margin-top:4px}
 .btn.sign{width:100%;justify-content:center;margin-top:6px;padding:15px 20px}
+/* A launch LFOwn pays for, said where the money would otherwise be asked for. */
+.free-note{margin:4px 0 0;padding:9px 12px;border:1.5px dashed var(--red);background:var(--card);font-size:.88rem;color:var(--ink-soft)}
+.free-note[hidden]{display:none}
+.free-note b{color:var(--red);font-weight:600}
 
 .note{border-left:4px solid var(--red);padding:12px 0 12px 16px;font-size:.92rem;color:var(--ink-soft)}
 .note b{color:var(--ink);font-weight:500}
@@ -558,6 +562,7 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
         <p class="hint" id="devbuy-cost">Bought in the launch itself, so nobody can buy before you.</p>
         <div class="funding" id="funding" hidden></div>
         <p class="hint" id="vanity"></p>
+        <p class="free-note" id="free-note" hidden></p>
         <button class="btn sign" id="sign" disabled>Connect wallet to launch</button>
         <p class="hint" id="sign-status"></p>
       </div>

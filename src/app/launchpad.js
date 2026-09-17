@@ -38,12 +38,12 @@ export const canShareWithHolders = () => Boolean(FEES.holderPot)
  * The launch, built by the same code the agent API and the devnet suite use — see
  * src/lib/launch-builder.mjs for what it contains and why it is shaped that way.
  */
-export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quoteMint, holderPct = 0 }) {
+export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quoteMint, holderPct = 0, sponsor = null }) {
   // A seed means the address was ground to end in `own`; without one the mint is
   // just random, which is what a browser that could not run the search falls back to.
   const mint = seed ? Keypair.fromSeed(seed) : Keypair.generate()
   const built = await builder.buildLaunchTransactions({
-    client, connection, config, creator: owner, token, devBuyQuote, mint, quoteMint, holderPct,
+    client, connection, config, creator: owner, token, devBuyQuote, mint, quoteMint, holderPct, sponsor,
   })
   // Deliberately not signed here. Phantom will not simulate a transaction it is not
   // the only signer of, and warns on the approval screen; its guidance is to take
@@ -62,6 +62,32 @@ export async function sendWithMint(signedBytes, mint) {
   const tx = Transaction.from(signedBytes)
   tx.partialSign(mint)
   return connection.sendRawTransaction(tx.serialize())
+}
+
+/**
+ * A launch LFOwn pays for: the creator has signed the launch, the new coin signs both
+ * transactions here, and the Worker adds the sponsor's signature and sends them in
+ * order. Returns the signatures, the launch's last.
+ */
+export async function sendSponsored(transactions, signedLaunch, mint) {
+  const ready = transactions.map((tx, i) => {
+    const t = i === transactions.length - 1 ? Transaction.from(signedLaunch) : tx
+    t.partialSign(mint)
+    return btoa(String.fromCharCode(...t.serialize({ requireAllSignatures: false, verifySignatures: false })))
+  })
+  const res = await fetch('/api/sponsor/launch', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ transactions: ready }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    const error = new Error(body.error ?? `the free launch failed (${res.status})`)
+    error.status = res.status
+    error.landed = body.landed ?? []
+    throw error
+  }
+  return body.signatures
 }
 
 /**

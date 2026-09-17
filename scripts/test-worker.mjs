@@ -490,6 +490,72 @@ await test('fee split: holders take three quarters of the creator half, as whole
   assert.deepEqual(splitFor(37.5), { holderPct: 37.5, creator: 12.5, holders: 37.5, partner: 50 })
 })
 
+await test('sponsor: signs a real launch, and nothing that spends its SOL any other way', async () => {
+  const web3 = await import('@solana/web3.js')
+  const { Keypair, PublicKey, Transaction, SystemProgram, ComputeBudgetProgram } = web3
+  const { DynamicBondingCurveClient, deriveDbcPoolAddress, deriveDbcTokenVaultAddress, deriveMintMetadata, deriveDbcPoolAuthority, deriveDbcEventAuthority } = await import('@meteora-ag/dynamic-bonding-curve-sdk')
+  const { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
+  const { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
+  const { checkSponsored } = await import(new URL('../src/lib/sponsor.mjs', import.meta.url).href)
+  const { vaultShares } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+
+  const offline = new web3.Connection('http://127.0.0.1:1')
+  const dbcClient = new DynamicBondingCurveClient(offline, 'confirmed')
+  const programs = { dbc: dbcClient.pool.program, dfs: new DynamicFeeSharingClient(offline, 'confirmed').program }
+  const sponsor = Keypair.generate(), creator = Keypair.generate(), mint = Keypair.generate(), stranger = Keypair.generate()
+  const quote = Keypair.generate().publicKey, config = Keypair.generate().publicKey, pot = Keypair.generate().publicKey
+  const configs = [{ config: config.toBase58(), mint: quote.toBase58() }]
+  const blockhash = PublicKey.default.toBase58()
+
+  const poolIx = (payer = sponsor.publicKey, cfg = config) => {
+    const pool = deriveDbcPoolAddress(quote, mint.publicKey, cfg)
+    return programs.dbc.methods.initializeVirtualPoolWithSplToken({ name: 'Free', symbol: 'FREE', uri: 'https://x.test/a.json' }).accountsStrict({
+      config: cfg, poolAuthority: deriveDbcPoolAuthority(), creator: creator.publicKey, baseMint: mint.publicKey, quoteMint: quote,
+      pool, baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey), quoteVault: deriveDbcTokenVaultAddress(pool, quote),
+      mintMetadata: deriveMintMetadata(mint.publicKey), metadataProgram: new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
+      payer, tokenQuoteProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      eventAuthority: deriveDbcEventAuthority(), program: programs.dbc.programId,
+    }).instruction()
+  }
+  const vault = deriveFeeVaultPdaAddress(mint.publicKey, quote)
+  const vaultIx = (owner = creator.publicKey) => programs.dfs.methods.initializeFeeVaultPda({ padding: [], users: vaultShares(37.5, { creator: creator.publicKey, holders: pot }) }).accountsPartial({
+    feeVault: vault, base: mint.publicKey, tokenMint: quote, owner, payer: sponsor.publicKey, tokenProgram: TOKEN_PROGRAM_ID,
+  }).instruction()
+  const handoverIx = () => programs.dbc.methods.transferPoolCreator().accountsStrict({
+    virtualPool: deriveDbcPoolAddress(quote, mint.publicKey, config), config, creator: creator.publicKey, newCreator: vault,
+    eventAuthority: deriveDbcEventAuthority(), program: programs.dbc.programId,
+  }).instruction()
+
+  const build = async ({ vaultExtra = [], launchExtra = [], launchFirst = [], feePayer = sponsor.publicKey, pool, owner, creatorSigns = true } = {}) => {
+    const v = new Transaction().add(await vaultIx(owner), ...vaultExtra)
+    const l = new Transaction().add(...launchFirst, pool ?? await poolIx(), await handoverIx(), ...launchExtra)
+    for (const t of [v, l]) { t.feePayer = feePayer; t.recentBlockhash = blockhash }
+    v.partialSign(mint)
+    l.partialSign(...(creatorSigns ? [creator, mint] : [mint]))
+    return [v, l]
+  }
+  const ok = (txs) => checkSponsored(txs, { sponsor: sponsor.publicKey, programs, configs })
+  const refused = async (txs, pattern) => assert.throws(() => ok(txs), pattern)
+
+  const good = ok(await build())
+  assert.equal(good.creator, creator.publicKey.toBase58())
+  assert.equal(good.baseMint, mint.publicKey.toBase58())
+  assert.equal(good.vault, vault.toBase58())
+
+  await refused(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: sponsor.publicKey, toPubkey: stranger.publicKey, lamports: 1e9 })] }), /program a launch does not use/)
+  await refused(await build({ launchExtra: [createAssociatedTokenAccountIdempotentInstruction(sponsor.publicKey, Keypair.generate().publicKey, stranger.publicKey, quote)] }), /spend the sponsor/)
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 })] }), /compute budget/)
+  assert.ok(ok(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 })] })), 'a normal priority fee is fine')
+  await refused(await build({ pool: await poolIx(sponsor.publicKey, Keypair.generate().publicKey) }), /(not on a config LFOwn opened|hand the pool)/)
+  await refused(await build({ creatorSigns: false }), /creator has not signed/)
+  await refused(await build({ owner: stranger.publicKey }), /someone other than the creator/)
+  await refused(await build({ feePayer: creator.publicKey }), /fee payer/)
+  // The sponsor as the pool's creator instead of its payer would make LFOwn the owner of a stranger's coin.
+  const selfCreated = await build()
+  selfCreated[1].instructions[0].keys[2] = { pubkey: sponsor.publicKey, isSigner: true, isWritable: false }
+  await refused(selfCreated, /more than the payer/)
+})
+
 await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {
   const { pumpCandidates, launchUrl } = await import(new URL('../src/lib/pumps.mjs', import.meta.url).href)
   const coin = (symbol, change, liquidity = 50_000) => ({ symbol, mint: `M_${symbol}`, liquidity, financials: change === undefined ? null : { priceChange24h: change } })

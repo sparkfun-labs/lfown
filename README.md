@@ -66,6 +66,7 @@ Before the first deploy:
     npx wrangler secret put FEE_COLLECTOR_KEY     # optional — see "Where the claimer lives"
     npx wrangler secret put HOLDER_POT_KEY        # optional — see "Sharing fees with holders"
     npx wrangler secret put RESOLVED_API_KEY      # optional — 01Resolved financials on the launch page
+    npx wrangler secret put SPONSOR_KEY < .keys/sponsor.json   # optional — see "Free launches"
     npx wrangler secret put TELEGRAM_BOT_TOKEN    # optional, with TELEGRAM_CHAT_ID
     npx wrangler secret put TELEGRAM_CHAT_ID
     npx wrangler secret put X_CONSUMER_KEY        # optional — all four, or none
@@ -103,6 +104,35 @@ trust with a hot wallet.
 one `FEES.holderPot` names. The secret goes to the file and nowhere else: it is never
 printed, only the public key is. It refuses to overwrite a file that exists, because a
 key something already depends on is not replaced by replacing its file — only lost.
+
+## Free launches
+
+LFOwn pays the rent and network fees of the next `SPONSORED_LAUNCHES` launches (30),
+one per wallet, so someone can launch holding no SOL. A launch measures 0.026 SOL on
+devnet: 0.0206 for the pool (Metaplex's metadata fee included) and 0.0040 for the
+holders' fee vault. The creator still signs, owns the coin and earns its fees; an
+initial buy is still theirs to pay, plus the rent of the account their tokens land in.
+
+The launch page builds the transactions with the sponsor as fee payer and as the payer
+of the two account creations, the creator signs, and `POST /api/sponsor/launch` checks,
+signs and sends them. `src/lib/sponsor.mjs` decides what the sponsor will sign: only
+the bonding curve, the fee-sharing vault, compute budget (capped) and associated token
+programs; the sponsor only as fee payer and as `payer` of opening the pool and its
+vault; a pool on a config LFOwn opened; a vault owned by that pool's creator. Each
+transaction is simulated first and refused if it would take more than 0.03 SOL from
+the sponsor. `GET /api/sponsor?wallet=` says whether one is on offer.
+
+To turn it on:
+
+    node scripts/keygen.mjs sponsor                          # prints the address
+    # send it 0.8 SOL: 30 launches at 0.026, and a little over
+    npx wrangler secret put SPONSOR_KEY < .keys/sponsor.json
+
+It turns itself off when the count is reached or the sponsor holds less than 0.03 SOL,
+and the page goes back to the paid launch. One per wallet is checked in KV, which is
+not atomic and does not stop someone from using many wallets; the sponsor's balance is
+the real ceiling, so fund it for the run and no more. `npm run test:sponsor` runs a free
+launch end to end on devnet.
 
 ## Opening a coin for launches
 

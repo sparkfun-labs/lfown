@@ -705,8 +705,9 @@ function paintConnect() {
 function paintWallet() {
   paintConnect()
   paintFunding()
+  paintFree()
   if (session) {
-    signBtn.textContent = `Launch $${state.token.symbol ?? ''}`.trim()
+    signBtn.textContent = `Launch $${state.token.symbol ?? ''}${freeFor(session.address) ? ' for free' : ''}`
     signBtn.title = `Signed by ${session.address}`
     signBtn.disabled = !state.curve.tier
     return
@@ -714,6 +715,38 @@ function paintWallet() {
   // Naming a wallet here promised a launch and delivered a connection prompt.
   signBtn.textContent = available().length ? 'Connect wallet' : 'No wallet detected'
   signBtn.disabled = !available().length
+}
+
+// ── free launches ────────────────────────────────────────────────────────────
+/**
+ * LFOwn pays the rent and network fees of a limited number of launches, one per
+ * wallet. Asked of the server whenever the wallet changes: it knows the count, the
+ * sponsor's balance and which wallets have had theirs.
+ */
+state.free = { wallet: undefined, status: null }
+const freeFor = (wallet) => Boolean(state.free.status?.enabled && state.free.wallet === wallet && state.free.status.eligible)
+
+async function paintFree() {
+  const note = $('#free-note')
+  const wallet = session?.address ?? null
+  if (state.free.wallet !== wallet || !state.free.status) {
+    state.free.wallet = wallet
+    try {
+      state.free.status = await fetch(`/api/sponsor${wallet ? `?wallet=${encodeURIComponent(wallet)}` : ''}`).then((r) => r.json())
+    } catch { state.free.status = null }
+    if (state.free.wallet !== wallet) return
+    if (session) signBtn.textContent = `Launch $${state.token.symbol ?? ''}${freeFor(session.address) ? ' for free' : ''}`
+  }
+  const st = state.free.status
+  if (!note) return
+  if (!st?.enabled) { note.hidden = true; return }
+  note.hidden = false
+  const left = `${st.remaining} of ${st.total} left`
+  note.innerHTML = !wallet
+    ? `<b>Free launch.</b> LFOwn pays the network fees of the next launches, one per wallet — ${left}.`
+    : st.eligible
+      ? `<b>Free launch.</b> LFOwn pays the network fees for this one — ${left}.`
+      : `This wallet has had its free launch. This one costs about 0.03 SOL in network fees.`
 }
 
 // Extensions can register after the page has loaded — repaint when they do, so the
@@ -765,7 +798,7 @@ signBtn.addEventListener('click', async () => {
 
     // The web3/DBC bundle is most of the payload and nobody browsing the catalogue
     // needs it, so it only loads once someone actually launches.
-    const { configFor, buildLaunch, sendWithMint, sendAllWithMint, connection } = await import('./launchpad.js')
+    const { configFor, buildLaunch, sendWithMint, sendAllWithMint, sendSponsored, connection } = await import('./launchpad.js')
 
     say(`Checking that ${esc(sym())} is open for launches…`)
     const config = await configFor(a.mint, state.curve.tier)
@@ -775,14 +808,24 @@ signBtn.addEventListener('click', async () => {
       return
     }
 
+    // Asked again at the moment of signing: the count or the sponsor's balance may have
+    // moved since the page last looked.
+    state.free.wallet = undefined
+    await paintFree()
+    const sponsored = freeFor(wallet.address) && typeof wallet.signOnly === 'function'
+
     // Opening a pool pays rent for a mint, a metadata account, the pool and two
     // vaults. Checking it here turns "custom program error: 0x1" buried in a
-    // simulation log into a number the person can act on.
+    // simulation log into a number the person can act on. A free launch needs none of
+    // that, only the rent of the account an initial buy puts tokens in.
     {
       const { balanceOf, NATIVE_SOL, LAUNCH_SOL } = await import('./funding.js')
       const sol = await balanceOf(connection, wallet.address, NATIVE_SOL, { native: true })
-      if (sol < LAUNCH_SOL) {
-        say(`Opening a pool costs about <b>${LAUNCH_SOL} SOL</b> in rent and fees, and this wallet holds
+      const needed = sponsored ? (state.curve.devBuyQuote > 0 ? 0.003 : 0) : LAUNCH_SOL
+      if (sol < needed) {
+        say(sponsored
+          ? `The launch is free, but an initial buy needs about <b>0.003 SOL</b> for the account your tokens land in, and this wallet holds <b>${fmt(sol, 4)}</b>. Send it a little SOL, or launch without an initial buy.`
+          : `Opening a pool costs about <b>${LAUNCH_SOL} SOL</b> in rent and fees, and this wallet holds
           <b>${fmt(sol, 4)}</b>. Send it a little SOL and try again.`, 'warn-text')
         signBtn.disabled = false
         return
@@ -864,11 +907,29 @@ signBtn.addEventListener('click', async () => {
       seed: state.seed,
       quoteMint: state.asset?.mint,
       holderPct: state.curve.holders,
+      sponsor: sponsored ? state.free.status.sponsor : null,
     })
 
     say('Waiting for your signature…')
     let signature
-    if (transactions.length > 1) {
+    if (sponsored) {
+      // Only the launch needs the creator's signature; the fee vault is signed by the
+      // new coin and paid by LFOwn. The Worker checks both, signs as payer and sends them.
+      const signedLaunch = await wallet.signOnly(transaction)
+      say('Free launch — LFOwn is sending it and paying the fees…')
+      try {
+        const signatures = await sendSponsored(transactions, signedLaunch, mint)
+        signature = signatures[signatures.length - 1]
+      } catch (e) {
+        // Refused outright (already used, run over, not a launch it will pay for): the
+        // next click takes the paid path. A launch that only expired can simply be retried.
+        if (e.status === 400 || e.status === 409) {
+          state.free.status = { ...state.free.status, eligible: false }
+          paintWallet()
+        }
+        throw e
+      }
+    } else if (transactions.length > 1) {
       // Sharing fees needs the vault opened before the pool, so this is two
       // transactions. One approval covers both, and each is confirmed before the
       // next is sent because the next one depends on it.

@@ -88,7 +88,7 @@ const RPC_MAX_BODY = 64 * 1024
 // The routes that cost something to answer: a program scan, a Jupiter quote, an
 // object in the bucket. They share one per-address ceiling; the RPC proxy has its
 // own, because a trade polls it every second while a signature lands.
-const HEAVY = ['/api/chart', '/api/launch', '/api/exit', '/api/graduate', '/api/image', '/api/metadata']
+const HEAVY = ['/api/chart', '/api/launch', '/api/exit', '/api/graduate', '/api/image', '/api/metadata', '/api/sponsor']
 
 /**
  * The RPC proxy and the upload endpoints exist for this site's own pages. Nothing
@@ -474,6 +474,22 @@ async function handleApi(url, request, env, ctx) {
   // time to stare at a full bar. The trade that filled it can say so immediately.
   // This is a hint, not an instruction: every claim in it is checked against chain
   // before a lamport is spent, so the worst a caller can do is make us read.
+  // Launches LFOwn pays for. See src/lib/sponsor.mjs for what the sponsor will sign.
+  if (path === '/api/sponsor' && request.method === 'GET') {
+    return json(await sponsorStatus(env, url.searchParams.get('wallet')), { headers: { 'cache-control': 'no-store' } })
+  }
+  if (path === '/api/sponsor/launch' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    const body = await request.json().catch(() => null)
+    try {
+      return json(await sponsorLaunch(env, body?.transactions))
+    } catch (e) {
+      const status = e.status ?? 502
+      if (status >= 500) console.error(`sponsored launch failed: ${e.message}`)
+      return json({ error: e.message, landed: e.landed ?? [] }, { status })
+    }
+  }
+
   if (path === '/api/graduate' && request.method === 'POST') {
     if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
     const { mint } = (await request.json().catch(() => ({}))) ?? {}
@@ -1225,6 +1241,115 @@ async function chartFor(env, mint) {
  * keeper pay ~0.03 SOL a time to migrate it; and the reserve has to have genuinely
  * reached the threshold.
  */
+// ── sponsored launches ───────────────────────────────────────────────────────
+const SPONSOR_COUNT = 'sponsor:count'
+const sponsorWalletKey = (wallet) => `sponsor:wallet:${wallet}`
+/** Below this the sponsor could not cover one more launch, so none is offered. */
+const SPONSOR_FLOOR_LAMPORTS = 30_000_000 // one launch, pool and vault, with room to spare
+
+class HttpError extends Error {
+  constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra) }
+}
+
+/** Whether LFOwn will pay for a launch right now, and for this wallet. */
+async function sponsorStatus(env, wallet) {
+  const { SPONSORED_LAUNCHES } = await import('./lib/sponsor.mjs')
+  const sponsor = await loadKey(env.SPONSOR_KEY).catch(() => null)
+  const used = Number(await env.REGISTRY?.get(SPONSOR_COUNT)) || 0
+  const remaining = Math.max(0, SPONSORED_LAUNCHES - used)
+  const out = { enabled: false, total: SPONSORED_LAUNCHES, remaining, sponsor: null, eligible: false }
+  if (!sponsor || !env.REGISTRY || !remaining) return out
+
+  const { Connection, PublicKey } = await import('@solana/web3.js')
+  const balance = await new Connection(env.HELIUS_RPC, 'confirmed').getBalance(sponsor.publicKey).catch(() => 0)
+  if (balance < SPONSOR_FLOOR_LAMPORTS) return out
+  out.enabled = true
+  out.sponsor = sponsor.publicKey.toBase58()
+
+  let valid = false
+  try { valid = Boolean(wallet) && PublicKey.isOnCurve(new PublicKey(wallet).toBytes()) } catch { valid = false }
+  if (valid) out.eligible = !(await env.REGISTRY.get(sponsorWalletKey(wallet)))
+  return out
+}
+
+/**
+ * Checks, signs and sends a launch the sponsor pays for.
+ *
+ * One per wallet, and a fixed number in all. KV cannot make the check and the claim one
+ * step, so two requests from the same wallet in the same second could both pass; the
+ * sponsor's balance is what really bounds this, and it is funded for the run and no more.
+ */
+async function sponsorLaunch(env, encoded) {
+  const [{ Connection, Transaction, PublicKey }, sponsorLib, { waitFor }, { DynamicBondingCurveClient }, { DynamicFeeSharingClient }] = await Promise.all([
+    import('@solana/web3.js'), import('./lib/sponsor.mjs'), import('./lib/confirm.mjs'),
+    import('@meteora-ag/dynamic-bonding-curve-sdk'), import('@meteora-ag/dynamic-fee-sharing-sdk'),
+  ])
+  const status = await sponsorStatus(env, null)
+  if (!status.enabled) throw new HttpError(409, 'Free launches are not available right now. Launch normally instead.')
+
+  const sponsor = await loadKey(env.SPONSOR_KEY)
+  if (!Array.isArray(encoded)) throw new HttpError(400, 'transactions are required')
+  let txs
+  try {
+    txs = encoded.map((e) => Transaction.from(Uint8Array.from(atob(String(e)), (c) => c.charCodeAt(0))))
+  } catch {
+    throw new HttpError(400, 'transactions must be base64 Solana transactions')
+  }
+
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const dbcClient = new DynamicBondingCurveClient(connection, 'confirmed')
+  const programs = {
+    dbc: dbcClient.pool?.program ?? dbcClient.program ?? dbcClient.state.program,
+    dfs: new DynamicFeeSharingClient(connection, 'confirmed').program,
+  }
+  let launch
+  try {
+    launch = sponsorLib.checkSponsored(txs, { sponsor: sponsor.publicKey, programs, configs: await ourConfigs(env) })
+  } catch (e) {
+    throw new HttpError(400, `This launch cannot be paid for by LFOwn: ${e.message}`)
+  }
+
+  const walletKey = sponsorWalletKey(launch.creator)
+  if (await env.REGISTRY.get(walletKey)) throw new HttpError(409, 'This wallet has already had its free launch.')
+  // Claimed before anything is sent, released if nothing lands.
+  await env.REGISTRY.put(walletKey, JSON.stringify({ status: 'pending', mint: launch.baseMint, at: new Date().toISOString() }), { expirationTtl: 600 })
+
+  const signatures = []
+  try {
+    for (const [i, tx] of txs.entries()) {
+      tx.partialSign(sponsor)
+      // What this transaction would take from the sponsor, measured before it is sent.
+      const before = await connection.getBalance(sponsor.publicKey, 'confirmed')
+      const sim = await connection.simulateTransaction(tx, undefined, [sponsor.publicKey])
+      if (sim.value.err) {
+        const logs = (sim.value.logs ?? []).slice(-6).join(' | ')
+        throw new HttpError(400, `transaction ${i} would fail: ${JSON.stringify(sim.value.err)}${logs ? ` — ${logs}` : ''}`)
+      }
+      const after = Number(sim.value.accounts?.[0]?.lamports ?? before)
+      if (before - after > sponsorLib.MAX_SPONSOR_LAMPORTS) {
+        throw new HttpError(400, `transaction ${i} would cost the sponsor ${(before - after) / 1e9} SOL, more than a launch can`)
+      }
+      const signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed' })
+      await waitFor(connection, signature, null, { timeoutMs: 60_000 })
+      signatures.push(signature)
+    }
+  } catch (e) {
+    if (!signatures.length) await env.REGISTRY.delete(walletKey).catch(() => {})
+    if (e instanceof HttpError) { e.landed = signatures; throw e }
+    throw new HttpError(/blockhash not found|expired/i.test(e.message) ? 410 : 502,
+      /blockhash not found|expired/i.test(e.message) ? 'The launch took too long to reach us and expired. Sign it again.' : `The launch did not land: ${e.message}`,
+      { landed: signatures })
+  }
+
+  const used = (Number(await env.REGISTRY.get(SPONSOR_COUNT)) || 0) + 1
+  await Promise.all([
+    env.REGISTRY.put(SPONSOR_COUNT, String(used)),
+    env.REGISTRY.put(walletKey, JSON.stringify({ status: 'launched', mint: launch.baseMint, signatures, at: new Date().toISOString() })),
+  ])
+  console.log(`sponsored launch ${used}/${sponsorLib.SPONSORED_LAUNCHES}: ${launch.baseMint} for ${launch.creator}`)
+  return { baseMint: launch.baseMint, signatures, remaining: Math.max(0, sponsorLib.SPONSORED_LAUNCHES - used) }
+}
+
 async function crankOne(env, mint) {
   const [{ Connection, PublicKey }, { DynamicBondingCurveClient }] =
     await Promise.all([import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk')])

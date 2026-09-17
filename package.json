@@ -8,7 +8,8 @@
     "keygen": "node scripts/keygen.mjs",
     "test": "node scripts/test-devnet.mjs",
     "test:worker": "node scripts/test-worker.mjs",
-    "test:rpc": "node scripts/test-rpc.mjs"
+    "test:rpc": "node scripts/test-rpc.mjs",
+    "test:sponsor": "node scripts/test-sponsor-devnet.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

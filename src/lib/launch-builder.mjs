@@ -60,9 +60,14 @@ export async function devBuyCost(client, { config, percent }) {
  */
 export async function buildLaunchTransactions({
   client, connection, config, creator, token, devBuyQuote = 0, mint, quoteMint,
-  holderPct = 0, holderPot = FEES.holderPot,
+  holderPct = 0, holderPot = FEES.holderPot, sponsor = null,
 }) {
-  const payer = new PublicKey(creator)
+  // The creator signs and earns. Whoever pays rent and network fees is a separate
+  // account: the creator themselves, or LFOwn's sponsor on a launch it pays for. The
+  // sponsor only ever appears as the fee payer and as the `payer` of the two account
+  // creations — see src/lib/sponsor.mjs, which refuses anything else.
+  const owner = new PublicKey(creator)
+  const payer = sponsor ? new PublicKey(sponsor) : owner
   const configKey = new PublicKey(config)
 
   const createPoolParam = {
@@ -72,7 +77,7 @@ export async function buildLaunchTransactions({
     symbol: token.symbol,
     uri: token.uri ?? '',
     payer,
-    poolCreator: payer,
+    poolCreator: owner,
   }
 
   // The pool does not exist until this transaction lands, so the buy cannot be built
@@ -82,8 +87,9 @@ export async function buildLaunchTransactions({
     ? await client.creator.createPoolWithFirstBuy({
         createPoolParam,
         firstBuyParam: {
-          buyer: payer,
-          receiver: payer,
+          // The buy is the creator's own: their coin, their tokens, their account rent.
+          buyer: owner,
+          receiver: owner,
           buyAmount: new BN(devBuyQuote),
           minimumAmountOut: new BN(0),
           referralTokenAccount: null,
@@ -100,7 +106,7 @@ export async function buildLaunchTransactions({
     const quote = new PublicKey(quoteMint)
     vault = deriveVault(mint.publicKey, quote)
     const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
-    const wanted = vaultShares(share, { creator: payer, holders: holderPot })
+    const wanted = vaultShares(share, { creator: owner, holders: holderPot })
 
     // A retry after a launch that opened its vault and then failed. The same mint means
     // the same vault address, and opening it again would fail on an account that
@@ -111,7 +117,7 @@ export async function buildLaunchTransactions({
     if (existing) {
       const found = await dfs.getFeeVault(vault)
       const live = found.users.filter((u) => u.share > 0)
-      const same = found.owner.equals(payer)
+      const same = found.owner.equals(owner)
         && live.length === wanted.length
         && wanted.every((w) => live.some((u) => u.share === w.share && u.address.equals(w.address)))
       if (!same) {
@@ -122,7 +128,7 @@ export async function buildLaunchTransactions({
         base: mint.publicKey,
         tokenMint: quote,
         tokenProgram: TOKEN_PROGRAM_ID,
-        owner: payer,
+        owner,
         payer,
         userShare: wanted,
       })
@@ -138,7 +144,7 @@ export async function buildLaunchTransactions({
       .accountsPartial({
         virtualPool: deriveDbcPoolAddress(quote, mint.publicKey, configKey),
         config: configKey,
-        creator: payer,
+        creator: owner,
         newCreator: vault,
         eventAuthority: deriveDbcEventAuthority(),
         program: program.programId,
