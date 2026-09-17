@@ -170,6 +170,12 @@ async function artwork(coin) {
  * top level. X may be a full link or a bare handle. Anything that is not http(s), or
  * not a plausible handle, is dropped rather than linked.
  */
+const ICONS = {
+  x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+  site: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>',
+  tg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9 4.3 18.7 19.4c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3Z"/></svg>',
+}
+
 export function socialLinks(meta) {
   if (!meta || typeof meta !== 'object') return []
   const links = []
@@ -457,8 +463,8 @@ async function renderCoin(mint) {
             <div class="pair" style="font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:6px">
               ${esc(coin.name ?? '')} · paired with ${esc(coin.quoteSymbol)}
             </div>
-            <div class="coin-links" id="coin-links" hidden></div>
           </div>
+          <div class="coin-links" id="coin-links" hidden></div>
         </div>
         <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div>
         <dl class="stats">
@@ -508,7 +514,7 @@ async function renderCoin(mint) {
     const links = socialLinks(meta)
     if (!box || !links.length) return
     box.innerHTML = links.map((l) =>
-      `<a class="social ${l.kind}" href="${safeUrl(l.href)}" target="_blank" rel="noopener nofollow ugc">${esc(l.label)} ↗</a>`).join('')
+      `<a class="social ${l.kind}" href="${safeUrl(l.href)}" target="_blank" rel="noopener nofollow ugc" title="${esc(l.label)}" aria-label="${esc(l.label)}">${ICONS[l.kind]}</a>`).join('')
     box.hidden = false
   })
 
