@@ -362,8 +362,9 @@ randomBtn.addEventListener('click', async () => {
  * Every coin launched here gets a mint address ending in `own`, found by generating
  * keys until one does — roughly 195,000 tries for three base58 characters.
  *
- * Started when the creator leaves the token step, which buys the search the half
- * minute they spend reviewing: by the time they sign it is usually done. It runs
+ * Started as soon as the page opens. A few seconds of searching on arrival costs a
+ * visitor who only browses very little, and waiting until the token step meant a
+ * creator who filled it in quickly reached the sign button while it was still going. It runs
  * on this machine and the winning key never leaves it.
  */
 function startVanity() {
@@ -957,6 +958,8 @@ async function restoreSession() {
   paintWallet()
 }
 restoreSession()
+// Once the page has painted, so the search never competes with loading the catalogue.
+;(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 800)))(() => startVanity())
 
 loadAssets().then(applyDraft).then(applyQuote)
 
