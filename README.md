@@ -638,9 +638,13 @@ channel is simply not live.
 
 Someone holding AVICI while it is up a third is the person most likely to launch a meme
 against it. So the catalogue cron (every 10 minutes) looks at each coin's 24-hour move,
-from 01Resolved, and when one is up **20% or more** it posts to X and Telegram —
+from 01Resolved, and when one is up **20% or more** it posts to the Telegram group —
 *"📈 $AVICI +31% today — launch a meme against AVICI"* — with a link to
 `/launch?quote=AVICI`, which opens the launch page with that coin already picked.
+
+Telegram only: on X the same post read as a price call on a coin that is not ours,
+several times a week, so `CHANNELS` no longer lists `pump` among the X events. The
+message and its rules are unchanged, and adding it back is one word.
 
 The rules live in `PUMP` in `src/lib/pumps.mjs`: at least $10k of liquidity (a thin coin
 jumps 50% on a few hundred dollars), a tier open for it, one post per coin per 24 hours

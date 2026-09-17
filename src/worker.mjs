@@ -606,9 +606,10 @@ const CHANNELS = [
     // curve — and each post carrying a link costs $0.20. A graduation is rare, it is
     // the moment that means something, and it stays affordable.
     //
-    // And a big move in an ownership coin: rare by construction (see PUMP), and aimed
-    // squarely at the people who might launch — the whole point of paying for a post.
-    events: ['graduated', 'pump'],
+    // A big move in an ownership coin used to be posted here too. It read as a price
+    // call on a coin that is not ours, several times a week, and it is off. The same
+    // post still goes to the Telegram group, where it costs nothing and is asked for.
+    events: ['graduated'],
     pump: (env, coin, change, origin) => x.announce(env, { text: x.pumpMessage(coin, change, launchUrl(coin, origin)) }),
     ready: (env) => Boolean(env.X_CONSUMER_KEY && env.X_CONSUMER_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
     launched: async (env, coin, origin, image) =>
