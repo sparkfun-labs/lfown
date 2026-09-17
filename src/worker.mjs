@@ -424,15 +424,15 @@ async function handleApi(url, request, env, ctx) {
     // One picture per idea: deleted before drawing, so the same id cannot be replayed
     // into a stream of free images.
     await env.REGISTRY.delete(random.ideaKey(id))
-    let bytes
+    let drawn
     try {
-      bytes = await random.drawIdea(env.AI, idea.image)
+      drawn = await random.drawIdea(env.AI, idea.image)
     } catch (e) {
       console.error(`random image failed: ${e.message}`)
       return json({ error: 'The picture did not come out. Upload your own, or press Random again.' }, { status: 502 })
     }
-    const key = `${crypto.randomUUID()}.jpg`
-    await env.IMAGES.put(key, bytes, { httpMetadata: { contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable' } })
+    const key = `${crypto.randomUUID()}.${drawn.type.split('/')[1].replace('jpeg', 'jpg')}`
+    await env.IMAGES.put(key, drawn.bytes, { httpMetadata: { contentType: drawn.type, cacheControl: 'public, max-age=31536000, immutable' } })
     return json({ url: `${env.PUBLIC_ORIGIN || url.origin}/i/${key}` })
   }
 

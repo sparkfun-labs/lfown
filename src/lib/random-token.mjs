@@ -12,7 +12,14 @@
 // anyone who found it.
 
 const TEXT_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast'
+// FLUX.1 [schnell] draws 1024×1024 only and bills by tile and by step, so the picture is
+// most of what a press costs. FLUX.2 [klein] can draw 512×512 for about a ninth of the
+// price but took 11 to 19 seconds a picture against about 3 here, and a button that
+// makes people wait that long is not worth the saving. Fewer steps is the lever instead.
 const IMAGE_MODEL = '@cf/black-forest-labs/flux-1-schnell'
+// Four, the model's default: about a third cheaper than six, with no visible difference
+// at the size a token image is shown.
+const IMAGE_STEPS = 4
 
 /** How long an idea waits for its picture to be asked for. */
 const IDEA_TTL = 15 * 60
@@ -108,11 +115,19 @@ export async function writeIdea(ai) {
   return cleanIdea(parsed)
 }
 
-/** The picture for an idea, as JPEG bytes. */
+/** The picture for an idea, as image bytes and their content type. */
 export async function drawIdea(ai, prompt) {
-  const out = await ai.run(IMAGE_MODEL, { prompt, steps: 6 })
+  const out = await ai.run(IMAGE_MODEL, { prompt, steps: IMAGE_STEPS })
   if (!out?.image) throw new Error('the image model returned nothing')
-  return Uint8Array.from(atob(out.image), (c) => c.charCodeAt(0))
+  const bytes = Uint8Array.from(atob(out.image), (c) => c.charCodeAt(0))
+  return { bytes, type: sniffType(bytes) }
+}
+
+/** PNG or JPEG, read from the file's own first bytes rather than assumed. */
+function sniffType(bytes) {
+  if (bytes[0] === 0x89 && bytes[1] === 0x50) return 'image/png'
+  if (bytes[0] === 0x52 && bytes[1] === 0x49) return 'image/webp'
+  return 'image/jpeg'
 }
 
 /** Counts one idea against today's cap. False once the cap is reached. */

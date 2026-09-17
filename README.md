@@ -75,7 +75,7 @@ Before the first deploy:
 
 The launch page's **Random coin** button uses Workers AI, bound as `AI` in
 `wrangler.jsonc`: Llama 3.3 writes a ticker (also the name), a description and an image
-prompt together, and FLUX.1 schnell draws the picture into the `IMAGES` bucket. The
+prompt together, and FLUX.1 schnell draws it in 4 steps into the `IMAGES` bucket. The
 picture is requested by the id of an idea the Worker wrote, never by a prompt from the
 browser. Presses are limited per address (`RANDOM_LIMITER`) and to 1,500 per day across
 the site (`src/lib/random-token.mjs`). Without the binding, the button answers that it
