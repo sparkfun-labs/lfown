@@ -1307,6 +1307,9 @@ async function sponsorLaunch(env, encoded) {
   try {
     launch = sponsorLib.checkSponsored(txs, { sponsor: sponsor.publicKey, programs, configs: await ourConfigs(env) })
   } catch (e) {
+    // Logged: a refusal is either an attack or a wallet doing something new, and the
+    // second is only fixed by someone reading why.
+    console.log(`sponsored launch refused: ${e.message}`)
     throw new HttpError(400, `This launch cannot be paid for by LFOwn: ${e.message}`)
   }
 

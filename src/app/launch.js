@@ -923,7 +923,8 @@ signBtn.addEventListener('click', async () => {
       } catch (e) {
         // Refused outright (already used, run over, not a launch it will pay for): the
         // next click takes the paid path. A launch that only expired can simply be retried.
-        if (e.status === 400 || e.status === 409) {
+        // Only a 409 means the wallet or the run is used up; a 400 is this transaction.
+        if (e.status === 409) {
           state.free.status = { ...state.free.status, eligible: false }
           paintWallet()
         }

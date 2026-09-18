@@ -544,8 +544,12 @@ await test('sponsor: signs a real launch, and nothing that spends its SOL any ot
 
   await refused(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: sponsor.publicKey, toPubkey: stranger.publicKey, lamports: 1e9 })] }), /program a launch does not use/)
   await refused(await build({ launchExtra: [createAssociatedTokenAccountIdempotentInstruction(sponsor.publicKey, Keypair.generate().publicKey, stranger.publicKey, quote)] }), /spend the sponsor/)
-  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 })] }), /compute budget/)
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 })] }), /priority fee/)
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000_000 })] }), /priority fee/)
   assert.ok(ok(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 })] })), 'a normal priority fee is fine')
+  // What Phantom writes into a launch it signs: a generous limit and a busy-day price.
+  assert.ok(ok(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 500_000 })] })), 'a wallet-set priority fee is fine')
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 2 })] }), /twice/)
   await refused(await build({ pool: await poolIx(sponsor.publicKey, Keypair.generate().publicKey) }), /(not on a config LFOwn opened|hand the pool)/)
   await refused(await build({ creatorSigns: false }), /creator has not signed/)
   await refused(await build({ owner: stranger.publicKey }), /someone other than the creator/)

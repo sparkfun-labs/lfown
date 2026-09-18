@@ -35,12 +35,14 @@ export const MAX_SPONSOR_LAMPORTS = 30_000_000 // 0.03 SOL; the pool transaction
 const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111'
 
 /**
- * The fee payer pays the priority fee, which is price times units — a number anyone
- * can write into a transaction. Capped at what a busy day warrants: 400k units at
- * 250k micro-lamports is 0.0001 SOL.
+ * The fee payer pays the priority fee, price times units, and wallets write their own:
+ * Phantom adds a unit limit and price to what it signs, at whatever the network asks
+ * that minute. So neither is capped alone — the product is, at 0.001 SOL a transaction,
+ * about ten times a busy day's fee and a twentieth of what a launch costs anyway.
  */
-const MAX_UNIT_PRICE = 250_000n // micro-lamports per compute unit
-const MAX_UNIT_LIMIT = 400_000
+const MAX_PRIORITY_LAMPORTS = 1_000_000n
+const MAX_UNIT_LIMIT = 1_400_000 // the runtime's own ceiling
+const DEFAULT_UNITS_PER_IX = 200_000 // what the runtime allots when no limit is set
 const MAX_SIGNERS = 3 // sponsor, creator, the new coin
 const ASSOCIATED_TOKEN = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
 
@@ -112,6 +114,7 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
     // Each signature costs its fee payer 5,000 lamports.
     if (tx.compileMessage().header.numRequiredSignatures > MAX_SIGNERS) refuse(`transaction ${t} asks for too many signatures`)
 
+    const budget = { limit: null, price: 0n, seen: new Set() }
     for (const [i, ix] of tx.instructions.entries()) {
       const program = ix.programId.toBase58()
       if (!allowed.has(program)) refuse(`instruction ${t}.${i} calls a program a launch does not use (${program})`)
@@ -120,9 +123,16 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
       const sponsorAt = keys.flatMap((k, n) => (k.equals(sponsorKey) ? [n] : []))
 
       if (program === COMPUTE_BUDGET) {
+        // 1 heap frame, 2 unit limit, 3 unit price, 4 loaded-data limit: the four a wallet
+        // or the SDK may set. Only the price costs lamports, and it is capped below.
         const data = Buffer.from(ix.data)
-        if (data[0] === 2 && data.length >= 5 && data.readUInt32LE(1) <= MAX_UNIT_LIMIT) continue
-        if (data[0] === 3 && data.length >= 9 && data.readBigUInt64LE(1) <= MAX_UNIT_PRICE) continue
+        const kind = data[0]
+        if (budget.seen.has(kind)) refuse(`instruction ${t}.${i} sets the same compute budget twice`)
+        budget.seen.add(kind)
+        if (kind === 1 && data.length >= 5 && data.readUInt32LE(1) <= 256 * 1024) continue
+        if (kind === 2 && data.length >= 5 && data.readUInt32LE(1) <= MAX_UNIT_LIMIT) { budget.limit = data.readUInt32LE(1); continue }
+        if (kind === 3 && data.length >= 9) { budget.price = data.readBigUInt64LE(1); continue }
+        if (kind === 4 && data.length >= 5) continue
         refuse(`instruction ${t}.${i} sets a compute budget the sponsor will not pay for`)
       }
 
@@ -150,6 +160,15 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
         refuse(`instruction ${t}.${i} is not part of a launch (${name || 'unknown'})`)
       }
       if (program === dfs.programId.toBase58()) refuse(`instruction ${t}.${i} is not part of a launch (${name || 'unknown'})`)
+    }
+
+    // Price is in micro-lamports per unit; with no limit set the runtime allots 200k per
+    // instruction, so that is what the price is charged on.
+    const others = tx.instructions.filter((ix) => ix.programId.toBase58() !== COMPUTE_BUDGET).length
+    const units = BigInt(budget.limit ?? Math.min(MAX_UNIT_LIMIT, others * DEFAULT_UNITS_PER_IX))
+    const priority = (budget.price * units + 999_999n) / 1_000_000n
+    if (priority > MAX_PRIORITY_LAMPORTS) {
+      refuse(`transaction ${t} asks for a priority fee of ${Number(priority) / 1e9} SOL, more than the sponsor pays`)
     }
   }
 
