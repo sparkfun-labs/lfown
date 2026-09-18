@@ -7,6 +7,7 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain, declined } from './errors.js'
+import { isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -64,12 +65,15 @@ function paintConnect() {
   }
   menu.hidden = true
   const found = available()
-  connectBtn.textContent = found.length ? 'Connect wallet' : 'No wallet found'
-  connectBtn.disabled = !found.length
+  // On a phone the answer to "no wallet" is the wallet's own app.
+  const phoneOffer = !found.length && isPhone()
+  connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
+  connectBtn.disabled = !found.length && !phoneOffer
 }
 
 connectBtn.addEventListener('click', async () => {
   if (session) { menu.hidden = !menu.hidden; return }
+  if (!available().length && isPhone()) { toggleWalletAppsMenu(connectBtn); return }
   connectBtn.textContent = 'Connecting…'
   try { await ensureWallet() } catch (e) { connectBtn.textContent = e.message }
   paintConnect()

@@ -705,7 +705,7 @@ function paintConnect() {
   menu.hidden = true
   const found = available()
   // On a phone the answer to "no wallet" is the wallet's own app, offered on the page.
-  const phoneOffer = !found.length && isPhone() && document.querySelector('#open-in-wallet:not([hidden])')
+  const phoneOffer = !found.length && isPhone()
   connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
   connectBtn.disabled = !found.length && !phoneOffer
 }
