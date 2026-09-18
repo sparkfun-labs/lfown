@@ -199,3 +199,10 @@ body.menu-open{overflow:hidden}
 .wallet-apps a{display:flex;align-items:center;justify-content:center;padding:12px 6px;background:var(--red);color:#fff;border:1.5px solid var(--ink);
   text-decoration:none;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
 .wallet-apps a:active{transform:translate(1px,1px)}
+/* The header's "Open in wallet": one line, and its menu of apps. */
+#connect{white-space:nowrap}
+.wallet-apps-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:180px;border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red)}
+.wallet-apps-menu[hidden]{display:none}
+.wallet-apps-menu a{display:block;padding:13px 16px;text-decoration:none;font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
+.wallet-apps-menu a + a{border-top:1px dashed var(--rule)}
+.wallet-apps-menu a:hover,.wallet-apps-menu a:active{background:var(--red);color:#fff}

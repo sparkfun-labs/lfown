@@ -47,3 +47,25 @@ export function offerWalletApps(box, { available, url = () => location.href, onS
     onShow?.()
   }, 1500)
 }
+
+/**
+ * The same three apps as a menu under a button — the header's, which on a phone with
+ * no wallet reads "Open in wallet" and has to do something when tapped, not scroll
+ * to a box already on screen.
+ */
+export function toggleWalletAppsMenu(button, { url = () => location.href, onOpen } = {}) {
+  const slot = button.closest('.wallet-slot') ?? button.parentElement
+  let menu = slot.querySelector('.wallet-apps-menu')
+  if (menu) { menu.hidden = !menu.hidden; return }
+  menu = document.createElement('div')
+  menu.className = 'wallet-apps-menu'
+  menu.innerHTML = walletLinks().map((w) => `<a href="#" data-wallet="${w.name}">${w.name}</a>`).join('')
+  menu.querySelectorAll('a').forEach((a) => a.addEventListener('click', (e) => {
+    e.preventDefault()
+    onOpen?.(a.dataset.wallet)
+    location.href = walletLinks(url()).find((w) => w.name === a.dataset.wallet).href
+  }))
+  slot.style.position = 'relative'
+  slot.appendChild(menu)
+  document.addEventListener('click', (e) => { if (!slot.contains(e.target)) menu.hidden = true })
+}

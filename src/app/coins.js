@@ -6,7 +6,7 @@ import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
 import { tokenUnit } from '../lib/config.mjs'
 import { track } from './track.js'
-import { offerWalletApps, isPhone } from './mobile-wallet.js'
+import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -123,7 +123,7 @@ function paintConnect() {
 connectBtn.addEventListener('click', async () => {
   if (session) { menu.hidden = !menu.hidden; return }
   if (!available().length && isPhone()) {
-    document.querySelector('#open-in-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    toggleWalletAppsMenu(connectBtn, { url: () => location.href, onOpen: () => track('open_in_wallet') })
     return
   }
   connectBtn.textContent = 'Connecting…'

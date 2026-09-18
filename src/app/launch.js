@@ -4,7 +4,7 @@ import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { track } from './track.js'
-import { offerWalletApps, isPhone } from './mobile-wallet.js'
+import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 import { TIERS, FEES, tokenUnit } from '../lib/config.mjs'
 
 const state = {
@@ -766,7 +766,7 @@ connectBtn.addEventListener('click', async () => {
   // Connected, the button is no longer a connect button: it is the account.
   if (session) { menu.hidden = !menu.hidden; return }
   if (!available().length && isPhone()) {
-    document.querySelector('#open-in-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    toggleWalletAppsMenu(connectBtn, { url: () => (state.asset && !state.blind ? `${location.origin}/launch?quote=${encodeURIComponent(state.asset.symbol)}` : location.href), onOpen: () => track('open_in_wallet') })
     return
   }
   connectBtn.textContent = 'Connecting…'
