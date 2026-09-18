@@ -130,7 +130,20 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .coin-head{display:flex;align-items:center;gap:16px;margin-bottom:20px}
 .coin-head img{width:64px;height:64px;object-fit:cover;border:1.5px solid var(--ink)}
 .coin-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.5rem,3.4vw,2.3rem);margin:0;line-height:1}
-.coin-links{display:flex;flex-direction:column;gap:8px;margin-left:auto;align-self:flex-start}
+.coin-side{margin-left:auto;align-self:flex-start;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.share{position:relative}
+.share-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;border:1.5px solid var(--ink);background:var(--red);color:#fff;cursor:pointer;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600;box-shadow:3px 3px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+.share-btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+.share-btn svg{width:15px;height:15px}
+.share-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:20;min-width:180px;border:1.5px solid var(--ink);background:var(--card);box-shadow:5px 5px 0 var(--red)}
+.share-menu[hidden]{display:none}
+.share-menu a,.share-menu button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:transparent;border:0;cursor:pointer;text-decoration:none;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);text-align:left}
+.share-menu button{border-top:1px dashed var(--rule)}
+.share-menu svg{width:15px;height:15px;flex:0 0 auto}
+.share-menu a:hover,.share-menu button:hover{background:var(--red);color:#fff}
+.coin-links{display:flex;flex-direction:row;justify-content:flex-end;gap:8px}
 .coin-links[hidden]{display:none}
 .coin-links .social{display:flex;align-items:center;justify-content:center;width:38px;height:38px;color:var(--ink);border:1.5px solid var(--ink);background:var(--card);transition:background .15s,color .15s}
 .coin-links .social svg{width:17px;height:17px}

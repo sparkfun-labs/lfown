@@ -170,7 +170,41 @@ async function artwork(coin) {
  * top level. X may be a full link or a bare handle. Anything that is not http(s), or
  * not a plausible handle, is dropped rather than linked.
  */
+/**
+ * Sharing a coin. On a phone the system sheet does it all — every app the person has —
+ * so it opens directly; elsewhere a small menu offers X and a copied link. The page's
+ * own link is what gets shared: the Worker writes a card for it, so it unfurls with the
+ * coin's picture and progress wherever it is pasted.
+ */
+function wireShare(coin) {
+  const btn = view.querySelector('#share-btn')
+  const menu = view.querySelector('#share-menu')
+  if (!btn || !menu) return
+  const url = `${location.origin}/coins/${coin.baseMint}`
+  const text = `$${coin.symbol ?? ''} — a meme paired with $${coin.quoteSymbol ?? ''} on @LFOWNDOTFUN`
+  view.querySelector('#share-x').href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`
+  const open = (on) => { menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)) }
+
+  btn.addEventListener('click', async () => {
+    // The native sheet only where it is the whole answer: touch devices.
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      try { await navigator.share({ title: `$${coin.symbol} on LFOwn`, text, url }); return } catch { /* dismissed: nothing to do */ return }
+    }
+    open(menu.hidden)
+  })
+  view.querySelector('#share-copy').addEventListener('click', async (e) => {
+    const label = e.currentTarget.querySelector('span')
+    try { await navigator.clipboard.writeText(url); label.textContent = 'Copied' } catch { label.textContent = url }
+    setTimeout(() => { label.textContent = 'Copy link'; open(false) }, 1200)
+  })
+  view.querySelector('#share-x').addEventListener('click', () => open(false))
+  document.addEventListener('click', (e) => { if (!e.target.closest('.share')) open(false) })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false) })
+}
+
 const ICONS = {
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/></svg>',
+  link: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
   x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
   site: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>',
   tg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9 4.3 18.7 19.4c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3Z"/></svg>',
@@ -464,7 +498,16 @@ async function renderCoin(mint) {
               ${esc(coin.name ?? '')} · paired with ${esc(coin.quoteSymbol)}
             </div>
           </div>
-          <div class="coin-links" id="coin-links" hidden></div>
+          <div class="coin-side">
+            <div class="share">
+              <button class="share-btn" type="button" id="share-btn" aria-haspopup="menu" aria-expanded="false">${ICONS.share}<span>Share</span></button>
+              <div class="share-menu" id="share-menu" role="menu" hidden>
+                <a role="menuitem" id="share-x" target="_blank" rel="noopener">${ICONS.x}<span>Post on X</span></a>
+                <button role="menuitem" type="button" id="share-copy">${ICONS.link}<span>Copy link</span></button>
+              </div>
+            </div>
+            <div class="coin-links" id="coin-links" hidden></div>
+          </div>
         </div>
         <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div>
         <dl class="stats">
@@ -509,6 +552,7 @@ async function renderCoin(mint) {
     const slot = view.querySelector('.coin-head img')
     if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
   })
+  wireShare(coin)
   metadata(coin).then((meta) => {
     const box = view.querySelector('#coin-links')
     const links = socialLinks(meta)
