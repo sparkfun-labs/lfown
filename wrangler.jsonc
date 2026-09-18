@@ -66,7 +66,9 @@
     { "name": "RPC_LIMITER", "namespace_id": "1001", "simple": { "limit": 200, "period": 60 } },
     { "name": "HEAVY_LIMITER", "namespace_id": "1002", "simple": { "limit": 30, "period": 60 } },
     // The Random button runs two models per press: an idea and its picture.
-    { "name": "RANDOM_LIMITER", "namespace_id": "1003", "simple": { "limit": 12, "period": 60 } }
+    { "name": "RANDOM_LIMITER", "namespace_id": "1003", "simple": { "limit": 12, "period": 60 } },
+    // Funnel events: a handful per visit, so this only bites a script.
+    { "name": "EVENT_LIMITER", "namespace_id": "1004", "simple": { "limit": 60, "period": 60 } }
   ],
   // Workers AI, for the launch page's Random button. Billed per use; see
   // src/lib/random-token.mjs for the daily cap.

@@ -5,6 +5,8 @@ import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
 import { tokenUnit } from '../lib/config.mjs'
+import { track } from './track.js'
+import { offerWalletApps, isPhone } from './mobile-wallet.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -112,12 +114,18 @@ function paintConnect() {
   }
   menu.hidden = true
   const found = available()
-  connectBtn.textContent = found.length ? 'Connect wallet' : 'No wallet found'
-  connectBtn.disabled = !found.length
+  // On a phone the answer to "no wallet" is the wallet's own app, offered on the page.
+  const phoneOffer = !found.length && isPhone() && document.querySelector('#open-in-wallet:not([hidden])')
+  connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
+  connectBtn.disabled = !found.length && !phoneOffer
 }
 
 connectBtn.addEventListener('click', async () => {
   if (session) { menu.hidden = !menu.hidden; return }
+  if (!available().length && isPhone()) {
+    document.querySelector('#open-in-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return
+  }
   connectBtn.textContent = 'Connecting…'
   try { await ensureWallet() } catch (e) { connectBtn.textContent = e.message }
   paintConnect()
@@ -540,6 +548,7 @@ async function renderCoin(mint) {
         <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
         <!-- The coin's own page on Jupiter, where both sides can be traded. A swap link with
              a pair Jupiter does not recognise yet falls back to its default, USDC into SOL. -->
+        <div class="open-in-wallet" id="open-in-wallet" hidden></div>
         <a class="btn ghost jup" id="jup-link" href="https://jup.ag/tokens/${esc(coin.baseMint)}" target="_blank" rel="noopener">Trade on Jupiter ↗</a>
       </section>
     </div>
@@ -553,6 +562,12 @@ async function renderCoin(mint) {
     if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
   })
   wireShare(coin)
+  track('coin_open')
+  offerWalletApps(view.querySelector('#open-in-wallet'), {
+    available,
+    onShow: () => { track('coin_mobile_no_wallet'); paintConnect() },
+    onOpen: () => track('open_in_wallet'),
+  })
   metadata(coin).then((meta) => {
     const box = view.querySelector('#coin-links')
     const links = socialLinks(meta)
@@ -796,6 +811,7 @@ async function renderCoin(mint) {
 
   action.addEventListener('click', async () => {
     action.disabled = true
+    track('trade_click')
     try {
       status.textContent = 'Connecting wallet…'
       const wallet = await ensureWallet()
@@ -815,6 +831,7 @@ async function renderCoin(mint) {
           })
       status.textContent = 'Waiting for your signature…'
       const signature = await wallet.signAndSend(tx, connection)
+      track('traded')
       status.innerHTML = `Done — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener">${signature.slice(0, 8)}…${signature.slice(-8)}</a>`
       amount.value = ''
       out.textContent = 'Enter an amount.'

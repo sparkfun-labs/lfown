@@ -3,6 +3,8 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
+import { track } from './track.js'
+import { offerWalletApps, isPhone } from './mobile-wallet.js'
 import { TIERS, FEES, tokenUnit } from '../lib/config.mjs'
 
 const state = {
@@ -64,6 +66,8 @@ function go(n) {
     else b.removeAttribute('aria-current')
   })
   $('#flow').dataset.step = String(n)
+  if (n === 2) track('step_token')
+  if (n === 3) track('step_review')
   if (n === 3) { paintReview(); paintWallet(); loadTiers() }
   paintPaired(n)
   window.scrollTo({ top: 0, behavior: 'smooth' })
@@ -314,6 +318,7 @@ async function upload(file) {
 let randomRun = 0
 const randomBtn = $('#randomize')
 randomBtn.addEventListener('click', async () => {
+  track('random_used')
   const run = ++randomRun
   const label = $('#randomize-label')
   randomBtn.disabled = true
@@ -686,6 +691,7 @@ async function ensureWallet() {
   const found = available()
   if (!found.length) throw new Error('No Solana wallet found in this browser.')
   session = await connect(await chooseWallet(found))
+  track('wallet_connected')
   return session
 }
 
@@ -698,8 +704,10 @@ function paintConnect() {
   }
   menu.hidden = true
   const found = available()
-  connectBtn.textContent = found.length ? 'Connect wallet' : 'No wallet found'
-  connectBtn.disabled = !found.length
+  // On a phone the answer to "no wallet" is the wallet's own app, offered on the page.
+  const phoneOffer = !found.length && isPhone() && document.querySelector('#open-in-wallet:not([hidden])')
+  connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
+  connectBtn.disabled = !found.length && !phoneOffer
 }
 
 function paintWallet() {
@@ -757,6 +765,10 @@ document.addEventListener('click', (e) => { if (!e.target.closest('.wallet-slot'
 connectBtn.addEventListener('click', async () => {
   // Connected, the button is no longer a connect button: it is the account.
   if (session) { menu.hidden = !menu.hidden; return }
+  if (!available().length && isPhone()) {
+    document.querySelector('#open-in-wallet')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    return
+  }
   connectBtn.textContent = 'Connecting…'
   try { await ensureWallet() } catch (e) { connectBtn.textContent = e.message }
   paintConnect()
@@ -790,6 +802,7 @@ const say = (msg, kind = '') => { status.innerHTML = msg; status.className = 'hi
 signBtn.addEventListener('click', async () => {
   const a = state.asset
   signBtn.disabled = true
+  track('sign_click')
   try {
     say('Connecting wallet…')
     const wallet = await ensureWallet()
@@ -975,6 +988,7 @@ signBtn.addEventListener('click', async () => {
     const { confirm } = await import('./funding.js')
     await confirm(connection, signature, { what: 'The launch' })
     signBtn.textContent = 'Launched'
+    track(sponsored ? 'launched_free' : 'launched')
     // Kept in the console: the page is about to be replaced, and this is the one
     // string worth having if anything needs looking up on an explorer afterwards.
     console.log(`launched ${baseMint} — signature ${signature}`)
@@ -999,6 +1013,7 @@ signBtn.addEventListener('click', async () => {
     say(`Launched — taking you to <a href="/coins/${baseMint}" style="color:var(--red)">your coin</a>…`, 'ok-text')
     setTimeout(() => { location.href = `/coins/${baseMint}` }, 1800)
   } catch (e) {
+    track('launch_error')
     say(esc(explain(e, 'launch')), 'warn-text')
     signBtn.disabled = false
   }
@@ -1017,10 +1032,23 @@ async function restoreSession() {
   const resumed = await reconnect().catch(() => null)
   if (!resumed) return
   session = resumed
+  track('wallet_connected')
   paintConnect()
   paintWallet()
 }
 restoreSession()
+
+track('launch_open')
+// A phone with no wallet gets the way into one, at the top of the flow rather than at
+// the sign button, before anyone has typed anything they would lose on the switch.
+offerWalletApps($('#open-in-wallet'), {
+  available,
+  url: () => (state.asset && !state.blind
+    ? `${location.origin}/launch?quote=${encodeURIComponent(state.asset.symbol)}`
+    : location.href),
+  onShow: () => { track('mobile_no_wallet'); paintConnect() },
+  onOpen: () => track('open_in_wallet'),
+})
 // Once the page has painted, so the search never competes with loading the catalogue.
 ;(window.requestIdleCallback ?? ((fn) => setTimeout(fn, 800)))(() => startVanity())
 

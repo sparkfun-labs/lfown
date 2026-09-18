@@ -69,12 +69,14 @@ globalThis.fetch = async (input, init) => {
 
 // ── KV, R2 and the edge cache, in memory ───────────────────────────────────
 const kv = new Map()
+const kvMeta = new Map()
 const REGISTRY = {
   async get(key, type) { const v = kv.get(key); return v === undefined ? null : type === 'json' ? JSON.parse(v) : v },
-  async put(key, value) { kv.set(key, String(value)) },
-  async delete(key) { kv.delete(key) },
+  async getWithMetadata(key) { return { value: kv.get(key) ?? null, metadata: kvMeta.get(key) ?? null } },
+  async put(key, value, options) { kv.set(key, String(value)); if (options?.metadata) kvMeta.set(key, options.metadata) },
+  async delete(key) { kv.delete(key); kvMeta.delete(key) },
   async list({ prefix = '', limit = 1000 } = {}) {
-    const keys = [...kv.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((name) => ({ name }))
+    const keys = [...kv.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((name) => ({ name, metadata: kvMeta.get(name) }))
     return { keys, list_complete: true }
   },
 }
@@ -558,6 +560,19 @@ await test('sponsor: signs a real launch, and nothing that spends its SOL any ot
   const selfCreated = await build()
   selfCreated[1].instructions[0].keys[2] = { pubkey: sponsor.publicKey, isSigner: true, isWritable: false }
   await refused(selfCreated, /more than the payer/)
+})
+
+await test('funnel: steps are counted per device, unknown ones and other sites are ignored', async () => {
+  for (const [e, d] of [['launch_open', 'mobile'], ['launch_open', 'mobile'], ['launch_open', 'desktop'], ['step_review', 'desktop'], ['nonsense', 'desktop']]) {
+    const r = await post('/api/event', { e, d })
+    assert.equal(r.status, 204)
+  }
+  const foreign = await post('/api/event', { e: 'launched', d: 'desktop' }, { origin: 'https://evil.test' })
+  assert.equal(foreign.status, 204)
+  const r = await call('/api/funnel?days=1')
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.body.total.mobile, { launch_open: 2 })
+  assert.deepEqual(r.body.total.desktop, { launch_open: 1, step_review: 1 })
 })
 
 await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {

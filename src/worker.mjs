@@ -236,6 +236,8 @@ async function handleApi(url, request, env, ctx) {
 
   if (path === '/api/rpc') {
     if (await limited(env.RPC_LIMITER, request)) return tooMany()
+  } else if (path === '/api/event') {
+    if (await limited(env.EVENT_LIMITER, request)) return new Response(null, { status: 204 })
   } else if (path.startsWith('/api/random/')) {
     // Every call here runs a model. Its own ceiling, well under the heavy routes'.
     if (await limited(env.RANDOM_LIMITER, request)) return tooMany()
@@ -474,6 +476,22 @@ async function handleApi(url, request, env, ctx) {
   // time to stare at a full bar. The trade that filled it can say so immediately.
   // This is a hint, not an instruction: every claim in it is checked against chain
   // before a lamport is spent, so the worst a caller can do is make us read.
+  // The launch funnel: which step people reach, per day and per kind of device. See
+  // src/app/track.js. Answers 204 whatever happens: a page must never wait on this.
+  if (path === '/api/event' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return new Response(null, { status: 204 })
+    const body = await request.json().catch(() => null)
+    const event = String(body?.e ?? '')
+    if (FUNNEL_EVENTS.includes(event) && env.REGISTRY) {
+      ctx.waitUntil(countEvent(env, event, body?.d === 'mobile' ? 'mobile' : 'desktop').catch((e) => console.error(`event ${event}: ${e.message}`)))
+    }
+    return new Response(null, { status: 204 })
+  }
+  if (path === '/api/funnel' && request.method === 'GET') {
+    const days = Math.min(30, Math.max(1, Number(url.searchParams.get('days')) || 7))
+    return json(await readFunnel(env, days), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+
   // Launches LFOwn pays for. See src/lib/sponsor.mjs for what the sponsor will sign.
   if (path === '/api/sponsor' && request.method === 'GET') {
     return json(await sponsorStatus(env, url.searchParams.get('wallet')), { headers: { 'cache-control': 'no-store' } })
@@ -1242,6 +1260,44 @@ async function chartFor(env, mint) {
  * keeper pay ~0.03 SOL a time to migrate it; and the reserve has to have genuinely
  * reached the threshold.
  */
+// ── the launch funnel ────────────────────────────────────────────────────────
+/** Every step the pages report, in the order a launch goes through them. */
+const FUNNEL_EVENTS = [
+  'launch_open', 'mobile_no_wallet', 'open_in_wallet', 'step_token', 'random_used', 'step_review',
+  'wallet_connected', 'sign_click', 'launched', 'launched_free', 'launch_error',
+  'coin_open', 'coin_mobile_no_wallet', 'trade_click', 'traded',
+]
+
+/**
+ * One more of `event` today on `device`. The count rides in the key's metadata so the
+ * report can read a month of them from a single list call. Two increments in the same
+ * instant can lose one — these are rates to read trends from, not a ledger.
+ */
+async function countEvent(env, event, device) {
+  const key = `funnel:${new Date().toISOString().slice(0, 10)}:${device}:${event}`
+  const { metadata } = await env.REGISTRY.getWithMetadata(key)
+  await env.REGISTRY.put(key, '', { metadata: { n: (Number(metadata?.n) || 0) + 1 }, expirationTtl: 90 * 86400 })
+}
+
+async function readFunnel(env, days) {
+  const since = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10)
+  const out = { days, since, events: FUNNEL_EVENTS, total: { mobile: {}, desktop: {} }, byDay: {} }
+  if (!env.REGISTRY) return out
+  let cursor
+  do {
+    const page = await env.REGISTRY.list({ prefix: 'funnel:', cursor })
+    for (const { name, metadata } of page.keys) {
+      const [, date, device, event] = name.split(':')
+      if (date < since || !out.total[device]) continue
+      const n = Number(metadata?.n) || 0
+      out.total[device][event] = (out.total[device][event] ?? 0) + n
+      ;((out.byDay[date] ??= { mobile: {}, desktop: {} })[device])[event] = n
+    }
+    cursor = page.list_complete ? null : page.cursor
+  } while (cursor)
+  return out
+}
+
 // ── sponsored launches ───────────────────────────────────────────────────────
 const SPONSOR_COUNT = 'sponsor:count'
 const sponsorWalletKey = (wallet) => `sponsor:wallet:${wallet}`

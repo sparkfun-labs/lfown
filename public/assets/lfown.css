@@ -189,3 +189,13 @@ body.menu-open{overflow:hidden}
 }
 .drawer-x:hover{background:var(--ink);color:var(--paper)}
 .drawer-x svg{width:16px;height:16px;flex:0 0 auto;fill:currentColor}
+
+/* A phone with no wallet: the way into one. Shared by /launch and the coin pages. */
+.open-in-wallet{border:1.5px solid var(--ink);background:var(--card);box-shadow:5px 5px 0 var(--red);padding:14px 16px;margin:0 0 20px}
+.open-in-wallet[hidden]{display:none}
+.open-in-wallet p{margin:0 0 12px;font-size:.95rem;color:var(--ink-soft);line-height:1.45}
+.open-in-wallet p b{color:var(--ink)}
+.wallet-apps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.wallet-apps a{display:flex;align-items:center;justify-content:center;padding:12px 6px;background:var(--red);color:#fff;border:1.5px solid var(--ink);
+  text-decoration:none;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+.wallet-apps a:active{transform:translate(1px,1px)}
