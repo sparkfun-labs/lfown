@@ -56,8 +56,9 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
   <div class="bar">
     <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
     <nav class="nav-centre">
-      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/lfown">$LFOWN</a>
       <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/rewards">Rewards</a>
       <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
     </nav>
     <nav class="nav-actions">
@@ -65,7 +66,15 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
         <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
         <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
       </button>
-      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <a class="btn hide-s launch-cta" href="/launch"><span>Launch Ownership Memes</span></a>
+      <span class="wallet-slot">
+        <button class="btn" type="button" id="connect">Connect wallet</button>
+        <div class="wallet-menu" id="wallet-menu" hidden>
+          <a href="/profile">Profile</a>
+          <button type="button" data-act="copy">Copy address</button>
+          <button type="button" data-act="disconnect">Disconnect</button>
+        </div>
+      </span>
       <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
         <span></span><span></span><span></span>
       </button>
@@ -91,9 +100,12 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
       </button>
     </div>
     <nav class="drawer-nav">
-      <a href="/coins">Coins</a>
+      <a href="/">Coins</a>
+      <a href="/lfown">$LFOWN</a>
       <a href="/launch">Launch</a>
+      <a href="/rewards">Rewards</a>
       <a href="/leaderboard">Leaderboard</a>
+      <a href="/profile">Profile</a>
     </nav>
     <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
       <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
@@ -195,6 +207,7 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
     }).catch(function () { /* no strip is better than a broken one */ })
   })()
 </script>
+<script type="module" src="/app/header-wallet.js"></script>
 
 <!--/lfown-header-->
 
@@ -204,7 +217,7 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
   <p class="lede">A coin that never launched, a wallet that never did, or a link that lost a
     character on the way here.</p>
   <div class="ways">
-    <a href="/coins">See the coins</a>
+    <a href="/">See the coins</a>
     <a href="/launch">Launch one</a>
     <a href="/leaderboard">Leaderboard</a>
   </div>

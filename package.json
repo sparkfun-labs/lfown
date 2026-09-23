@@ -2,7 +2,7 @@
   "name": "lfown-site",
   "private": true,
   "scripts": {
-    "build": "node scripts/build-html.mjs && rm -rf public/app && esbuild src/app/launch.js src/app/coins.js src/app/profile.js --bundle --splitting --format=esm --minify --target=es2022 --inject:src/app/shim.js --alias:util=./src/app/util-shim.js --outdir=public/app && esbuild src/app/grind-worker.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/grind-worker.js && esbuild src/app/leaderboard.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/leaderboard.js && esbuild src/app/creator.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/creator.js",
+    "build": "node scripts/build-html.mjs && rm -rf public/app && esbuild src/app/launch.js src/app/coins.js src/app/profile.js --bundle --splitting --format=esm --minify --target=es2022 --inject:src/app/shim.js --alias:util=./src/app/util-shim.js --outdir=public/app && esbuild src/app/grind-worker.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/grind-worker.js && esbuild src/app/leaderboard.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/leaderboard.js && esbuild src/app/creator.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/creator.js && esbuild src/app/header-wallet.js --bundle --format=esm --minify --target=es2022 --outfile=public/app/header-wallet.js",
     "dev": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",
     "keygen": "node scripts/keygen.mjs",

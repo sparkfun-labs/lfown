@@ -206,3 +206,47 @@ body.menu-open{overflow:hidden}
 .wallet-apps-menu a{display:block;padding:13px 16px;text-decoration:none;font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
 .wallet-apps-menu a + a{border-top:1px dashed var(--rule)}
 .wallet-apps-menu a:hover,.wallet-apps-menu a:active{background:var(--red);color:#fff}
+
+/* The wallet button's menu and picker, for every page (the app pages carry their own copy). */
+.wallet-slot{position:relative;display:inline-flex}
+.wallet-menu{
+  position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:230px;
+  border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red);
+}
+/* One rule for the anchor and the buttons: they are three entries of one menu and
+   any difference between them reads as a mistake. */
+/* Addressed by id, not class. `.top nav a:hover{color:var(--red)}` in lfown.css
+   scores higher than `.wallet-menu a:hover`, so Profile was painted red on the red
+   hover background and vanished. An id outranks any number of classes. */
+#wallet-menu a,#wallet-menu button{
+  display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;
+  padding:11px 14px;text-decoration:none;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink);transition:background .15s,color .15s
+}
+#wallet-menu a:hover,#wallet-menu button:hover{background:var(--red);color:#fff}
+#wallet-menu a+button,#wallet-menu button+button{border-top:1px dashed var(--rule)}
+
+dialog#wallet-picker{
+  border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:0;max-width:340px;width:calc(100% - 40px);
+  box-shadow:12px 12px 0 var(--red);
+}
+dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
+.picker-head{background:var(--red);color:#fff;padding:12px 18px;border-bottom:1.5px solid var(--ink);
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+.picker-list{list-style:none;margin:0;padding:0}
+.picker-list li+li{border-top:1px dashed var(--rule)}
+.picker-list button{
+  width:100%;display:flex;align-items:center;gap:12px;padding:14px 18px;background:transparent;border:0;
+  font:inherit;font-size:1rem;color:inherit;cursor:pointer;text-align:left;transition:background .15s
+}
+.picker-list button:hover{background:var(--red);color:#fff}
+.picker-list img{width:24px;height:24px;border-radius:4px}
+.picker-list .blank{width:24px;height:24px;border:1.5px solid currentColor;opacity:.4}
+#picker-close{margin:14px 18px 18px;cursor:pointer;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase}
+/* The header's two actions side by side. */
+.nav-actions .launch-cta{white-space:nowrap}
+/* `.top nav a.btn{color:#fff}` is for the red button; the ghost one keeps the ink. */
+.top nav a.btn.ghost{color:var(--ink)}
+.top nav a.btn.ghost:hover{color:var(--paper)}
+@media(max-width:1100px) and (min-width:861px){.nav-actions .launch-cta span{font-size:.62rem;letter-spacing:.1em}}

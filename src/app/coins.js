@@ -385,12 +385,34 @@ function section(parent, title, coins) {
 
 async function renderList() {
   clearSessionHooks()
-  view.innerHTML = `<h1>Ownership memes</h1>
-    <p class="lede">Every coin launched here, each paired with an ownership coin that has a treasury behind it.</p>
-    <div class="totals" id="totals"></div>
+  view.innerHTML = `
+    <section class="opener">
+      <div>
+        <p class="eyebrow">Solana · MetaDAO · Futarchy</p>
+        <h1>Launch coins paired with <em>ownership coins.</em></h1>
+      </div>
+      <div class="side">
+        <p>Not SOL, not a stock: every meme here trades against a <b>MetaDAO ownership coin</b> with a treasury behind it. Its creator earns on every trade, and so do its holders.</p>
+        <div class="ctas">
+          <a class="btn" href="/launch">Launch Ownership Memes</a>
+          <a class="btn ghost" href="/rewards">Holder rewards</a>
+        </div>
+        <span class="free" id="free-badge" hidden></span>
+      </div>
+    </section>
+    <div class="list-head"><h2>Ownership memes</h2></div>
     <div id="sections"><p class="skel">Loading…</p></div>`
 
+  // No totals strip on the home page any more (they live on /leaderboard and
+  // /rewards), but the report still fills each card's fee line and the Fees sort.
   paintTotals()
+  // The free launches, while there are any: the single best reason to launch today.
+  fetch('/api/sponsor').then((r) => r.json()).then((st) => {
+    const badge = $('#free-badge')
+    if (!badge || !st?.enabled || !st.remaining) return
+    badge.textContent = `Free launch — ${st.remaining} of ${st.total} left`
+    badge.hidden = false
+  }).catch(() => {})
 
   const coins = await launches()
   const box = $('#sections')
@@ -433,7 +455,7 @@ async function paintTotals() {
   const { generatedUsd, lfownUsd, creatorUsd, holdersUsd = 0 } = report.totals
   const money = usdGroup([creatorUsd, lfownUsd, ...presentShare(holdersUsd)])
   feesByMint = new Map(report.coins.map((c) => [c.baseMint, c]))
-  box.innerHTML = `
+  if (box) box.innerHTML = `
     <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(lfownUsd))}</span></div>
     <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(creatorUsd)}</span></div>
     ${holdersUsd ? `<div class="tot"><span class="lab">To holders</span><span class="big">${money.show(holdersUsd)}</span></div>` : ''}
@@ -478,7 +500,7 @@ async function renderCoin(mint) {
   if (!coin) {
     const res = await fetch(`/api/launch/${mint}`)
     if (!res.ok) {
-      view.innerHTML = '<p class="skel">No pool for this mint. <a href="/coins">Back to the list</a>.</p>'
+      view.innerHTML = '<p class="skel">No pool for this mint. <a href="/">Back to the list</a>.</p>'
       return
     }
     coin = await res.json()
@@ -495,7 +517,7 @@ async function renderCoin(mint) {
   const { PAY_WITH, payWith, quoteSwap, buildSwapTx, balanceOf,
           GAS_RESERVE, COIN_DECIMALS } = await money
   view.innerHTML = `
-    <a class="back" href="/coins">← All coins</a>
+    <a class="back" href="/">← All coins</a>
     <div class="detail">
       <section class="panel">
         <div class="coin-head">
@@ -1251,12 +1273,14 @@ function paintFees(coin, state, api) {
 
 // ── routing ──────────────────────────────────────────────────────────────────
 function route() {
-  const mint = location.pathname.replace(/^\/coins\/?/, '')
+  // The list is the home page; a coin keeps its /coins/<mint> address.
+  const mint = location.pathname.startsWith('/coins/') ? location.pathname.slice('/coins/'.length).replace(/\/$/, '') : ''
   if (mint) renderCoin(mint)
   else renderList()
 }
 document.addEventListener('click', (e) => {
-  const a = e.target.closest('a[href^="/coins"]')
+  // Coin links, and the way back to the list from inside the page, stay in the app.
+  const a = e.target.closest('a[href^="/coins/"], #view a[href="/"]')
   if (!a || e.metaKey || e.ctrlKey) return
   e.preventDefault()
   history.pushState({}, '', a.getAttribute('href'))

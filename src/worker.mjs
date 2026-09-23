@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit } from './lib/config.mjs'
+import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, USDC as USDC_MINT } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -298,6 +298,15 @@ async function handleApi(url, request, env, ctx) {
   // response. This report walks every pool and every graduated position and takes
   // about seven seconds; with a one-minute life, somebody paid those seven seconds
   // every single minute, and on a coin page that wait came before anything was drawn.
+  // What holders have been paid, from the holder pot's own history. See src/lib/rewards.mjs.
+  if (path === '/api/rewards') {
+    return json(await readCached(env, ctx, 'rewards', REWARDS_FRESH, buildRewards), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+  // The $LFOWN page: the token, and what the DAO treasury holds.
+  if (path === '/api/lfown') {
+    return json(await readCached(env, ctx, 'lfown', LFOWN_FRESH, buildLfown), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+
   if (path === '/api/fees') {
     const report = await readFeeReport(env, ctx)
     return json(report, { headers: { 'cache-control': report.pending ? 'no-store' : 'public, max-age=30' } })
@@ -946,7 +955,8 @@ async function creatorShell(wallet, url, request, env) {
  * streams, so the page is not buffered to do it.
  */
 async function coinShell(mint, url, request, env) {
-  const page = await shell('/coins', url, request, env)
+  // The coin list is the home page now, and a coin's page is drawn by the same app.
+  const page = await env.ASSETS.fetch(new Request(new URL('/', url.origin), request))
   const card = await coinCard(env, mint, env.PUBLIC_ORIGIN || url.origin).catch((e) => {
     console.error(`card for ${mint} failed: ${e.message}`)
     return null
@@ -1143,6 +1153,95 @@ async function readFeeReport(env, ctx) {
   const built = await buildFeeReport(env)
   if (built) return built
   return (await waitForKey(env, FEES_KEY, 25_000))?.report ?? EMPTY_REPORT()
+}
+
+// ── rewards and $LFOWN ───────────────────────────────────────────────────────
+const REWARDS_FRESH = 5 * 60_000
+const LFOWN_FRESH = 10 * 60_000
+const LFOWN_MINT = '5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta'
+
+/**
+ * A page's data, stored with the time it was built. Served from store whatever its
+ * age and rebuilt behind the response once stale; only a first-ever request waits.
+ */
+async function readCached(env, ctx, name, fresh, build) {
+  const key = `page:${name}:v1`
+  const cached = env.REGISTRY ? await env.REGISTRY.get(key, 'json') : null
+  const rebuild = () => withLock(env, `page:${name}`, async () => {
+    const data = await build(env)
+    if (env.REGISTRY) await env.REGISTRY.put(key, JSON.stringify({ data, at: Date.now() }), { expirationTtl: 7 * 86_400 })
+    return data
+  })
+  if (cached?.data) {
+    if (Date.now() - (cached.at ?? 0) > fresh) ctx?.waitUntil(rebuild().catch((e) => console.error(`${name} rebuild failed: ${e.message}`)))
+    return cached.data
+  }
+  return (await rebuild()) ?? (await waitForKey(env, key, 25_000))?.data ?? {}
+}
+
+async function buildRewards(env) {
+  const [{ Connection, PublicKey }, rewards] = await Promise.all([import('@solana/web3.js'), import('./lib/rewards.mjs')])
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const stateKey = 'rewards:state:v1'
+  const stored = env.REGISTRY ? await env.REGISTRY.get(stateKey, 'json') : null
+  const state = await rewards.updatePayouts(connection, PublicKey, env.HELIUS_RPC, FEES.holderPot, stored)
+  if (env.REGISTRY) await env.REGISTRY.put(stateKey, rewards.serialise(state))
+  const [{ coins }, report, list] = await Promise.all([readCatalogue(env), readFeeReport(env), readLaunches(env)])
+  // Payouts are in backing coins; a coin that is not (or no longer) in the catalogue
+  // is priced from the launches that pair with it.
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+  const symbols = new Map(coins.map((c) => [c.mint, c.symbol]))
+  for (const l of list.launches ?? []) {
+    if (!prices.has(l.quoteMint) && l.quoteUsdPrice) prices.set(l.quoteMint, l.quoteUsdPrice)
+    if (!symbols.has(l.quoteMint) && l.quoteSymbol) symbols.set(l.quoteMint, l.quoteSymbol)
+  }
+  return rewards.rewardsView(state, { prices, symbols, report })
+}
+
+async function buildLfown(env) {
+  const { Connection, PublicKey } = await import('@solana/web3.js')
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const [{ coins }, report] = await Promise.all([readCatalogue(env), readFeeReport(env)])
+  const token = coins.find((c) => c.mint === LFOWN_MINT) ?? null
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+  const symbols = new Map(coins.map((c) => [c.mint, c.symbol]))
+  prices.set(USDC_MINT, 1)
+  symbols.set(USDC_MINT, 'USDC')
+
+  // What the DAO treasury holds: every token account it owns, priced where we can.
+  const owner = new PublicKey(FEES.treasury)
+  const [accounts, lamports, supply] = await Promise.all([
+    connection.getParsedTokenAccountsByOwner(owner, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }),
+    connection.getBalance(owner),
+    connection.getTokenSupply(new PublicKey(LFOWN_MINT)).then((r) => Number(r.value.uiAmount) || 0).catch(() => 0),
+  ])
+  const holdings = accounts.value
+    .map((a) => a.account.data.parsed.info)
+    .map((i) => ({ mint: i.mint, amount: Number(i.tokenAmount.uiAmount) || 0 }))
+    .filter((h) => h.amount > 0)
+  const unpriced = holdings.filter((h) => !prices.has(h.mint)).map((h) => h.mint)
+  if (unpriced.length) {
+    try {
+      const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${unpriced.slice(0, 50).join(',')}`)
+      const found = await res.json()
+      for (const [mint, p] of Object.entries(found ?? {})) if (p?.usdPrice) prices.set(mint, Number(p.usdPrice))
+    } catch { /* unpriced holdings are listed without a value */ }
+  }
+  const treasury = holdings
+    .map((h) => ({ ...h, symbol: symbols.get(h.mint) ?? `${h.mint.slice(0, 4)}…${h.mint.slice(-4)}`, usd: h.amount * (prices.get(h.mint) ?? 0) }))
+    .sort((a, b) => b.usd - a.usd)
+  return {
+    updatedAt: new Date().toISOString(),
+    // Market cap from the same price the page prints and the supply on chain, rather
+    // than Jupiter's figure, which trails the price and disagreed with it on the page.
+    token: token ? { ...token, supply, mcap: supply * token.usdPrice } : null,
+    treasuryAddress: FEES.treasury,
+    treasury,
+    sol: lamports / 1e9,
+    treasuryUsd: treasury.reduce((s, h) => s + h.usd, 0),
+    feesToDaoUsd: report?.totals?.lfownUsd ?? 0,
+    feesGeneratedUsd: report?.totals?.generatedUsd ?? 0,
+  }
 }
 
 /** Builds the fee report and stores it with the time it was built — one at a time. */
@@ -1863,6 +1962,11 @@ export default {
     // The launch app is a single page. Real files under /launch (its script, any
     // future chunk) must still be served as themselves — only unknown paths fall
     // through to the shell, so client-side routes survive a reload.
+    // The coin list moved to the home page; old links to it land there.
+    if (url.pathname === '/coins' || url.pathname === '/coins/') {
+      return Response.redirect(new URL(`/${url.search}`, url.origin).toString(), 301)
+    }
+
     for (const section of ['/launch', '/coins', '/creator']) {
       if (url.pathname !== section && !url.pathname.startsWith(`${section}/`)) continue
       if (url.pathname === section || url.pathname === `${section}/`) return shell(section, url, request, env)

@@ -3,17 +3,22 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Profile — LFOwn</title>
-<meta name="description" content="The coins you launched on LFOwn, what they have earned you, and one place to claim it." />
-<meta name="robots" content="noindex" />
+<title>$LFOWN — LFOwn</title>
+<meta name="description" content="$LFOWN, the ownership coin of LFOwn: a DAO on MetaDAO that earns half of every trading fee and is governed by futarchy." />
 
 <meta property="og:site_name" content="LFOwn" />
 <meta property="og:type" content="website" />
-<meta property="og:title" content="Profile — LFOwn" />
-<meta property="og:description" content="The coins you launched on LFOwn, what they have earned you, and one place to claim it." />
+<meta property="og:url" content="https://letsfuckingown.fun/lfown" />
+<meta property="og:title" content="$LFOWN — LFOwn" />
+<meta property="og:description" content="$LFOWN, the ownership coin of LFOwn: a DAO on MetaDAO that earns half of every trading fee and is governed by futarchy." />
 <meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@LFOWNDOTFUN" />
+<meta name="twitter:title" content="$LFOWN — LFOwn" />
+<meta name="twitter:description" content="$LFOWN, the ownership coin of LFOwn: a DAO on MetaDAO that earns half of every trading fee and is governed by futarchy." />
+<meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
 <link rel="icon" href="/favicon.png" sizes="32x32">
 <link rel="icon" href="/assets/icon-512.png" sizes="512x512">
 <link rel="apple-touch-icon" href="/assets/icon-180.png">
@@ -31,78 +36,46 @@
 <link rel="stylesheet" href="/assets/lfown.css">
 <style>
 main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
-h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
-   font-size:clamp(2rem,5.4vw,3.6rem);line-height:.92;margin:0 0 10px}
-.lede{color:var(--ink-soft);max-width:58ch;margin:0 0 clamp(26px,4vw,44px);font-size:1.05rem}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.045em;font-size:clamp(2.6rem,7vw,5.2rem);line-height:.88;margin:0}
+h1 em{font-style:normal;color:var(--red)}
+h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.4rem,3vw,2rem);line-height:1;margin:0 0 16px}
+.lede{color:var(--ink-soft);max-width:58ch;margin:18px 0 0;font-size:clamp(1rem,1.4vw,1.18rem)}
+.lede b{color:var(--ink);font-weight:500}
 .skel{color:var(--ink-soft);font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
-.who{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;color:var(--ink-soft);word-break:break-all}
-
-.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border:1.5px solid var(--ink);margin:0 0 clamp(20px,3vw,30px)}
-.totals .tot{padding:16px 18px;border-right:1.5px solid var(--ink)}
+.lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+.hero{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:clamp(20px,4vw,56px);align-items:end;padding-bottom:clamp(26px,4vw,44px);margin-bottom:clamp(26px,4vw,44px);border-bottom:1.5px solid var(--ink)}
+@media(max-width:860px){.hero{grid-template-columns:1fr}}
+.eyebrow{font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--red);margin:0 0 16px}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0;border:1.5px solid var(--ink);background:var(--card);margin:0 0 clamp(30px,4.4vw,48px)}
+.totals .tot{padding:18px 20px;border-right:1.5px solid var(--ink)}
 .totals .tot:last-child{border-right:0}
 @media(max-width:640px){.totals .tot{border-right:0;border-bottom:1.5px solid var(--ink)}.totals .tot:last-child{border-bottom:0}}
-.totals .lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
-.totals .big{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em}
-.totals .tot.due .big{color:var(--red)}
-
-.claim-bar{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-  border:1.5px solid var(--ink);background:var(--card);padding:clamp(16px,2.2vw,22px);margin:0 0 clamp(24px,3.4vw,36px);
-  box-shadow:10px 10px 0 var(--red)}
-.claim-bar .txt{flex:1 1 260px;font-size:.95rem;color:var(--ink-soft)}
-.claim-bar .txt b{color:var(--ink);font-weight:500}
-.claim-bar button.btn{width:auto;flex:0 0 auto}
-#claim-status{margin:12px 0 0;font-size:.9rem;color:var(--ink-soft);min-height:1.4em}
-#claim-status a{color:var(--red)}
-.warn-text{color:var(--red)}
-
-.sec-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
-  padding-bottom:12px;margin-bottom:clamp(16px,2.4vw,22px);border-bottom:1.5px solid var(--ink)}
-.sec-head h2{font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
-  font-weight:600;margin:0;display:flex;align-items:center;gap:9px}
-.sec-head .count{background:var(--red);color:#fff;font-size:.58rem;letter-spacing:.1em;padding:3px 7px}
-
-.mine{display:flex;flex-direction:column;border:1.5px solid var(--ink);background:var(--card)}
-.row{display:grid;grid-template-columns:auto 1fr auto auto;gap:14px 18px;align-items:center;
-  padding:16px 18px;border-bottom:1px dashed var(--rule);text-decoration:none;color:inherit;transition:background .15s}
-.row:last-child{border-bottom:0}
-.row:hover{background:color-mix(in srgb,var(--red) 6%,transparent)}
-.row img{width:40px;height:40px;object-fit:cover;border:1.5px solid var(--ink);background:var(--paper)}
-.row .nm{font-family:var(--display);font-weight:800;font-size:1.2rem;letter-spacing:-.02em;line-height:1}
-.row .pair{font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-top:5px}
-.row .fig{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-.row .fig .lab{display:block;font-family:var(--mono);font-size:.5rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:4px}
-.row .fig b{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em}
-.row .fig.due b{color:var(--red)}
-@media(max-width:700px){
-  .row{grid-template-columns:auto 1fr;gap:12px}
-  .row .fig{grid-column:2;text-align:left}
-}
-.foot-note{margin:clamp(20px,3vw,30px) 0 0;font-size:.9rem;color:var(--ink-soft);max-width:64ch}
-.foot-note a{color:var(--red)}
-
-button.btn{font:inherit;cursor:pointer;font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600;width:100%;justify-content:center}
-/* Sized to its words, unlike the claim button which spans its bar. */
-#connect-here{width:auto}
-#connect-status{margin:14px 0 0;font-size:.9rem;min-height:1.2em}
-button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 5px 0 var(--ink)}
-.wallet-slot{position:relative;display:inline-flex}
-.wallet-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:230px;border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red)}
-/* Addressed by id, not class. `.top nav a:hover{color:var(--red)}` in lfown.css
-   scores higher than `.wallet-menu a:hover`, so Profile was painted red on the red
-   hover background and vanished. An id outranks any number of classes. */
-#wallet-menu a,#wallet-menu button{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;padding:11px 14px;text-decoration:none;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);transition:background .15s,color .15s}
-#wallet-menu a:hover,#wallet-menu button:hover{background:var(--red);color:#fff}
-#wallet-menu a+button,#wallet-menu button+button{border-top:1px dashed var(--rule)}
-dialog#wallet-picker{border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:0;max-width:340px;width:calc(100% - 40px);box-shadow:12px 12px 0 var(--red)}
-dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
-.picker-head{background:var(--red);color:#fff;padding:12px 18px;border-bottom:1.5px solid var(--ink);font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
-.picker-list{list-style:none;margin:0;padding:0}
-.picker-list li+li{border-top:1px dashed var(--rule)}
-.picker-list button{width:100%;display:flex;align-items:center;gap:12px;padding:14px 18px;background:transparent;border:0;font:inherit;font-size:1rem;color:inherit;cursor:pointer;text-align:left;transition:background .15s}
-.picker-list button:hover{background:var(--red);color:#fff}
-.picker-list img{width:24px;height:24px;border-radius:4px}
-.picker-list .blank{width:24px;height:24px;border:1.5px solid currentColor;opacity:.4}
-#picker-close{margin:14px 18px 18px;cursor:pointer;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;width:auto}
+.totals .big{font-family:var(--display);font-weight:800;font-size:clamp(1.5rem,3vw,2.1rem);letter-spacing:-.02em;line-height:1}
+.totals .sub{display:block;font-size:.82rem;color:var(--ink-soft);margin-top:6px}
+.block{margin:0 0 clamp(34px,5vw,56px)}
+.table-wrap{overflow-x:auto;border:1.5px solid var(--ink);background:var(--card)}
+table{width:100%;border-collapse:collapse;min-width:520px}
+th{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);text-align:left;font-weight:600;padding:12px 16px;border-bottom:1.5px solid var(--ink);white-space:nowrap}
+td{padding:12px 16px;border-bottom:1px dashed var(--rule)}
+tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
+td a:hover{color:var(--red);border-color:var(--red)}
+.note{font-size:.9rem;color:var(--ink-soft);max-width:66ch;margin:12px 0 0}
+.note a{color:var(--red)}
+.token-mark{display:flex;align-items:center;gap:16px;margin:0 0 18px}
+.token-mark img{width:64px;height:64px;border:1.5px solid var(--ink);object-fit:cover}
+.flow{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,22px)}
+@media(max-width:860px){.flow{grid-template-columns:1fr}}
+.flow article{border:1.5px solid var(--ink);background:var(--card);padding:clamp(18px,2.4vw,26px);box-shadow:5px 5px 0 var(--ink)}
+.flow article:first-child{box-shadow:5px 5px 0 var(--red)}
+.flow .k{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--red);display:block;margin-bottom:10px}
+.flow h3{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:1.3rem;line-height:1;margin:0 0 10px}
+.flow p{margin:0;color:var(--ink-soft);font-size:.98rem}
+.links{display:flex;flex-wrap:wrap;gap:10px}
+.links a{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;color:var(--ink);border:1.5px solid var(--ink);padding:10px 14px;background:var(--card)}
+.links a:hover{background:var(--ink);color:var(--paper)}
 </style>
 </head>
 <body>
@@ -111,7 +84,7 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
   <div class="bar">
     <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
     <nav class="nav-centre">
-      <a class="mono hide-s" href="/lfown">$LFOWN</a>
+      <a class="mono hide-s" href="/lfown" aria-current="page">$LFOWN</a>
       <a class="mono hide-s" href="/launch">Launch</a>
       <a class="mono hide-s" href="/rewards">Rewards</a>
       <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
@@ -262,18 +235,79 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
     }).catch(function () { /* no strip is better than a broken one */ })
   })()
 </script>
-
+<script type="module" src="/app/header-wallet.js"></script>
 
 <!--/lfown-header-->
 
-<main class="wrap" id="view"><p class="skel">Loading…</p></main>
+<main class="wrap">
+  <section class="hero">
+    <div>
+      <p class="eyebrow">The ownership coin of LFOwn</p>
+      <div class="token-mark"><img id="lf-icon" alt="" hidden><h1>$LFOWN</h1></div>
+      <p class="lede">LFOwn is owned by a <b>DAO on MetaDAO</b>. Half of every trading fee on every meme launched here goes to its treasury, and what the treasury does is decided by <b>futarchy</b>: markets, not votes.</p>
+    </div>
+    <div>
+      <div class="ctas">
+        <a class="btn" href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">Buy $LFOWN ↗</a>
+        <a class="btn ghost" href="https://metadao.fi/companies/lfown?tab=health" target="_blank" rel="noopener">The DAO on MetaDAO ↗</a>
+      </div>
+    </div>
+  </section>
 
-<dialog id="wallet-picker">
-  <div class="picker-head">Choose a wallet</div>
-  <ul class="picker-list" id="wallet-list"></ul>
-  <button class="btn ghost" type="button" id="picker-close">Cancel</button>
-</dialog>
+  <div class="totals" id="stats"><div class="tot"><span class="skel">Loading…</span></div></div>
 
-<script type="module" src="/app/profile.js"></script>
+  <section class="block">
+    <h2>Where the money goes</h2>
+    <div class="flow">
+      <article><span class="k">01 · Every trade</span><h3>Memes pay the DAO</h3><p>Every meme launched here charges 2.5% per trade. After Meteora's cut, half of it is paid straight into the LFOwn DAO treasury, on every coin, for as long as it trades — on its curve and after it graduates.</p></article>
+      <article><span class="k">02 · The treasury</span><h3>Held on chain</h3><p>The treasury is the DAO's own account on MetaDAO. It receives fees in the ownership coins the memes are paired with, so it grows into a basket of the ecosystem it serves.</p></article>
+      <article><span class="k">03 · Futarchy</span><h3>Markets decide</h3><p>Spending it takes a proposal on MetaDAO. Traders bet on the token's price with and without it, and the market that expects more value wins. No committee, no multisig vote.</p></article>
+    </div>
+  </section>
+
+  <section class="block">
+    <h2>What the treasury holds</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Token</th><th class="num">Amount</th><th class="num">Value</th></tr></thead>
+      <tbody id="holdings"><tr><td colspan="3"><span class="skel">Loading…</span></td></tr></tbody>
+    </table></div>
+    <p class="note" id="treasury-note"></p>
+  </section>
+
+  <section class="block">
+    <h2>Links</h2>
+    <div class="links">
+      <a href="https://metadao.fi/companies/lfown?tab=health" target="_blank" rel="noopener">MetaDAO ↗</a>
+      <a href="https://www.futard.io/launch/5Lfuib2f4NRqxRkqXDpuokbAbchxY947CRtjxZoawWm" target="_blank" rel="noopener">The raise on futard.io ↗</a>
+      <a href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">Jupiter ↗</a>
+      <a href="https://dexscreener.com/solana/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">DexScreener ↗</a>
+      <a href="https://solscan.io/account/A1XGC7uJtLcBb7oa7Q6DJtkBFriPrBGLDtSMiD2gNUHm#portfolio" target="_blank" rel="noopener">Treasury on Solscan ↗</a>
+      <a href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">@LFOWNDOTFUN ↗</a>
+    </div>
+  </section>
+</main>
+<script>
+var MAP={'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}
+function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return MAP[c]})}
+function usd(n){n=Number(n)||0;if(n&&Math.abs(n)<1)return '$'+n.toFixed(2);return '$'+Math.round(n).toLocaleString('en-US')}
+function num(n,d){return (Number(n)||0).toLocaleString('en-US',{maximumFractionDigits:d==null?2:d})}
+function short(a){return a?a.slice(0,4)+'…'+a.slice(-4):''}
+function ago(t){var s=Math.max(0,(Date.now()-t)/1000);if(s<3600)return Math.round(s/60)+'m ago';if(s<86400)return Math.round(s/3600)+'h ago';return Math.round(s/86400)+'d ago'}
+fetch('/api/lfown').then(function(r){return r.json()}).then(function(d){
+  var t=d.token||{}
+  if(t.icon){var i=document.getElementById('lf-icon');i.src=t.icon;i.hidden=false}
+  var tiles=[
+    ['Price', t.usdPrice?'$'+Number(t.usdPrice).toPrecision(3):'—', ''],
+    ['Market cap', t.mcap?usd(t.mcap):'—', ''],
+    ['Holders', t.holders?num(t.holders,0):'—', ''],
+    ['Treasury', usd(d.treasuryUsd), 'what the DAO holds today'],
+    ['Paid to the DAO by memes', usd(d.feesToDaoUsd), 'of '+usd(d.feesGeneratedUsd)+' in fees']
+  ]
+  document.getElementById('stats').innerHTML=tiles.map(function(x){return '<div class="tot"><span class="lab">'+esc(x[0])+'</span><span class="big">'+esc(x[1])+'</span>'+(x[2]?'<span class="sub">'+esc(x[2])+'</span>':'')+'</div>'}).join('')
+  var rows=(d.treasury||[]).filter(function(h){return h.usd>=1||!h.usd}).slice(0,25)
+  document.getElementById('holdings').innerHTML=rows.length?rows.map(function(h){return '<tr><td><a href="https://solscan.io/token/'+esc(h.mint)+'" target="_blank" rel="noopener">'+esc(h.symbol)+'</a></td><td class="num">'+num(h.amount,h.amount<1?6:2)+'</td><td class="num">'+(h.usd?usd(h.usd):'—')+'</td></tr>'}).join(''):'<tr><td colspan="3">Nothing yet.</td></tr>'
+  document.getElementById('treasury-note').innerHTML='The DAO treasury account, read from chain: <a href="https://solscan.io/account/'+esc(d.treasuryAddress)+'#portfolio" target="_blank" rel="noopener">'+esc(short(d.treasuryAddress))+'</a>. Values at today\u2019s prices; tokens without a market are listed without one.'
+}).catch(function(){document.getElementById('stats').innerHTML='<div class="tot"><span class="skel">Could not load the figures. Reload to try again.</span></div>'})
+</script>
 </body>
 </html>

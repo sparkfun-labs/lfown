@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LFOwn — Memecoin launcher paired with ownership coins</title>
-<meta name="description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+<title>LFOwn — Launch coins paired with ownership coins</title>
+<meta name="description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOwn, live." />
 
 <!-- Shared links. The worker rewrites these per coin under /coins/<mint>; every
      other page keeps the banner, so a link to the site looks like the site. -->
 <meta property="og:site_name" content="LFOwn" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://letsfuckingown.fun/" />
-<meta property="og:title" content="LFOwn — Memecoin launcher paired with ownership coins" />
-<meta property="og:description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+<meta property="og:title" content="LFOwn — Launch coins paired with ownership coins" />
+<meta property="og:description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOwn, live." />
 <meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@LFOWNDOTFUN" />
-<meta name="twitter:title" content="LFOwn — Memecoin launcher paired with ownership coins" />
-<meta name="twitter:description" content="LFOwn is a memecoin launchpad where the pair asset is a MetaDAO ownership coin instead of SOL or a tokenized stock. An idea from Vibhu, funded before a team exists." />
+<meta name="twitter:title" content="LFOwn — Launch coins paired with ownership coins" />
+<meta name="twitter:description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOwn, live." />
 <meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
 <link rel="icon" href="/favicon.png" sizes="32x32">
 <link rel="icon" href="/assets/icon-512.png" sizes="512x512">
@@ -37,258 +37,257 @@
 </script>
 <link rel="stylesheet" href="/assets/lfown.css">
 <style>
+main{padding-top:clamp(30px,5vw,54px);padding-bottom:clamp(60px,9vw,120px)}
+h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
+   font-size:clamp(2rem,5.4vw,3.6rem);line-height:.92;margin:0 0 10px}
+.lede{color:var(--ink-soft);max-width:56ch;margin:0 0 clamp(26px,4vw,44px);font-size:1.05rem}
+.skel{color:var(--ink-soft);font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase}
 
-/* ── hero ──────────────────────────── */
-.hero{position:relative;padding-top:clamp(46px,8vw,92px);padding-bottom:clamp(30px,5vw,58px)}
-.hero .eyebrow{color:var(--red);margin-bottom:clamp(22px,3vw,34px)}
-.hero .eyebrow a{text-decoration:none}
-.hero .eyebrow a:hover{color:var(--ink)}
-.hero-grid{display:grid;grid-template-columns:1.4fr .9fr;gap:clamp(26px,4vw,60px);align-items:end}
-@media(max-width:920px){.hero-grid{grid-template-columns:1fr}}
-h1{
-  font-family:var(--display);font-weight:800;margin:0;
-  font-size:clamp(2.9rem,7vw,6.2rem);line-height:.88;letter-spacing:-.045em;text-transform:uppercase;
+/* ── home: the half-page opener above the coins ───── */
+.opener{position:relative;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:clamp(20px,4vw,56px);align-items:end;
+  min-height:min(46vh,440px);padding:clamp(12px,3vw,34px) 0 clamp(26px,4vw,44px);margin-bottom:clamp(24px,4vw,40px);border-bottom:1.5px solid var(--ink)}
+@media(max-width:860px){.opener{grid-template-columns:1fr;min-height:0}}
+.opener .eyebrow{font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;color:var(--red);margin:0 0 clamp(14px,2vw,22px)}
+.opener h1{font-size:clamp(2.6rem,7vw,5.6rem);line-height:.88;letter-spacing:-.045em;margin:0}
+.opener h1 em{font-style:normal;color:var(--red)}
+.opener .side p{margin:0 0 20px;color:var(--ink-soft);font-size:clamp(1rem,1.4vw,1.2rem);max-width:40ch}
+.opener .side p b{color:var(--ink);font-weight:500}
+.opener .ctas{display:flex;flex-wrap:wrap;gap:12px}
+.opener .free{display:inline-block;margin-top:16px;font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;
+  color:#fff;background:var(--red);padding:5px 9px}
+.opener .free[hidden]{display:none}
+.list-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 14px}
+.list-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.4rem,3vw,2rem);margin:0}
+
+/* ── the grid ──────────────────────── */
+.totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0;border:1.5px solid var(--ink);margin:0 0 clamp(20px,3vw,30px)}
+.totals .tot{padding:16px 18px;border-right:1.5px solid var(--ink)}
+.totals .tot:last-child{border-right:0}
+@media(max-width:640px){.totals .tot{border-right:0;border-bottom:1.5px solid var(--ink)}.totals .tot:last-child{border-bottom:0}}
+.totals .lab{display:block;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+/* One tile of the strip is a link. It keeps the grid cell exactly — a link that
+   changed the row's height on hover would make the whole strip twitch. */
+.totals .tot.link{text-decoration:none;color:inherit;display:block;transition:background .15s}
+.totals .tot.link:hover{background:color-mix(in srgb,var(--red) 8%,transparent)}
+.totals .tot.link:hover .lab,.totals .tot.link:hover .big{color:var(--red)}
+.totals .big{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em}
+.earned{border-top:1px dashed var(--rule);padding-top:8px;color:var(--red)}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:clamp(14px,2vw,20px)}
+.coin-section + .coin-section{margin-top:clamp(34px,5vw,54px)}
+.section-head{display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;
+  padding-bottom:12px;margin-bottom:clamp(16px,2.4vw,22px);border-bottom:1.5px solid var(--ink)}
+.section-head h2{font-family:var(--mono);font-size:.62rem;letter-spacing:.18em;text-transform:uppercase;
+  font-weight:600;margin:0;display:flex;align-items:center;gap:9px}
+.section-head .count{background:var(--red);color:#fff;font-size:.58rem;letter-spacing:.1em;padding:3px 7px}
+.section-head p{margin:0;font-size:.92rem;color:var(--ink-soft)}
+/* ── the list controls ─────────────── */
+.list-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:0 0 clamp(20px,3vw,30px);padding-bottom:0}
+@media(max-width:640px){.list-controls{width:100%}.list-controls .drop{flex:1}}
+
+/* A dropdown drawn here rather than by the operating system: a native select's
+   open list is rounded, blue and ticked, and no stylesheet can reach inside it. */
+.drop{position:relative;display:inline-flex}
+.drop-btn{
+  display:inline-flex;align-items:center;gap:10px;justify-content:space-between;min-width:120px;
+  font:inherit;font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink);background:var(--card);border:1.5px solid var(--ink);padding:9px 11px;cursor:pointer;
 }
-h1 em{font-style:normal;color:var(--red);position:relative;display:inline-block}
-h1 em::after{
-  content:"";position:absolute;left:-.02em;right:-.02em;bottom:.08em;height:.10em;background:var(--red);
-  transform:rotate(-.8deg);opacity:.28;
+.drop-btn i{font-style:normal;font-size:.5rem;opacity:.6}
+.drop-btn:hover{background:var(--red);border-color:var(--ink);color:#fff}
+.drop-btn:hover i{opacity:1}
+.drop-list{
+  position:absolute;top:calc(100% + 6px);left:0;z-index:40;min-width:100%;
+  list-style:none;margin:0;padding:0;max-height:280px;overflow-y:auto;
+  border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red);
 }
-.hero p.lede{font-size:clamp(1.05rem,1.55vw,1.35rem);max-width:46ch;color:var(--ink-soft);margin:0 0 26px}
-.hero p.lede b{color:var(--ink);font-weight:500}
-.cta-row{display:flex;flex-wrap:wrap;gap:14px;align-items:center}
-
-
-/* board — the three coins that have raised the most */
-.board{margin:clamp(34px,5vw,64px) 0 0}
-.board-head{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin-bottom:13px}
-.board-head .mono{color:var(--ink-soft)}
-.board-head a{color:var(--red);text-decoration:none}
-.board-head a:hover{color:var(--ink)}
-.board-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-@media(max-width:760px){.board-grid{grid-template-columns:1fr}}
-.tc{display:block;border:1.5px solid var(--ink);background:var(--card);padding:16px 18px;
-  text-decoration:none;color:inherit;box-shadow:6px 6px 0 var(--ink);
-  transition:transform .14s ease, box-shadow .14s ease}
-.tc:hover{transform:translate(-3px,-3px);box-shadow:9px 9px 0 var(--red)}
-.tc.lead{box-shadow:6px 6px 0 var(--red)}
-.tc.skel{min-height:150px;box-shadow:none;opacity:.45}
-.tc-top{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.tc-top img{width:40px;height:40px;object-fit:cover;border:1.5px solid var(--ink);flex:0 0 auto}
-.tc-sym{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:1.25rem;line-height:1}
-.tc-pair{font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:5px}
-.tc-usd{font-family:var(--display);font-weight:800;font-size:1.6rem;letter-spacing:-.02em;line-height:1;margin-bottom:12px}
-.tc-bar{height:8px;border:1.5px solid var(--ink);background:var(--paper);overflow:hidden}
-.tc-bar i{display:block;height:100%;background:var(--red)}
-.tc-meta{display:flex;justify-content:space-between;gap:10px;margin-top:9px;
-  font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
-.board-empty{font-size:.95rem;color:var(--ink-soft);margin:0;grid-column:1/-1}
-
-/* banner */
-.banner{margin:clamp(34px,5vw,64px) 0 0;border:1.5px solid var(--ink);background:var(--card);position:relative;overflow:hidden;padding:clamp(26px,5vw,62px) clamp(20px,5vw,70px)}
-.banner img{width:100%}
-.banner .fallback{
-  padding:clamp(38px,8vw,86px) 20px;text-align:center;
+.drop-list[hidden]{display:none}
+.drop-list li+li{border-top:1px dashed var(--rule)}
+.drop-list button{
+  display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;
+  padding:10px 13px;white-space:nowrap;
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);
 }
-.banner .fallback .word{font-family:"Permanent Marker",cursive;color:var(--red);font-size:clamp(3.4rem,15vw,10rem);line-height:.9;transform:skewX(-9deg);}
-.banner .fallback .sub{font-family:var(--mono);font-size:clamp(.55rem,1.35vw,.82rem);letter-spacing:.3em;text-transform:uppercase;color:var(--red);margin-top:.6em}
+.drop-list button:hover{background:var(--red);color:#fff}
+.drop-list button[aria-selected="true"]{color:var(--red)}
+.drop-list button[aria-selected="true"]:hover{color:#fff}
 
-/* ── marquee ───────────────────────── */
-.marquee-wrap{overflow:hidden;padding:0;margin-top:clamp(34px,5vw,60px)}
-.marquee{background:var(--red);color:#fff;
-  border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);
-  overflow:hidden;white-space:nowrap;
+.sorter{display:flex;border:1.5px solid var(--ink)}
+.sorter .drop-btn{border:0}
+.sort-dir{
+  border:0;border-left:1.5px solid var(--ink);background:transparent;cursor:pointer;
+  padding:0 11px;font-size:.6rem;line-height:1;color:var(--ink);
 }
-.marquee .track{display:flex;width:max-content;animation:slide 42s linear infinite;will-change:transform}
-.marquee .grp{display:flex;flex:0 0 auto}
-.marquee span{
-  font-family:var(--mono);font-weight:600;font-size:clamp(.68rem,1.1vw,.85rem);letter-spacing:.22em;
-  text-transform:uppercase;padding:14px 26px;display:block;white-space:nowrap;
+.sort-dir:hover{background:var(--red);color:#fff}
+
+.coin{
+  border:1.5px solid var(--ink);background:var(--card);padding:18px;display:flex;flex-direction:column;gap:14px;
+  text-decoration:none;color:inherit;transition:transform .16s ease,box-shadow .16s ease
 }
-.marquee span::after{content:"◆";margin-left:26px;opacity:.6}
-@keyframes slide{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
-@media(prefers-reduced-motion:reduce){.marquee .track{animation:none}}
+.coin:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--red)}
+.coin .top{display:flex;align-items:center;gap:12px}
+.coin img{width:42px;height:42px;object-fit:cover;border:1.5px solid var(--ink);background:var(--paper)}
+.coin .nm{font-family:var(--display);font-weight:800;font-size:1.25rem;letter-spacing:-.02em;line-height:1}
+.coin .pair{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:5px}
+/* Named for what it is: `.bar` collided with the header's own bar and squashed it. */
+.progress{height:8px;border:1.5px solid var(--ink);background:var(--paper);position:relative;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--red)}
+.meta{display:flex;justify-content:space-between;font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft)}
+.badge{border:1.5px solid var(--red);color:var(--red);padding:3px 7px;font-family:var(--mono);font-size:.52rem;letter-spacing:.12em;text-transform:uppercase}
 
-/* ── sections ──────────────────────── */
-section{padding-top:clamp(56px,9vw,120px);padding-bottom:clamp(56px,9vw,120px);position:relative;scroll-margin-top:86px}
-.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:clamp(24px,3.5vw,44px);border-bottom:1.5px solid var(--ink);padding-bottom:12px}
-.sec-head .num{font-family:var(--mono);font-weight:600;font-size:.7rem;color:var(--red);letter-spacing:.2em}
-.sec-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.035em;font-size:clamp(1.6rem,4.4vw,3.2rem);line-height:1;margin:0}
-.two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,64px)}
-@media(max-width:860px){.two{grid-template-columns:1fr}}
-p.body{font-size:clamp(1rem,1.25vw,1.16rem);color:var(--ink-soft);max-width:60ch}
-p.body b{color:var(--ink);font-weight:500}
-.mark{background:linear-gradient(transparent 62%, var(--mark) 62%);padding:0 .08em}
+/* ── detail ────────────────────────── */
+.back{display:inline-block;margin-bottom:22px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);text-decoration:none}
+.back:hover{color:var(--red)}
+.detail{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(22px,3vw,38px);align-items:start}
+@media(max-width:900px){.detail{grid-template-columns:1fr}}
+.panel{border:1.5px solid var(--ink);background:var(--card);padding:clamp(20px,2.6vw,28px)}
+.panel.accent{box-shadow:10px 10px 0 var(--red)}
+.coin-head{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.coin-head img{width:64px;height:64px;object-fit:cover;border:1.5px solid var(--ink)}
+.coin-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.5rem,3.4vw,2.3rem);margin:0;line-height:1}
+.coin-side{margin-left:auto;align-self:flex-start;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
+.share{position:relative}
+.share-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;border:1.5px solid var(--ink);background:var(--red);color:#fff;cursor:pointer;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600;box-shadow:3px 3px 0 var(--ink);transition:transform .12s,box-shadow .12s}
+.share-btn:hover{transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--ink)}
+.share-btn svg{width:15px;height:15px}
+.share-menu{position:absolute;right:0;top:calc(100% + 8px);z-index:20;min-width:180px;border:1.5px solid var(--ink);background:var(--card);box-shadow:5px 5px 0 var(--red)}
+.share-menu[hidden]{display:none}
+.share-menu a,.share-menu button{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:transparent;border:0;cursor:pointer;text-decoration:none;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink);text-align:left}
+.share-menu button{border-top:1px dashed var(--rule)}
+.share-menu svg{width:15px;height:15px;flex:0 0 auto}
+.share-menu a:hover,.share-menu button:hover{background:var(--red);color:#fff}
+.coin-links{display:flex;flex-direction:row;justify-content:flex-end;gap:8px}
+.coin-links[hidden]{display:none}
+.coin-links .social{display:flex;align-items:center;justify-content:center;width:38px;height:38px;color:var(--ink);border:1.5px solid var(--ink);background:var(--card);transition:background .15s,color .15s}
+.coin-links .social svg{width:17px;height:17px}
+.coin-links .social:hover,.coin-links .social:focus-visible{background:var(--ink);color:var(--paper)}
+dl.stats{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;margin:20px 0 0}
+dl.stats dt{font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+dl.stats dd{margin:3px 0 0;font-size:1.02rem;font-variant-numeric:tabular-nums}
+.addr{font-family:var(--mono);font-size:.56rem;letter-spacing:.04em;word-break:break-all;color:var(--ink-soft);margin-top:18px;line-height:1.6}
 
-blockquote{
-  margin:0;font-family:var(--serif);font-style:italic;font-size:clamp(1.5rem,3.6vw,2.6rem);
-  line-height:1.15;letter-spacing:-.01em;border-left:5px solid var(--red);padding-left:clamp(16px,2.5vw,28px);
-}
-blockquote cite{
-  display:block;font-style:normal;font-family:var(--mono);font-size:.64rem;letter-spacing:.16em;
-  text-transform:uppercase;color:var(--ink-soft);margin-top:18px;
-}
-blockquote cite a{color:var(--red);text-decoration:none;border-bottom:1px solid rgba(240,20,20,.4)}
-blockquote cite a:hover{background:var(--red);color:#fff}
+.chart{margin-top:clamp(22px,3vw,38px)}
+.chart .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);
+  display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap;
+  margin:0 0 16px;padding-bottom:14px;border-bottom:1px dashed var(--rule)}
+.chart .lab b{font-family:var(--display);font-weight:800;font-size:1.35rem;letter-spacing:-.02em;color:var(--ink);text-transform:none}
+.chart .now{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.chart .now .usd{font-family:var(--serif);font-size:.95rem;letter-spacing:0;text-transform:none;color:var(--ink-soft)}
+.chart .lab .up,.chart .lab .down{color:var(--red)}
+.chart .ranges{display:flex;border:1.5px solid var(--ink);margin-left:auto}
+.chart .ranges button{padding:5px 12px;background:transparent;border:0;border-right:1.5px solid var(--ink);cursor:pointer;
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.chart .ranges button:last-child{border-right:0}
+.chart .ranges button[aria-pressed="true"]{background:var(--red);color:#fff}
+.chart svg{width:100%;height:auto;display:block;overflow:visible}
+.chart .grid{stroke:var(--rule);stroke-width:1;stroke-dasharray:3 4}
+.chart .line{fill:none;stroke:var(--red);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chart .area{fill:var(--red);opacity:.1}
+.chart .dot{fill:var(--red)}
+.chart .cross line{stroke:var(--ink);stroke-width:1;stroke-dasharray:2 3;opacity:.5}
+.chart .cross circle{fill:var(--paper);stroke:var(--red);stroke-width:2}
+.chart .hit{cursor:crosshair}
+.chart .now .move{font-variant-numeric:tabular-nums}
+.chart .tick{font-family:var(--mono);font-size:9px;fill:var(--ink-soft)}
+@media (max-width:640px){.chart .lab b{font-size:1.15rem}}
+.chart .empty{font-size:.92rem;color:var(--ink-soft);margin:0}
+.creator-box{border-top:1px dashed var(--rule);margin-top:20px;padding-top:18px}
+.creator-box .lab{font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:8px}
+.fee-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px 16px;margin:0 0 16px}
+.fee-split dt{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.fee-split dd{margin:3px 0 0;font-family:var(--display);font-weight:800;font-size:1.15rem;letter-spacing:-.02em}
 
-/* idea grid + embedded post */
-.idea-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(26px,4vw,60px);align-items:start}
-@media(max-width:940px){.idea-grid{grid-template-columns:1fr}}
-.tweet-card{border:1.5px solid var(--ink);background:var(--card);box-shadow:9px 9px 0 var(--red);padding:14px}
-.tweet-label{color:var(--red);padding:4px 4px 12px;border-bottom:1px dashed var(--rule);margin-bottom:10px}
-.tweet-embed{min-height:120px}
-.tweet-embed .twitter-tweet{margin:0 auto!important}
-.tweet-embed blockquote:not(.twitter-tweet-rendered){
-  font-family:var(--serif);font-size:1.02rem;line-height:1.5;margin:0;padding:4px 6px 10px;color:var(--ink)
-}
-.tweet-embed blockquote:not(.twitter-tweet-rendered) a{color:var(--red)}
+.creator-box .amount{font-family:var(--display);font-weight:800;font-size:1.5rem;letter-spacing:-.02em;margin-bottom:14px}
+.creator-box .amount .sub{font-family:var(--serif);font-weight:400;font-size:.95rem;color:var(--ink-soft);letter-spacing:0;margin-left:8px}
+.phase{border-top:1px dashed var(--rule);padding-top:14px;margin-top:14px}
+.phase:first-of-type{border-top:0;padding-top:0;margin-top:0}
+.creator-box .claimed{font-size:.95rem;color:var(--ink-soft);margin:-6px 0 14px;font-variant-numeric:tabular-nums}
+.creator-box .claimed .sub{margin-left:6px;opacity:.75}
+.creator-box .btn{width:auto}
+.creator-box .hint{font-size:.85rem;color:var(--ink-soft);margin:10px 0 0}
 
-/* prior art cards */
-.cards{display:grid;grid-template-columns:repeat(2,1fr);gap:clamp(18px,2.4vw,28px)}
-@media(max-width:760px){.cards{grid-template-columns:1fr}}
-.card{
-  border:1.5px solid var(--ink);background:var(--card);padding:clamp(20px,2.6vw,32px);
-  display:flex;flex-direction:column;gap:12px;min-height:100%;
-  transition:background .2s ease,color .2s ease,transform .2s ease,box-shadow .2s ease;
-}
-.card:hover{background:var(--red);color:#fff;transform:translateY(-4px);box-shadow:0 14px 0 -4px var(--ink)}
-.card:hover .card-meta,.card:hover p{color:rgba(255,255,255,.9)}
-.card:hover a{color:#fff}
-.card h3{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.3rem,2.4vw,1.9rem);margin:0;line-height:1}
-.card-meta{font-family:var(--mono);font-size:.6rem;letter-spacing:.16em;text-transform:uppercase;color:var(--red);transition:color .2s}
-.card p{margin:0;color:var(--ink-soft);font-size:1rem}
-.card a{margin-top:auto;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;border-bottom:1.5px solid currentColor;align-self:flex-start;padding-bottom:2px}
-
-/* gap block */
-.gap-layout{display:grid;grid-template-columns:1.02fr .98fr;gap:clamp(22px,3vw,38px);align-items:start}
-@media(max-width:900px){.gap-layout{grid-template-columns:1fr}}
-.gapwrap{border:1.5px solid var(--ink);background:var(--card);box-shadow:10px 10px 0 var(--red)}
-.gapwrap .tickers{padding:clamp(20px,2.6vw,30px);border-bottom:1.5px solid var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:14px 28px}
-.tick{display:flex;align-items:center;gap:12px}
-.tick .sym{font-family:var(--display);font-weight:800;font-size:clamp(1.5rem,3.2vw,2.3rem);letter-spacing:-.03em;color:var(--red)}
-.tick .flag{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;border:1.5px solid var(--red);color:var(--red);padding:4px 8px}
-.gapwrap .txt{padding:clamp(22px,3vw,34px)}
-.reasons{list-style:none;margin:18px 0 0;padding:0;display:grid;gap:12px}
-.reasons li{display:flex;gap:12px;font-size:.98rem;color:var(--ink-soft);align-items:flex-start}
-.reasons li b{color:var(--ink);font-weight:500}
-.reasons li::before{content:"✕";color:var(--red);font-family:var(--mono);font-size:.8rem;line-height:1.5}
-
-/* exhibit: the screenshot, framed like evidence */
-.exhibit{margin:0;border:1.5px solid var(--ink);background:#0d1216;box-shadow:10px 10px 0 var(--ink)}
-.exhibit figcaption{
-  background:var(--red);color:#fff;padding:11px 14px;border-bottom:1.5px solid var(--ink);
-  display:flex;justify-content:space-between;align-items:center;gap:14px;
-}
-.exhibit figcaption a{color:#fff;text-decoration:none;border-bottom:1px solid rgba(255,255,255,.55);white-space:nowrap}
-.exhibit figcaption a:hover{border-bottom-color:#fff}
-.exhibit .shot{display:block}
-.exhibit img{display:block;width:100%}
-
-/* goal */
-.goal{background:var(--red);color:#fff;border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink)}
-.goal .sec-head{border-color:rgba(255,255,255,.45)}
-.goal .sec-head .num{color:#fff;opacity:.75}
-.goal p.body{color:rgba(255,255,255,.92)}
-.goal p.body b{color:#fff}
-.goal .big{
-  font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.04em;
-  font-size:clamp(1.8rem,5.4vw,4rem);line-height:.94;margin:0 0 24px;max-width:20ch;
-}
-.pillars{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(14px,2vw,22px);margin-top:clamp(28px,4vw,48px)}
-@media(max-width:760px){.pillars{grid-template-columns:1fr}}
-.pillar{border:1.5px solid rgba(255,255,255,.55);padding:20px}
-.pillar .mono{color:rgba(255,255,255,.75);display:block;margin-bottom:8px}
-.pillar p{margin:0;font-size:.98rem;color:#fff}
-
-/* footer cta */
-.end{padding-top:clamp(64px,10vw,130px);padding-bottom:clamp(30px,5vw,50px);text-align:center}
-.end h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.045em;line-height:.88;font-size:clamp(2.6rem,10vw,7rem);margin:0 0 18px}
-.end h2 span{color:var(--red)}
-.end p{max-width:52ch;margin:0 auto 30px;color:var(--ink-soft);font-size:clamp(1rem,1.3vw,1.18rem)}
-footer{border-top:1.5px solid var(--ink);padding:22px var(--pad);display:flex;flex-wrap:wrap;gap:16px;justify-content:space-between;align-items:center}
-footer .links{display:flex;flex-wrap:wrap;gap:18px}
-footer a{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;text-decoration:none;color:var(--ink-soft)}
-footer a:hover{color:var(--red)}
-footer .x-link{display:inline-flex;align-items:center;gap:7px;color:var(--ink)}
-footer .x-link svg{width:13px;height:13px;fill:currentColor}
-footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
-
-
-/* ── dinosaurs: the first backing coin that is not an ownership coin ──────
-   One look in both themes, like the red goal band: a dig site at night. Bone on
-   dark earth, the strata underneath, and the exhibit tag a museum would pin on it. */
-.dino{
-  --earth:#15100B;--earth-2:#211810;--bone:#EFE2C6;--bone-soft:rgba(239,226,198,.66);--bone-rule:rgba(239,226,198,.2);
-  background:radial-gradient(120% 90% at 85% 0%, #2A1D12 0%, var(--earth) 58%);
-  color:var(--bone);border-top:1.5px solid var(--ink);border-bottom:1.5px solid var(--ink);
-  overflow:hidden;isolation:isolate;padding-bottom:0;
-}
-.dino::before{ /* the age, too big to read at a glance and meant to be felt instead */
-  content:"66,000,000";position:absolute;right:-.06em;top:.06em;z-index:-1;
-  font-family:var(--display);font-weight:800;letter-spacing:-.06em;line-height:.8;
-  font-size:clamp(4rem,21vw,19rem);color:transparent;-webkit-text-stroke:1.5px rgba(239,226,198,.09);
-  white-space:nowrap;pointer-events:none;
-}
-.dino .flag-new{display:inline-flex;align-items:center;gap:10px;font-family:var(--mono);font-size:.62rem;letter-spacing:.2em;text-transform:uppercase;
-  color:#fff;background:var(--red);border:1.5px solid var(--bone);padding:7px 12px;box-shadow:4px 4px 0 var(--bone)}
-.dino .flag-new i{width:7px;height:7px;border-radius:50%;background:#fff;animation:pulse 1.4s ease-in-out infinite}
-@keyframes pulse{50%{opacity:.25}}
-.dino-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:clamp(30px,5vw,80px);align-items:center;margin-top:clamp(22px,3vw,34px)}
-@media(max-width:900px){.dino-grid{grid-template-columns:1fr}}
-.dino h2{
-  font-family:var(--display);font-weight:800;text-transform:uppercase;margin:0;
-  font-size:clamp(2.7rem,7.4vw,6.4rem);line-height:.86;letter-spacing:-.05em;
-}
-.dino h2 em{font-style:normal;color:var(--red);display:inline-block;transform:rotate(-2deg);text-shadow:4px 4px 0 var(--earth-2)}
-.dino .lede{font-size:clamp(1.05rem,1.5vw,1.3rem);color:var(--bone-soft);max-width:48ch;margin:clamp(20px,2.6vw,30px) 0 0}
-.dino .lede b{color:var(--bone);font-weight:500}
-.dino .cta-row{margin-top:clamp(24px,3vw,36px)}
-.dino .btn{border-color:var(--bone);box-shadow:5px 5px 0 var(--bone)}
-.dino .btn:hover{box-shadow:2px 2px 0 var(--bone)}
-.dino .btn.ghost{color:var(--bone)}
-.dino .btn.ghost:hover{background:var(--bone);color:var(--earth)}
-.dino .ca{margin-top:22px;display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--bone-soft)}
-.dino .ca button{font:inherit;letter-spacing:.02em;text-transform:none;color:var(--bone);background:transparent;border:1px dashed var(--bone-rule);padding:6px 9px;cursor:pointer;max-width:100%;overflow-wrap:anywhere;text-align:left}
-.dino .ca button:hover{border-color:var(--bone)}
-
-/* the exhibit tag */
-.specimen{position:relative;background:var(--bone);color:var(--earth);border:1.5px solid var(--ink);box-shadow:12px 12px 0 var(--red)}
-.specimen::before{ /* the string hole */
-  content:"";position:absolute;top:16px;left:16px;width:12px;height:12px;border-radius:50%;background:var(--earth);box-shadow:0 0 0 3px rgba(21,16,11,.18)}
-.specimen-head{display:flex;justify-content:space-between;gap:12px;padding:14px 16px 12px 42px;border-bottom:1.5px dashed rgba(21,16,11,.35);
-  font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase}
-.specimen-head b{color:var(--red);font-weight:600}
-.specimen-body{display:grid;grid-template-columns:132px 1fr;gap:18px;padding:18px;align-items:center}
-@media(max-width:420px){.specimen-body{grid-template-columns:92px 1fr;gap:14px}}
-.specimen-body img{width:100%;height:auto;aspect-ratio:1;object-fit:cover;border:1.5px solid var(--earth);background:#3a3024;filter:contrast(1.08) saturate(.9)}
-.specimen-name{font-family:var(--display);font-weight:800;text-transform:uppercase;font-size:clamp(1.9rem,3.6vw,2.6rem);letter-spacing:-.04em;line-height:.9}
-.specimen-latin{font-family:var(--serif);font-style:italic;font-size:1.05rem;margin-top:6px}
-.specimen-ticker{display:inline-block;margin-top:10px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;background:var(--earth);color:var(--bone);padding:4px 8px}
-.specimen dl{margin:0;border-top:1.5px solid var(--earth);display:grid;grid-template-columns:1fr 1fr}
-.specimen dl div{padding:11px 16px;border-bottom:1px solid rgba(21,16,11,.18)}
-.specimen dl div:nth-child(odd){border-right:1px solid rgba(21,16,11,.18)}
-.specimen dt{font-family:var(--mono);font-size:.5rem;letter-spacing:.16em;text-transform:uppercase;opacity:.7}
-.specimen dd{margin:3px 0 0;font-size:.98rem;font-variant-numeric:tabular-nums;font-weight:500}
-.specimen dd.hot{color:var(--red)}
-.specimen-foot{padding:10px 16px;font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-.specimen-foot a{color:var(--earth)}
-.specimen-foot a:hover{color:var(--red)}
-
-/* the ground it came out of */
-.strata{margin-top:clamp(56px,8vw,100px);height:clamp(54px,7vw,84px);border-top:1.5px solid var(--ink);
-  background:linear-gradient(180deg,#5B4330 0 22%,#3D2C1E 22% 41%,#7A5B3E 41% 52%,#2B1F15 52% 74%,#4A3626 74% 86%,#1B140D 86%)}
-@media(prefers-reduced-motion:reduce){.dino .flag-new i{animation:none}}
-
-
-/* ── motion: entrance + scroll reveals (CSS only, content never depends on JS) */
-@keyframes rise{from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:none}}
-.load{animation:rise .85s cubic-bezier(.2,.7,.3,1) both}
-@supports (animation-timeline: view()){
-  .rv{animation:rise linear both;animation-timeline:view();animation-range:entry 0% entry 55%}
-}
-@media(prefers-reduced-motion:reduce){
-  .load,.rv{animation:none}
-}
+.tabs{display:flex;border:1.5px solid var(--ink);margin-bottom:18px}
+.tabs button{flex:1;padding:11px;background:transparent;border:0;border-right:1.5px solid var(--ink);cursor:pointer;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.tabs button:last-child{border-right:0}
+.tabs button[aria-pressed="true"]{background:var(--red);color:#fff}
+.pay{display:flex;border:1.5px solid var(--ink);flex-wrap:wrap}
+.pay button{flex:1 1 0;min-width:80px;padding:10px 8px;background:transparent;border:0;border-right:1.5px solid var(--ink);cursor:pointer;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.pay button:last-child{border-right:0}
+.pay button[aria-pressed="true"]{background:var(--red);color:#fff}
+.pay button:disabled{opacity:.45;cursor:not-allowed}
+/* `display:flex` outranks the browser's own [hidden]{display:none}, so the row kept
+   showing on the Sell tab — offering to pay in SOL or USDC for a sale that pays out
+   in the ownership coin. Same collision the drawer and the scrim already carry. */
+.pay[hidden]{display:none}
+.trade .pay{margin-bottom:14px}
+.trade .payline{font-size:.85rem;color:var(--ink-soft);margin:-6px 0 14px;font-variant-numeric:tabular-nums}
+.trade .payline b{color:var(--ink);font-weight:500}
+.trade label{display:block;margin-bottom:14px}
+.trade .lab{font-family:var(--mono);font-size:.58rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft);display:block;margin-bottom:7px}
+/* The balance sits on the label's own line rather than above it: as a sentence of its
+   own it read like a warning, and it pushed the field down the panel. */
+/* Same collision as `.pay` below: `.lab` is display:block, which outranks the
+   browser's [hidden]{display:none}, so the caption would show on the buy tab too. */
+.trade .lab[hidden]{display:none}
+.trade .pay-lab{margin-bottom:7px}
+.trade .amount-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:7px}
+.trade .amount-head .lab{margin-bottom:0}
+.trade .held{font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.trade .amount-field{position:relative;margin-bottom:14px}
+.trade .amount-field input{padding-right:76px}
+.trade .max{position:absolute;top:50%;right:6px;transform:translateY(-50%);
+  background:transparent;border:0;cursor:pointer;padding:8px 10px;
+  font-family:var(--mono);font-size:.58rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink)}
+.trade .max:hover{color:var(--red)}
+.trade input{width:100%;font:inherit;font-size:1.05rem;color:var(--ink);background:var(--paper);border:1.5px solid var(--ink);padding:11px 13px}
+.trade input:focus{outline:2px solid var(--red);outline-offset:-1px}
+.quote{border-top:1px dashed var(--rule);padding-top:14px;margin-top:4px;font-size:.95rem;color:var(--ink-soft);min-height:44px}
+.quote b{color:var(--ink);font-weight:500}
+/* Label left, figure right — the same shape as the amount row above it. */
+.quote .line{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.quote .line + .line{margin-top:7px}
+.quote .line span{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase}
+.quote .line b{font-variant-numeric:tabular-nums}
+/* `.quote b` sets the ink colour and outranks `.warn-text`, so the one figure that
+   exists to be alarming was drawn in the same black as the other two. */
+.quote b.warn-text{color:var(--red)}
+button.btn{font:inherit;cursor:pointer;font-family:var(--mono);font-size:.68rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600;width:100%;justify-content:center}
+/* Room between the figures and the button that acts on them: they were touching,
+   and the one irreversible control on the panel deserves a beat of its own. */
+.trade #do-trade{margin-top:20px}
+button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 5px 0 var(--ink)}
+/* The status line is empty most of the time; reserving its height keeps the panel
+   from growing under the cursor the moment a trade confirms. */
+#trade-status{min-height:1.4em}
+.jup{display:block;margin-top:12px;text-align:center;text-decoration:none}
+.quote a, .trade .hint a{color:var(--red)}
+.warn-text{color:var(--red)}
+.wallet-slot{position:relative;display:inline-flex}
+.wallet-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:230px;border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red)}
+/* One rule for the anchor and the buttons: they are three entries of one menu and
+   any difference between them reads as a mistake. */
+/* Addressed by id, not class. `.top nav a:hover{color:var(--red)}` in lfown.css
+   scores higher than `.wallet-menu a:hover`, so Profile was painted red on the red
+   hover background and vanished. An id outranks any number of classes. */
+#wallet-menu a,#wallet-menu button{display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;padding:11px 14px;text-decoration:none;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);transition:background .15s,color .15s}
+#wallet-menu a:hover,#wallet-menu button:hover{background:var(--red);color:#fff}
+#wallet-menu a+button,#wallet-menu button+button{border-top:1px dashed var(--rule)}
+dialog#wallet-picker{border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:0;max-width:340px;width:calc(100% - 40px);box-shadow:12px 12px 0 var(--red)}
+dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
+.picker-head{background:var(--red);color:#fff;padding:12px 18px;border-bottom:1.5px solid var(--ink);font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+.picker-list{list-style:none;margin:0;padding:0}
+.picker-list li+li{border-top:1px dashed var(--rule)}
+.picker-list button{width:100%;display:flex;align-items:center;gap:12px;padding:14px 18px;background:transparent;border:0;font:inherit;font-size:1rem;color:inherit;cursor:pointer;text-align:left;transition:background .15s}
+.picker-list button:hover{background:var(--red);color:#fff}
+.picker-list img{width:24px;height:24px;border-radius:4px}
+.picker-list .blank{width:24px;height:24px;border:1.5px solid currentColor;opacity:.4}
+#picker-close{margin:14px 18px 18px;cursor:pointer;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;width:auto}
 </style>
 </head>
 <body>
@@ -297,8 +296,9 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
   <div class="bar">
     <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOwn"></a>
     <nav class="nav-centre">
-      <a class="mono hide-s" href="/coins">Coins</a>
+      <a class="mono hide-s" href="/lfown">$LFOWN</a>
       <a class="mono hide-s" href="/launch">Launch</a>
+      <a class="mono hide-s" href="/rewards">Rewards</a>
       <a class="mono hide-s" href="/leaderboard">Leaderboard</a>
     </nav>
     <nav class="nav-actions">
@@ -306,7 +306,15 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
         <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
         <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
       </button>
-      <a class="btn" href="/launch"><span>Launch<span class="hide-s"> Ownership Memes</span></span></a>
+      <a class="btn hide-s launch-cta" href="/launch"><span>Launch Ownership Memes</span></a>
+      <span class="wallet-slot">
+        <button class="btn" type="button" id="connect">Connect wallet</button>
+        <div class="wallet-menu" id="wallet-menu" hidden>
+          <a href="/profile">Profile</a>
+          <button type="button" data-act="copy">Copy address</button>
+          <button type="button" data-act="disconnect">Disconnect</button>
+        </div>
+      </span>
       <button class="burger" type="button" id="menuToggle" aria-label="Open menu" aria-expanded="false" aria-controls="menu">
         <span></span><span></span><span></span>
       </button>
@@ -332,9 +340,12 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
       </button>
     </div>
     <nav class="drawer-nav">
-      <a href="/coins">Coins</a>
+      <a href="/">Coins</a>
+      <a href="/lfown">$LFOWN</a>
       <a href="/launch">Launch</a>
+      <a href="/rewards">Rewards</a>
       <a href="/leaderboard">Leaderboard</a>
+      <a href="/profile">Profile</a>
     </nav>
     <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
       <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
@@ -437,317 +448,17 @@ footer .sig{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-t
   })()
 </script>
 
+
 <!--/lfown-header-->
 
-<main id="top">
+<main class="wrap" id="view"><p class="skel">Loading coins…</p></main>
 
-  <!-- DINOSAURS -->
-  <section id="dinosaurs" class="dino">
-    <div class="wrap">
-      <span class="flag-new load"><i></i>New pair · live now</span>
-      <div class="dino-grid">
-        <div>
-          <h2 class="load">Launch memes<br>against<br><em>dinosaurs.</em></h2>
-          <p class="lede load" style="animation-delay:.08s"><b>$TRCH1 is Deaton</b>, a Triceratops skull about 66 million years old, owned together on Solana. <b>Jurassic Finance</b>, a project funded on futard.io, raised <b>$660,000</b> to buy it. Each token is a piece of the skull: 1% of the supply is 1% of Deaton.</p>
-          <p class="lede load" style="animation-delay:.12s">Pick TRCH1 as your pair, and every trade on your meme settles in a fossil instead of SOL.</p>
-          <div class="cta-row load" style="animation-delay:.16s">
-            <a class="btn" href="/launch?quote=TRCH1">Launch against $TRCH1</a>
-            <a class="btn ghost" href="https://app.jurassic.finance/" target="_blank" rel="noopener">Jurassic Finance ↗</a>
-          </div>
-          <div class="ca load" style="animation-delay:.2s">
-            <span>Contract</span>
-            <button type="button" id="dinoCa" data-ca="DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB" title="Copy the contract address">DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB</button>
-          </div>
-        </div>
+<dialog id="wallet-picker">
+  <div class="picker-head">Choose a wallet</div>
+  <ul class="picker-list" id="wallet-list"></ul>
+  <button class="btn ghost" type="button" id="picker-close">Cancel</button>
+</dialog>
 
-        <figure class="specimen load" style="margin:0;animation-delay:.1s">
-          <div class="specimen-head"><span>Specimen <b>No. 001</b></span><span>Jurassic Finance</span></div>
-          <div class="specimen-body">
-            <img src="https://gateway.irys.xyz/9kC4VBpTGcwokbvMpBQsEMDgZrp2xFgSFKiRF21D8zvH" alt="Deaton, the Triceratops skull behind TRCH1" width="132" height="132">
-            <div>
-              <div class="specimen-name">Deaton</div>
-              <div class="specimen-latin">Triceratops prorsus</div>
-              <span class="specimen-ticker">$TRCH1</span>
-            </div>
-          </div>
-          <dl>
-            <div><dt>Age</dt><dd>~66M years</dd></div>
-            <div><dt>Found</dt><dd>Hell Creek, ND</dd></div>
-            <div><dt>Raised</dt><dd class="hot">$660,000</dd></div>
-            <div><dt>Supply</dt><dd>1,000,000</dd></div>
-            <div><dt>Horns</dt><dd>All three original</dd></div>
-            <div><dt>1% of supply</dt><dd>1% of Deaton</dd></div>
-          </dl>
-          <figcaption class="specimen-foot"><span>Paired on LFOwn</span><a href="https://app.jurassic.finance/" target="_blank" rel="noopener">jurassic.finance ↗</a></figcaption>
-        </figure>
-      </div>
-    </div>
-    <div class="strata" aria-hidden="true"></div>
-  </section>
-
-  <!-- HERO -->
-  <div class="hero wrap">
-    <div class="mono eyebrow">Solana &nbsp;◆&nbsp; Futarchy &nbsp;◆&nbsp; <a href="https://jup.ag/tokens/5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta" target="_blank" rel="noopener">$LFOWN</a></div>
-    <div class="hero-grid">
-      <div class="load">
-        <h1>Memecoins<br>paired with<br><em>ownership</em><br>coins.</h1>
-      </div>
-      <div class="load" style="animation-delay:.14s">
-        <p class="lede">LFOwn is a memecoin launchpad where the pair asset is an <b>ownership coin launched on MetaDAO</b> — not SOL, not a tokenized stock. Every one of them has a treasury behind it, and we show you how big.</p>
-        <div class="cta-row">
-          <a class="btn" href="/launch">Launch Ownership Memes</a>
-          <a class="btn ghost" href="/coins">See launched coins</a>
-        </div>
-      </div>
-    </div>
-
-    <div class="board load" style="animation-delay:.26s">
-      <div class="board-head">
-        <span class="mono">Leading the board</span>
-        <a class="mono" href="/coins">All coins →</a>
-      </div>
-      <div class="board-grid" id="board">
-        <div class="tc skel"></div><div class="tc skel"></div><div class="tc skel"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="marquee-wrap"><div class="marquee" aria-hidden="true">
-    <div class="track">
-      <div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Now paired with dinosaurs</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div><div class="grp"><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Now paired with dinosaurs</span><span class="mq-dao">$600 to LFOwn DAO</span><span>Memecoin launcher paired with ownership coins</span><span class="mq-fees">Total fees $1,200</span><span>Powered by Spark</span><span class="mq-dao">$600 to LFOwn DAO</span></div>
-    </div>
-  </div></div>
-
-  <!-- IDEA -->
-  <section id="idea" class="wrap">
-    <div class="sec-head"><span class="num">01</span><h2>The idea</h2></div>
-    <div class="idea-grid">
-      <div class="rv">
-        <blockquote>
-          “Solana will win paired memecoins”
-          <cite>Vibhu — <a href="https://x.com/vibhu/status/2096426899828269561" target="_blank" rel="noopener">6 Sep 2026 ↗</a></cite>
-        </blockquote>
-        <p class="body">His argument: the chain wins this meta if the community leans into its <b>structural advantages</b> — more assets with more liquidity, pairing not only against stocks but against other tokens (BTC, ZEC, AI coins, prediction positions… <b>MetaDAO tokens included</b>), more builders running experiments, and a market structure that lets coins sustain momentum instead of getting thrashed by arb.</p>
-        <p class="body">LFOwn is that argument turned into a product. Pick an ownership coin. Launch a meme against it. The pool's reserve asset stops being a bare ticker and becomes <span class="mark">a coin with a treasury behind it</span>.</p>
-      </div>
-      <aside class="tweet-card rv" style="animation-delay:.1s">
-        <div class="tweet-label mono">The original post</div>
-        <div class="tweet-embed">
-          <blockquote class="twitter-tweet" data-theme="light" data-dnt="true" data-conversation="none" data-align="center">
-            <p lang="en" dir="ltr">Solana will win paired memecoins if the community leans into its structural advantages.</p>
-            &mdash; Vibhu (@vibhu) <a href="https://twitter.com/vibhu/status/2096426899828269561?ref_src=twsrc%5Etfw">September 6, 2026</a>
-          </blockquote>
-        </div>
-        <script>
-          (function(){
-            var box=document.currentScript.parentNode.querySelector('.tweet-embed');
-            window.__tweetTpl=box.innerHTML;
-            if(document.documentElement.getAttribute('data-theme')==='dark'){
-              box.innerHTML=window.__tweetTpl.replace('data-theme="light"','data-theme="dark"');
-            }
-          })();
-        </script>
-      </aside>
-    </div>
-  </section>
-
-  <!-- PRIOR ART -->
-  <section id="priorart" class="wrap">
-    <div class="sec-head"><span class="num">02</span><h2>Prior art</h2></div>
-    <p class="body rv" style="margin-bottom:clamp(24px,3vw,38px)">Two projects are already running the meme-on-equity meta. Neither points at ownership coins.</p>
-    <div class="cards">
-      <article class="card rv">
-        <div class="card-meta">Robinhood Chain</div>
-        <h3>Pons</h3>
-        <p>Memecoins paired against tokenized stocks instead of ETH.</p>
-        <a href="https://x.com/ponsdotfamily" target="_blank" rel="noopener">@ponsdotfamily ↗</a>
-      </article>
-      <article class="card rv" style="animation-delay:.1s">
-        <div class="card-meta">Solana</div>
-        <h3>StonkFun</h3>
-        <p>Coins paired with virtually any asset: stocks, commodities, currencies, other memes — but no ownership coins, except $META itself.</p>
-        <a href="https://x.com/launchonsf" target="_blank" rel="noopener">@launchonsf ↗</a>
-      </article>
-    </div>
-  </section>
-
-  <!-- GAP -->
-  <section id="gap" class="wrap">
-    <div class="sec-head"><span class="num">03</span><h2>The gap</h2></div>
-    <div class="gap-layout">
-      <div class="gapwrap rv">
-        <div class="tickers">
-          <div class="tick"><span class="sym">$RAWR</span><span class="flag">Flagged</span></div>
-          <div class="tick"><span class="sym">$AVICI</span><span class="flag">Flagged</span></div>
-        </div>
-        <div class="txt">
-          <p class="body" style="margin-top:0">StonkFun's risk engine doesn't recognise the <b>futarchy mint mechanism</b> behind ownership coins, so it refuses them as a quote token.</p>
-          <ul class="reasons">
-            <li><span><b>Mint authority revoked — fail.</b> The futarchy mint reads as an open faucet: “can still mint unlimited new supply”.</span></li>
-            <li><span><b>Liquidity locked — fail.</b> 0% of LP measured as burned or locked, against a 50% minimum.</span></li>
-            <li><span><b>No flagged risks — fail.</b> Third-party flags pile on the thin liquidity typical of a futard.io launch.</span></li>
-          </ul>
-          <div class="mono" style="color:var(--ink-soft);margin-top:20px">Case in point — and others like them</div>
-        </div>
-      </div>
-      <figure class="exhibit rv" style="animation-delay:.1s">
-        <figcaption class="mono">
-          <span>Exhibit — StonkFun importer</span>
-          <a href="assets/stonk-screen.png" target="_blank" rel="noopener">Full size ↗</a>
-        </figcaption>
-        <a class="shot" href="assets/stonk-screen.png" target="_blank" rel="noopener">
-          <img src="assets/stonk-screen.png" alt="StonkFun's importer refusing a token as a quote token: mint authority revoked, liquidity locked and no flagged risks all fail.">
-        </a>
-      </figure>
-    </div>
-  </section>
-
-  <!-- GOAL -->
-  <section id="goal" class="goal">
-    <div class="wrap">
-      <div class="sec-head"><span class="num">04</span><h2>The goal</h2></div>
-      <p class="big rv">Take the same primitive and point it at ownership coins.</p>
-      <p class="body rv" style="animation-delay:.08s">A launchpad built for futarchy from the first line: one that understands how ownership coins are minted, how their liquidity is locked, and how thin the book is on day one — instead of treating all of it as risk.</p>
-      <div class="pillars">
-        <div class="pillar rv"><span class="mono">Pair asset</span><p>Ownership coins launched on MetaDAO, each with a treasury behind it.</p></div>
-        <div class="pillar rv" style="animation-delay:.08s"><span class="mono">Risk engine</span><p>Futarchy-native: mint mechanism, liquidity locks and thin books understood, not flagged.</p></div>
-        <div class="pillar rv" style="animation-delay:.16s"><span class="mono">Upside</span><p>Meme volume flows back to the assets that fund real projects.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- CTA -->
-  <section id="community" class="end wrap">
-    <h2 class="rv">Come talk<br>in the <span>group.</span></h2>
-    <p class="rv" style="animation-delay:.08s">LFOwn is built in the open on the Spark Telegram — every launch, every graduation, and whatever you want to argue about.</p>
-    <div class="cta-row rv" style="justify-content:center;animation-delay:.14s">
-      <a class="btn" href="https://t.me/sparkdotfun/9868" target="_blank" rel="noopener">Join the Telegram ↗</a>
-      <a class="btn ghost" href="https://www.futard.io/launch/5Lfuib2f4NRqxRkqXDpuokbAbchxY947CRtjxZoawWm" target="_blank" rel="noopener">futard.io ↗</a>
-    </div>
-  </section>
-</main>
-
-<footer>
-  <div class="sig">$LFOwn — Memecoin launcher paired with ownership coins</div>
-  <div class="links">
-    <a href="https://www.futard.io/launch/5Lfuib2f4NRqxRkqXDpuokbAbchxY947CRtjxZoawWm" target="_blank" rel="noopener">futard.io</a>
-    <a class="x-link" href="https://x.com/LFOWNDOTFUN" target="_blank" rel="noopener">
-      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>@LFOWNDOTFUN</a>
-  </div>
-  <div class="sig">Powered by Spark</div>
-</footer>
-
-<script>
-// The header owns the theme now — there are two toggles and this page has no bundle.
-// All that is left here is the embedded tweet, whose theme is baked into its markup
-// and so has to be rebuilt whenever the page's own theme changes.
-(function(){
-  document.addEventListener('lfown:theme', function(e){
-    var box=document.querySelector('.tweet-embed');
-    if(!box||!window.__tweetTpl) return;
-    box.innerHTML=window.__tweetTpl.replace('data-theme="light"','data-theme="'+e.detail+'"');
-    if(window.twttr&&window.twttr.widgets) window.twttr.widgets.load(box);
-  });
-})();
-</script>
-<script>
-// The three coins that have raised the most, in dollars. This page ships no bundle,
-// so it asks the API itself — and escapes everything, because a coin's symbol and
-// name are whatever its creator wrote into its metadata.
-(function () {
-  var board = document.getElementById('board')
-  if (!board) return
-  var MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }
-  function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, function (c) { return MAP[c] }) }
-  function safe(u) {
-    try { var x = new URL(u); return x.protocol === 'https:' || x.protocol === 'http:' ? x.href : '' }
-    catch (e) { return '' }
-  }
-  function usd(n) { return '$' + Math.round(n).toLocaleString('en-US') }
-  // Raw units per token of a pair that is not 6 decimals; mirrors EXTRA_QUOTES in src/lib/config.mjs.
-  var UNIT = { 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB': 1e9 }
-
-  fetch('/api/launches').then(function (r) { return r.json() }).then(function (body) {
-    var top = (body.launches || []).map(function (c) {
-      var raised = Number(c.quoteReserve) / (UNIT[c.quoteMint] || 1e6)
-      return { c: c, raised: raised, usd: raised * (c.quoteUsdPrice || 0) }
-    }).sort(function (a, b) { return b.usd - a.usd }).slice(0, 3)
-
-    if (!top.length) {
-      board.innerHTML = '<p class="board-empty">Nothing launched yet. <a href="/launch">Be the first</a>.</p>'
-      return
-    }
-
-    board.innerHTML = top.map(function (x, i) {
-      var c = x.c
-      var pct = c.isMigrated ? 100 : (c.threshold ? Math.min(100, (x.raised / c.threshold) * 100) : 0)
-      return '<a class="tc' + (i === 0 ? ' lead' : '') + '" href="/coins/' + esc(c.baseMint) + '">' +
-        '<div class="tc-top"><img alt="" hidden data-uri="' + esc(c.uri || '') + '">' +
-          '<div><div class="tc-sym">' + esc(c.symbol || '\u2014') + '</div>' +
-          '<div class="tc-pair">paired with ' + esc(c.quoteSymbol) + '</div></div></div>' +
-        '<div class="tc-usd">' + usd(x.usd) + '</div>' +
-        '<div class="tc-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
-        '<div class="tc-meta">' +
-          '<span>' + esc(x.raised.toLocaleString('en-US', { maximumFractionDigits: 0 })) + ' ' + esc(c.quoteSymbol) + ' raised</span>' +
-          '<span>' + (c.isMigrated ? 'graduated' : 'on curve') + '</span>' +
-        '</div></a>'
-    }).join('')
-
-    // The picture lives in the metadata JSON each launch published, not on chain.
-    var imgs = board.querySelectorAll('img[data-uri]')
-    for (var k = 0; k < imgs.length; k++) (function (img) {
-      var uri = safe(img.getAttribute('data-uri'))
-      if (!uri) return
-      fetch(uri).then(function (r) { return r.json() }).then(function (meta) {
-        var src = safe(meta && meta.image)
-        if (src) { img.src = src; img.hidden = false }
-      }).catch(function () { /* a dead uri is not worth a broken card */ })
-    })(imgs[k])
-  }).catch(function () {
-    board.innerHTML = '<p class="board-empty"><a href="/coins">See the coins launched so far \u2192</a></p>'
-  })
-})()
-</script>
-<script>
-// The two figures in the scrolling bar, from the same report /coins and /leaderboard
-// print. The markup carries a plausible number so the bar reads properly before this
-// lands (and if it never does); these only ever overwrite it with the real one.
-// Its own block, like every other script here: the one above ends without a
-// semicolon, so a second IIFE underneath it was read as a call on its result.
-(function () {
-  function usd(n) { return '$' + Math.round(n).toLocaleString('en-US') }
-  function put(sel, text) {
-    var all = document.querySelectorAll(sel)
-    for (var i = 0; i < all.length; i++) all[i].textContent = text
-  }
-  fetch('/api/fees').then(function (r) { return r.json() }).then(function (report) {
-    var t = (report && report.totals) || {}
-    // Rounded before they are added, so the bar cannot state a total its own parts
-    // contradict — the same rule the coins page follows.
-    var creator = Math.round(t.creatorUsd || 0)
-    // What sharing creators gave their holders is still fees their coins generated.
-    var holders = Math.round(t.holdersUsd || 0)
-    var dao = Math.round(t.lfownUsd || 0)
-    if (!creator && !holders && !dao) return
-    put('.mq-fees', 'Total fees ' + usd(creator + holders + dao))
-    put('.mq-dao', usd(dao) + ' to LFOwn DAO')
-  }).catch(function () { /* the bar keeps the figure already in the markup */ })
-})()
-</script>
-<script>
-// The dinosaur's contract address, copied on a click; the text stays selectable if the clipboard is refused.
-(function () {
-  var b = document.getElementById('dinoCa')
-  if (!b || !navigator.clipboard) return
-  b.addEventListener('click', function () {
-    navigator.clipboard.writeText(b.getAttribute('data-ca')).then(function () {
-      var was = b.textContent
-      b.textContent = 'Copied'
-      setTimeout(function () { b.textContent = was }, 1400)
-    }).catch(function () {})
-  })
-})()
-</script>
-<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+<script type="module" src="/app/coins.js"></script>
 </body>
 </html>
