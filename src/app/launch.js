@@ -687,6 +687,12 @@ feeInput.addEventListener('input', () => {
   clearTimeout(feeTimer)
   feeTimer = setTimeout(readFeeWallet, 350)
 })
+feeOut.addEventListener('click', (e) => {
+  const use = e.target.closest('.use-name')
+  if (!use) return
+  feeInput.value = use.dataset.name
+  readFeeWallet()
+})
 
 /**
  * What the field says, checked. A `.sol` name is looked up and shown as the address it
@@ -722,6 +728,14 @@ async function readFeeWallet() {
         fw.error = fw.name && /program/.test(e.message)
           ? `${esc(fw.name)} is held by a program, not a wallet. Paste the wallet address instead.`
           : esc(e.message)
+        // "SrMessi" for "SrMessi.sol": the commonest slip. Offered, never assumed — the
+        // address goes into the vault for good, so the person picks the name themselves.
+        if (!fw.name && /^[a-z0-9_-]{1,63}$/i.test(input)) {
+          const { connection } = await import('./launchpad.js')
+          const owner = await resolveSolName(connection, `${input}.sol`).catch(() => null)
+          if (run !== feeRun) return
+          if (owner) fw.error = `Not an address. Did you mean <button type="button" class="use-name" data-name="${esc(input)}.sol">${esc(input)}.sol</button>?`
+        }
       }
     }
   }
