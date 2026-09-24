@@ -38,12 +38,12 @@ export const canShareWithHolders = () => Boolean(FEES.holderPot)
  * The launch, built by the same code the agent API and the devnet suite use — see
  * src/lib/launch-builder.mjs for what it contains and why it is shaped that way.
  */
-export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quoteMint, holderPct = 0, sponsor = null }) {
+export async function buildLaunch({ config, owner, token, devBuyQuote, seed, quoteMint, holderPct = 0, sponsor = null, feeWallet = null }) {
   // A seed means the address was ground to end in `own`; without one the mint is
   // just random, which is what a browser that could not run the search falls back to.
   const mint = seed ? Keypair.fromSeed(seed) : Keypair.generate()
   const built = await builder.buildLaunchTransactions({
-    client, connection, config, creator: owner, token, devBuyQuote, mint, quoteMint, holderPct, sponsor,
+    client, connection, config, creator: owner, token, devBuyQuote, mint, quoteMint, holderPct, sponsor, feeWallet,
   })
   // Deliberately not signed here. Phantom will not simulate a transaction it is not
   // the only signer of, and warns on the approval screen; its guidance is to take

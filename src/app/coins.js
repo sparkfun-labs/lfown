@@ -1161,8 +1161,11 @@ function paintFees(coin, state, api) {
     : Promise.resolve(null)
   // A shared coin's curve and position hold the creator's fees and the holders'
   // together, so neither figure is the creator's. The vault splits both.
+  // Whoever the creator's part is paid to: the launcher, unless they named a fee
+  // wallet at launch, in which case the vault has that wallet in the creator's slot.
+  const earner = coin.feeWallet ?? coin.creator
   const shared = position
-    .then((lp) => api.vaultFees(state, { vault: coin.vault, creator: coin.creator, lp }))
+    .then((lp) => api.vaultFees(state, { vault: coin.vault, creator: earner, lp }))
     .catch((e) => {
       console.error('vault fees unavailable:', e.message)
       return null
@@ -1171,7 +1174,7 @@ function paintFees(coin, state, api) {
   const render = async () => {
     const lp = await position
     const vf = await shared
-    const mine = session?.address === coin.creator
+    const mine = session?.address === earner
     const c = vf
       ? {
           pending: vf.creator.pending,
@@ -1238,7 +1241,9 @@ function paintFees(coin, state, api) {
           <div class="claimed">${lines.join('<br>')}</div>
           ${mine
             ? `<button class="btn" id="claim-all" ${unclaimed || lpBase ? '' : 'disabled'}>Claim</button>`
-            : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
+            : coin.feeWallet
+              ? `<p class="hint">Paid to <a href="/creator/${esc(earner)}">${esc(short(earner))}</a>, named at launch by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>. Only that wallet can claim.</p>`
+              : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
         </div>
         <p class="hint" id="claim-status"></p>
       </div>`

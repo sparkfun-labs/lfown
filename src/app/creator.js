@@ -86,7 +86,9 @@ async function render() {
     fetch('/api/launches').then((r) => r.json()).catch(() => ({ launches: [] })),
     fetch('/api/fees').then((r) => r.json()).catch(() => null),
   ])
-  const mine = (list.launches ?? []).filter((l) => l.creator === wallet)
+  // Keyed the way the leaderboard groups: by who is paid the creator's part, which is
+  // the launcher unless they named another wallet at launch.
+  const mine = (list.launches ?? []).filter((l) => (l.feeWallet ?? l.creator) === wallet)
   const earned = new Map((report?.coins ?? []).map((c) => [c.baseMint, c]))
 
   if (!mine.length) {

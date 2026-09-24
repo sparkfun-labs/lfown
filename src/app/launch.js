@@ -26,6 +26,10 @@ const state = {
   // come back into the open before the first signature: the swap and the launch both
   // name the mint, and the wallet will show it whatever this flag says.
   blind: false,
+  // Who the creator's part is paid to, when not the launcher. `input` is what was
+  // typed; `address` is set only once it resolved and passed every check, and nothing
+  // is signed while something typed has not.
+  feeWallet: { input: '', address: null, error: null, resolving: false, name: null },
 }
 
 const $ = (sel) => document.querySelector(sel)
@@ -652,10 +656,88 @@ function paintReview() {
     // blind launch simply does without it rather than printing a lookup key.
     (state.blind ? '' : line(a.backing ? 'Backed by' : 'Treasury', a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
     line('Graduation target', target ?? '—') +
-    line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn') +
+    (state.feeWallet.address
+      ? line(`${esc(short(state.feeWallet.address))} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')
+      : line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn')) +
     (c.holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '')
 
   $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
+}
+
+// ── fee wallet ───────────────────────────────────────────────────────────────
+// Folded away until asked for: a field every launcher has to read past is a field that
+// makes launching look harder than it is, and almost nobody needs this one.
+const feeToggle = $('#fee-wallet-toggle')
+const feeBox = $('#fee-wallet-box')
+const feeInput = $('#f-feewallet')
+const feeOut = $('#fee-wallet-out')
+const FEE_DEFAULT = feeOut.innerHTML
+
+feeToggle.addEventListener('click', () => {
+  const open = feeBox.hidden
+  feeBox.hidden = !open
+  feeToggle.setAttribute('aria-expanded', String(open))
+  if (open) feeInput.focus()
+  else { feeInput.value = ''; readFeeWallet() }
+})
+
+let feeTimer = null
+let feeRun = 0
+feeInput.addEventListener('input', () => {
+  clearTimeout(feeTimer)
+  feeTimer = setTimeout(readFeeWallet, 350)
+})
+
+/**
+ * What the field says, checked. A `.sol` name is looked up and shown as the address it
+ * resolved to, in full: the person signing has to see where the money will go, because
+ * the vault will never let it be changed.
+ */
+async function readFeeWallet() {
+  const input = feeInput.value.trim()
+  const run = ++feeRun
+  const fw = { input, address: null, error: null, resolving: false, name: null }
+  state.feeWallet = fw
+  if (input) {
+    const { checkFeeWallet, resolveSolName, solName } = await import('../lib/fee-wallet.mjs')
+    let address = input
+    if (solName(input)) {
+      fw.name = input
+      fw.resolving = true
+      paintFeeWallet()
+      const { connection } = await import('./launchpad.js')
+      address = await resolveSolName(connection, input).catch(() => undefined)
+      if (run !== feeRun) return
+      fw.resolving = false
+      if (address === undefined) fw.error = 'Could not look that name up just now. Try again, or paste the address.'
+      else if (address === null) fw.error = `${esc(input)} is not a registered name.`
+    }
+    if (!fw.error) {
+      try {
+        fw.address = checkFeeWallet(address, { owner: session?.address, pot: FEES.holderPot })
+        if (!fw.address) fw.self = true
+      } catch (e) {
+        // A tokenized name is owned by an escrow program, which is exactly the case the
+        // curve check exists for; said in terms of the name rather than of curves.
+        fw.error = fw.name && /program/.test(e.message)
+          ? `${esc(fw.name)} is held by a program, not a wallet. Paste the wallet address instead.`
+          : esc(e.message)
+      }
+    }
+  }
+  if (run !== feeRun) return
+  paintFeeWallet()
+  paintReview()
+}
+
+function paintFeeWallet() {
+  const fw = state.feeWallet
+  if (!fw.input) { feeOut.innerHTML = FEE_DEFAULT; feeOut.className = 'hint'; return }
+  if (fw.resolving) { feeOut.innerHTML = `Looking up ${esc(fw.name)}…`; feeOut.className = 'hint'; return }
+  if (fw.error) { feeOut.innerHTML = fw.error; feeOut.className = 'hint warn-text'; return }
+  if (fw.self) { feeOut.innerHTML = 'That is the wallet you are launching with — the fees are yours already.'; feeOut.className = 'hint'; return }
+  feeOut.innerHTML = `${fw.name ? `${esc(fw.name)} → ` : ''}<b>${esc(fw.address)}</b><br>This wallet claims your share of every trading fee, for good. It cannot be changed after launch.`
+  feeOut.className = 'hint'
 }
 
 // ── wallet ───────────────────────────────────────────────────────────────────
@@ -809,6 +891,18 @@ signBtn.addEventListener('click', async () => {
     paintConnect()
     paintWallet()
 
+    // Something typed in "Fees go to" that did not resolve is not "keep them myself":
+    // launching anyway would quietly ignore what the person asked for, for good.
+    // Re-read now that the wallet is known, so pasting one's own address is caught.
+    if (state.feeWallet.input) {
+      await readFeeWallet()
+      if (!state.feeWallet.address && !state.feeWallet.self) {
+        say(state.feeWallet.error ?? 'Check the wallet in "Fees go to" before launching.', 'warn-text')
+        signBtn.disabled = false
+        return
+      }
+    }
+
     // The web3/DBC bundle is most of the payload and nobody browsing the catalogue
     // needs it, so it only loads once someone actually launches.
     const { configFor, buildLaunch, sendWithMint, sendAllWithMint, sendSponsored, connection } = await import('./launchpad.js')
@@ -921,6 +1015,7 @@ signBtn.addEventListener('click', async () => {
       quoteMint: state.asset?.mint,
       holderPct: state.curve.holders,
       sponsor: sponsored ? state.free.status.sponsor : null,
+      feeWallet: state.feeWallet.address,
     })
 
     say('Waiting for your signature…')

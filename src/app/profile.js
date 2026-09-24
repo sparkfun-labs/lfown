@@ -125,7 +125,9 @@ async function gather(address) {
     fetch('/api/launches').then((r) => r.json()).catch(() => ({ launches: [] })),
     fetch('/api/fees').then((r) => r.json()).catch(() => null),
   ])
-  const mine = (list.launches ?? []).filter((l) => l.creator === address)
+  // The coins this wallet is paid for: the ones it launched, less any whose fees it
+  // gave to another wallet, plus any another launcher gave to it.
+  const mine = (list.launches ?? []).filter((l) => (l.feeWallet ?? l.creator) === address)
   if (!mine.length) return { mine: [], rows: [], report }
 
   const earned = new Map((report?.coins ?? []).map((c) => [c.baseMint, c]))

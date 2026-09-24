@@ -221,6 +221,15 @@ textarea{min-height:96px;resize:vertical}
 .review .line > span:first-child{font-family:var(--mono);font-size:.56rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
 .review .line > span:last-child{text-align:right;font-variant-numeric:tabular-nums}
 .review .earn b{color:var(--red);font-weight:600}
+/* Paying the creator's part to another wallet: folded away behind one line, because
+   almost nobody needs it and the review must still fit without scrolling. */
+.fee-wallet{margin-top:18px}
+.fee-wallet .toggle{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;background:none;border:0;padding:0;color:var(--ink-soft);cursor:pointer;border-bottom:1px solid var(--rule)}
+.fee-wallet .toggle:hover,.fee-wallet .toggle[aria-expanded="true"]{color:var(--red);border-color:var(--red)}
+.fee-wallet-box{margin-top:10px}
+.fee-wallet-box input{font-family:var(--mono);font-size:.82rem}
+.fee-wallet-box .hint{margin-top:6px;overflow-wrap:anywhere}
+.fee-wallet-box .hint b{font-family:var(--mono);font-weight:600;color:var(--ink)}
 .tier-pick{display:inline-flex;border:1.5px solid var(--ink)}
 .tier-pick button{font-family:var(--mono);font-size:.56rem;letter-spacing:.1em;text-transform:uppercase;padding:6px 8px;background:transparent;border:0;border-right:1.5px solid var(--ink);color:var(--ink);cursor:pointer}
 .tier-pick button:last-child{border-right:0}
@@ -553,6 +562,13 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
            grows with a dev buy and would push it below the fold. -->
       <div>
         <div class="review" id="review"></div>
+        <div class="fee-wallet">
+          <button type="button" class="toggle" id="fee-wallet-toggle" aria-expanded="false" aria-controls="fee-wallet-box">Pay my fees to another wallet</button>
+          <div class="fee-wallet-box" id="fee-wallet-box" hidden>
+            <label><span class="lab">Fees go to</span><input id="f-feewallet" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Wallet address or name.sol"></label>
+            <p class="hint" id="fee-wallet-out">That wallet claims your share of every trading fee, for good. It cannot be changed after launch.</p>
+          </div>
+        </div>
         <div class="actions">
           <button class="btn ghost" data-back="2">Back</button>
         </div>

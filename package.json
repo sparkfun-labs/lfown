@@ -9,7 +9,8 @@
     "test": "node scripts/test-devnet.mjs",
     "test:worker": "node scripts/test-worker.mjs",
     "test:rpc": "node scripts/test-rpc.mjs",
-    "test:sponsor": "node scripts/test-sponsor-devnet.mjs"
+    "test:sponsor": "node scripts/test-sponsor-devnet.mjs",
+    "test:fee-wallet": "node scripts/test-fee-wallet-devnet.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

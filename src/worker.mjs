@@ -907,7 +907,8 @@ const CARD_TAGS = {
  */
 async function creatorCard(env, wallet, origin) {
   const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
-  const mine = (cached?.launches ?? []).filter((l) => l.creator === wallet)
+  // Keyed as the creator page is: by who is paid the creator's part.
+  const mine = (cached?.launches ?? []).filter((l) => (l.feeWallet ?? l.creator) === wallet)
   if (!mine.length) return null
 
   const report = env.REGISTRY ? (await env.REGISTRY.get(FEES_KEY, 'json'))?.report : null

@@ -86,7 +86,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
     if (l.vault && dfs) {
       try {
         const vault = await dfs.getFeeVault(new PublicKey(l.vault))
-        const split = vaultSplit(vault.users, vault.totalShare, { creator: l.creator, pot: holderPot })
+        const split = vaultSplit(vault.users, vault.totalShare, { creator: l.feeWallet ?? l.creator, pot: holderPot })
         if (split.total) {
           holders = (creatorSide * split.holders) / split.total
           creatorOwn = creatorSide - holders
@@ -105,10 +105,12 @@ export async function feeReport(client, connection, launches, { prices = new Map
     rows.push({
       symbol: l.symbol ?? '?',
       baseMint: l.baseMint,
-      // The wallet that opened the pool. Spelled out rather than `creator`, which is
-      // already taken below by the creator's *share* — one word, two meanings, and
-      // the leaderboard groups by this one.
-      creatorWallet: l.creator,
+      // The wallet paid the creator's share: the one that opened the pool, unless it
+      // named another at launch. Spelled out rather than `creator`, which is already
+      // taken below by the creator's *share* — one word, two meanings, and the
+      // leaderboard groups by this one. `launcher` keeps who actually launched it.
+      creatorWallet: l.feeWallet ?? l.creator,
+      launcher: l.creator,
       quoteSymbol: l.quoteSymbol,
       quoteUsdPrice: price,
       graduated: Boolean(poolState.isMigrated),

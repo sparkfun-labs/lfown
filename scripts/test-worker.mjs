@@ -492,6 +492,51 @@ await test('fee split: holders take three quarters of the creator half, as whole
   assert.deepEqual(splitFor(37.5), { holderPct: 37.5, creator: 12.5, holders: 37.5, partner: 50 })
 })
 
+await test('fee wallet: only an address that can sign a claim, read back from the vault it was written to', async () => {
+  const { PublicKey, Keypair } = await import('@solana/web3.js')
+  const { createHash } = await import('node:crypto')
+  const fw = await import(new URL('../src/lib/fee-wallet.mjs', import.meta.url).href)
+  const { deriveVault } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+  const launcher = Keypair.generate().publicKey.toBase58()
+  const earner = Keypair.generate().publicKey.toBase58()
+  const pot = Keypair.generate().publicKey.toBase58()
+
+  // Written only when it is someone else, and refused when it could never claim.
+  assert.equal(fw.checkFeeWallet('', { owner: launcher, pot }), null)
+  assert.equal(fw.checkFeeWallet(`  ${launcher} `, { owner: launcher, pot }), null)
+  assert.equal(fw.checkFeeWallet(earner, { owner: launcher, pot }), earner)
+  assert.throws(() => fw.checkFeeWallet(pot, { owner: launcher, pot }), /pot/)
+  assert.throws(() => fw.checkFeeWallet('SrMessi', { owner: launcher, pot }), /not a Solana address/)
+  const vault = deriveVault(Keypair.generate().publicKey, Keypair.generate().publicKey).toBase58()
+  assert.throws(() => fw.checkFeeWallet(vault, { owner: launcher, pot }), /program, not a wallet/)
+
+  // `.sol` names: one level, any case, hashed the way the name service hashes them.
+  assert.equal(fw.solName(' SrMessi.SOL '), 'srmessi')
+  assert.equal(fw.solName('pay.srmessi.sol'), null)
+  assert.equal(fw.solName('srmessi'), null)
+  const hashed = createHash('sha256').update('SPL Name Service' + 'srmessi').digest()
+  const [expected] = PublicKey.findProgramAddressSync(
+    [hashed, Buffer.alloc(32), new PublicKey('58PwtjSDuFHuUkYjH9BYnnQKHfwo9reZhC2zMJv9JPkx').toBuffer()],
+    new PublicKey('namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX'))
+  assert.equal((await fw.solNameAccount('srmessi')).toBase58(), expected.toBase58())
+
+  // A FeeVault as the program lays it out: owner at 8, five 80-byte slots from 248.
+  const account = (owner, slots) => {
+    const data = new Uint8Array(8 + 640)
+    data.set(new PublicKey(owner).toBytes(), 8)
+    slots.forEach(([address, share], i) => {
+      data.set(new PublicKey(address).toBytes(), 248 + i * 80)
+      new DataView(data.buffer).setUint32(248 + i * 80 + 32, share, true)
+    })
+    return data
+  }
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 25], [pot, 75]]), { pot }), earner)
+  assert.equal(fw.feeWalletOf(account(launcher, [[launcher, 25], [pot, 75]]), { pot }), null, 'the ordinary launch')
+  assert.equal(fw.feeWalletOf(account(launcher, [[pot, 100]]), { pot }), null, 'everything to holders')
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 20], [launcher, 5], [pot, 75]]), { pot }), null, 'not a shape the page makes')
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 0], [launcher, 25], [pot, 75]]), { pot }), null, 'an empty slot is nobody')
+})
+
 await test('sponsor: signs a real launch, and nothing that spends its SOL any other way', async () => {
   const web3 = await import('@solana/web3.js')
   const { Keypair, PublicKey, Transaction, SystemProgram, ComputeBudgetProgram } = web3
