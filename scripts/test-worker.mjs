@@ -69,12 +69,14 @@ globalThis.fetch = async (input, init) => {
 
 // ── KV, R2 and the edge cache, in memory ───────────────────────────────────
 const kv = new Map()
+const kvMeta = new Map()
 const REGISTRY = {
   async get(key, type) { const v = kv.get(key); return v === undefined ? null : type === 'json' ? JSON.parse(v) : v },
-  async put(key, value) { kv.set(key, String(value)) },
-  async delete(key) { kv.delete(key) },
+  async getWithMetadata(key) { return { value: kv.get(key) ?? null, metadata: kvMeta.get(key) ?? null } },
+  async put(key, value, options) { kv.set(key, String(value)); if (options?.metadata) kvMeta.set(key, options.metadata) },
+  async delete(key) { kv.delete(key); kvMeta.delete(key) },
   async list({ prefix = '', limit = 1000 } = {}) {
-    const keys = [...kv.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((name) => ({ name }))
+    const keys = [...kv.keys()].filter((k) => k.startsWith(prefix)).sort().slice(0, limit).map((name) => ({ name, metadata: kvMeta.get(name) }))
     return { keys, list_complete: true }
   },
 }
@@ -95,7 +97,7 @@ const COIN = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
 const CONFIG = 'So11111111111111111111111111111111111111112'
 const UNKNOWN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 const UNKNOWN2 = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
-kv.set('catalogue:v4:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
+kv.set('catalogue:v5:t10', JSON.stringify({ updatedAt: new Date().toISOString(), count: 1, coins: [{ mint: COIN, symbol: 'TEST', name: 'Test', usdPrice: 2, treasury: 100, liquidity: 10, holders: 1, icon: null }] }))
 kv.set(`config:${COIN}:starter`, JSON.stringify({ config: CONFIG, threshold: 2500, feeBps: 250, creatorSharePct: 50 }))
 
 const { default: worker } = await import(WORKER)
@@ -303,7 +305,7 @@ await test('agent: options list the open coin, its tier priced in usd, and the f
   assert.equal(r.body.coins.length, 1)
   assert.equal(r.body.coins[0].symbol, 'TEST')
   assert.deepEqual(r.body.coins[0].tiers.map((t) => [t.id, t.thresholdUsd]), [['starter', 5000]])
-  assert.equal(r.body.holders.default, 25)
+  assert.equal(r.body.holders.default, 37.5)
 })
 
 await test('agent: a launch with no creator is kept as a draft and answered with a link', async () => {
@@ -446,6 +448,176 @@ await test('catalogue: 01Resolved figures join by mint, never by symbol, and rep
   assert.equal(b.financials, null)
   assert.equal(c.treasury, 300, 'a zero treasury from 01Resolved does not replace a real one')
   assert.equal(c.financials.navPerToken, null)
+})
+
+await test('dinosaurs: TRCH1 is 9 decimals everywhere, priced by its raise until it trades, and says what backs it', async () => {
+  const config = await import(new URL('../src/lib/config.mjs', import.meta.url).href)
+  const { extraCoin } = await import(new URL('../src/lib/registry.mjs', import.meta.url).href)
+  const { PublicKey } = await import('@solana/web3.js')
+  const TRCH1 = 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB'
+  assert.equal(config.tokenDecimals(TRCH1), 9)
+  assert.equal(config.tokenDecimals(new PublicKey(TRCH1)), 9, 'a PublicKey reads the same as its string')
+  assert.equal(config.tokenUnit(TRCH1), 1e9)
+  assert.equal(config.tokenUnit('METAwkXcqyXKy1AtsSgJ8JiUHwGCafnZL38n3vYmeta'), 1e6, 'ownership coins and memecoins stay 6')
+  assert.equal(config.tokenUnit(undefined), 1e6)
+
+  const q = config.EXTRA_QUOTES.find((e) => e.mint === TRCH1)
+  const unlisted = extraCoin(q, { holders: 27, usdPrice: 0 })
+  assert.equal(unlisted.usdPrice, q.referencePrice)
+  assert.equal(unlisted.priceSource, 'reference')
+  assert.equal(unlisted.decimals, 9)
+  assert.equal(unlisted.holders, 27)
+  assert.equal(unlisted.backing.kind, 'dinosaur')
+  assert.equal(unlisted.treasury, q.backing.usd, 'what backs it sorts like a treasury')
+  const trading = extraCoin(q, { usdPrice: 0.81, liquidity: 12_000 })
+  assert.equal(trading.usdPrice, 0.81)
+  assert.equal(trading.priceSource, 'market')
+
+  // A graduated position's fees, in whole tokens on each side.
+  const tele = await import(new URL('../src/lib/telegram.mjs', import.meta.url).href)
+  assert.match(tele.graduatedMessage({ symbol: 'RAWR', quoteSymbol: 'TRCH1', quoteMint: TRCH1, quoteReserve: '7197000000000', baseMint: 'X' }, 'https://x.test'), /raised 7,197 TRCH1/)
+})
+
+await test('fee split: holders take three quarters of the creator half, as whole vault shares', async () => {
+  const { clampHolderPct, vaultShares, splitFor } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+  const { DEFAULT_HOLDER_PCT } = await import(new URL('../src/agent.mjs', import.meta.url).href)
+  assert.equal(DEFAULT_HOLDER_PCT, 37.5)
+  assert.equal(clampHolderPct(37.5), 37.5)
+  assert.equal(clampHolderPct(37.3), 37.5)
+  assert.equal(clampHolderPct(99), 50)
+  const who = { creator: 'So11111111111111111111111111111111111111112', holders: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }
+  assert.deepEqual(vaultShares(37.5, who).map((s) => s.share), [25, 75])
+  assert.ok(vaultShares(37.5, who).every((s) => Number.isInteger(s.share)))
+  assert.deepEqual(vaultShares(50, who).map((s) => s.share), [100])
+  assert.deepEqual(splitFor(37.5), { holderPct: 37.5, creator: 12.5, holders: 37.5, partner: 50 })
+})
+
+await test('fee wallet: only an address that can sign a claim, read back from the vault it was written to', async () => {
+  const { PublicKey, Keypair } = await import('@solana/web3.js')
+  const { createHash } = await import('node:crypto')
+  const fw = await import(new URL('../src/lib/fee-wallet.mjs', import.meta.url).href)
+  const { deriveVault } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+  const launcher = Keypair.generate().publicKey.toBase58()
+  const earner = Keypair.generate().publicKey.toBase58()
+  const pot = Keypair.generate().publicKey.toBase58()
+
+  // Written only when it is someone else, and refused when it could never claim.
+  assert.equal(fw.checkFeeWallet('', { owner: launcher, pot }), null)
+  assert.equal(fw.checkFeeWallet(`  ${launcher} `, { owner: launcher, pot }), null)
+  assert.equal(fw.checkFeeWallet(earner, { owner: launcher, pot }), earner)
+  assert.throws(() => fw.checkFeeWallet(pot, { owner: launcher, pot }), /pot/)
+  assert.throws(() => fw.checkFeeWallet('SrMessi', { owner: launcher, pot }), /not a Solana address/)
+  const vault = deriveVault(Keypair.generate().publicKey, Keypair.generate().publicKey).toBase58()
+  assert.throws(() => fw.checkFeeWallet(vault, { owner: launcher, pot }), /program, not a wallet/)
+
+  // `.sol` names: one level, any case, hashed the way the name service hashes them.
+  assert.equal(fw.solName(' SrMessi.SOL '), 'srmessi')
+  assert.equal(fw.solName('pay.srmessi.sol'), null)
+  assert.equal(fw.solName('srmessi'), null)
+  const hashed = createHash('sha256').update('SPL Name Service' + 'srmessi').digest()
+  const [expected] = PublicKey.findProgramAddressSync(
+    [hashed, Buffer.alloc(32), new PublicKey('58PwtjSDuFHuUkYjH9BYnnQKHfwo9reZhC2zMJv9JPkx').toBuffer()],
+    new PublicKey('namesLPneVptA9Z5rqUDD9tMTWEJwofgaYwp8cawRkX'))
+  assert.equal((await fw.solNameAccount('srmessi')).toBase58(), expected.toBase58())
+
+  // A FeeVault as the program lays it out: owner at 8, five 80-byte slots from 248.
+  const account = (owner, slots) => {
+    const data = new Uint8Array(8 + 640)
+    data.set(new PublicKey(owner).toBytes(), 8)
+    slots.forEach(([address, share], i) => {
+      data.set(new PublicKey(address).toBytes(), 248 + i * 80)
+      new DataView(data.buffer).setUint32(248 + i * 80 + 32, share, true)
+    })
+    return data
+  }
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 25], [pot, 75]]), { pot }), earner)
+  assert.equal(fw.feeWalletOf(account(launcher, [[launcher, 25], [pot, 75]]), { pot }), null, 'the ordinary launch')
+  assert.equal(fw.feeWalletOf(account(launcher, [[pot, 100]]), { pot }), null, 'everything to holders')
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 20], [launcher, 5], [pot, 75]]), { pot }), null, 'not a shape the page makes')
+  assert.equal(fw.feeWalletOf(account(launcher, [[earner, 0], [launcher, 25], [pot, 75]]), { pot }), null, 'an empty slot is nobody')
+})
+
+await test('sponsor: signs a real launch, and nothing that spends its SOL any other way', async () => {
+  const web3 = await import('@solana/web3.js')
+  const { Keypair, PublicKey, Transaction, SystemProgram, ComputeBudgetProgram } = web3
+  const { DynamicBondingCurveClient, deriveDbcPoolAddress, deriveDbcTokenVaultAddress, deriveMintMetadata, deriveDbcPoolAuthority, deriveDbcEventAuthority } = await import('@meteora-ag/dynamic-bonding-curve-sdk')
+  const { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
+  const { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
+  const { checkSponsored } = await import(new URL('../src/lib/sponsor.mjs', import.meta.url).href)
+  const { vaultShares } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
+
+  const offline = new web3.Connection('http://127.0.0.1:1')
+  const dbcClient = new DynamicBondingCurveClient(offline, 'confirmed')
+  const programs = { dbc: dbcClient.pool.program, dfs: new DynamicFeeSharingClient(offline, 'confirmed').program }
+  const sponsor = Keypair.generate(), creator = Keypair.generate(), mint = Keypair.generate(), stranger = Keypair.generate()
+  const quote = Keypair.generate().publicKey, config = Keypair.generate().publicKey, pot = Keypair.generate().publicKey
+  const configs = [{ config: config.toBase58(), mint: quote.toBase58() }]
+  const blockhash = PublicKey.default.toBase58()
+
+  const poolIx = (payer = sponsor.publicKey, cfg = config) => {
+    const pool = deriveDbcPoolAddress(quote, mint.publicKey, cfg)
+    return programs.dbc.methods.initializeVirtualPoolWithSplToken({ name: 'Free', symbol: 'FREE', uri: 'https://x.test/a.json' }).accountsStrict({
+      config: cfg, poolAuthority: deriveDbcPoolAuthority(), creator: creator.publicKey, baseMint: mint.publicKey, quoteMint: quote,
+      pool, baseVault: deriveDbcTokenVaultAddress(pool, mint.publicKey), quoteVault: deriveDbcTokenVaultAddress(pool, quote),
+      mintMetadata: deriveMintMetadata(mint.publicKey), metadataProgram: new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'),
+      payer, tokenQuoteProgram: TOKEN_PROGRAM_ID, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      eventAuthority: deriveDbcEventAuthority(), program: programs.dbc.programId,
+    }).instruction()
+  }
+  const vault = deriveFeeVaultPdaAddress(mint.publicKey, quote)
+  const vaultIx = (owner = creator.publicKey) => programs.dfs.methods.initializeFeeVaultPda({ padding: [], users: vaultShares(37.5, { creator: creator.publicKey, holders: pot }) }).accountsPartial({
+    feeVault: vault, base: mint.publicKey, tokenMint: quote, owner, payer: sponsor.publicKey, tokenProgram: TOKEN_PROGRAM_ID,
+  }).instruction()
+  const handoverIx = () => programs.dbc.methods.transferPoolCreator().accountsStrict({
+    virtualPool: deriveDbcPoolAddress(quote, mint.publicKey, config), config, creator: creator.publicKey, newCreator: vault,
+    eventAuthority: deriveDbcEventAuthority(), program: programs.dbc.programId,
+  }).instruction()
+
+  const build = async ({ vaultExtra = [], launchExtra = [], launchFirst = [], feePayer = sponsor.publicKey, pool, owner, creatorSigns = true } = {}) => {
+    const v = new Transaction().add(await vaultIx(owner), ...vaultExtra)
+    const l = new Transaction().add(...launchFirst, pool ?? await poolIx(), await handoverIx(), ...launchExtra)
+    for (const t of [v, l]) { t.feePayer = feePayer; t.recentBlockhash = blockhash }
+    v.partialSign(mint)
+    l.partialSign(...(creatorSigns ? [creator, mint] : [mint]))
+    return [v, l]
+  }
+  const ok = (txs) => checkSponsored(txs, { sponsor: sponsor.publicKey, programs, configs })
+  const refused = async (txs, pattern) => assert.throws(() => ok(txs), pattern)
+
+  const good = ok(await build())
+  assert.equal(good.creator, creator.publicKey.toBase58())
+  assert.equal(good.baseMint, mint.publicKey.toBase58())
+  assert.equal(good.vault, vault.toBase58())
+
+  await refused(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: sponsor.publicKey, toPubkey: stranger.publicKey, lamports: 1e9 })] }), /program a launch does not use/)
+  await refused(await build({ launchExtra: [createAssociatedTokenAccountIdempotentInstruction(sponsor.publicKey, Keypair.generate().publicKey, stranger.publicKey, quote)] }), /spend the sponsor/)
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 })] }), /priority fee/)
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000_000 })] }), /priority fee/)
+  assert.ok(ok(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 300_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 })] })), 'a normal priority fee is fine')
+  // What Phantom writes into a launch it signs: a generous limit and a busy-day price.
+  assert.ok(ok(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 500_000 })] })), 'a wallet-set priority fee is fine')
+  await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 2 })] }), /twice/)
+  await refused(await build({ pool: await poolIx(sponsor.publicKey, Keypair.generate().publicKey) }), /(not on a config LFOwn opened|hand the pool)/)
+  await refused(await build({ creatorSigns: false }), /creator has not signed/)
+  await refused(await build({ owner: stranger.publicKey }), /someone other than the creator/)
+  await refused(await build({ feePayer: creator.publicKey }), /fee payer/)
+  // The sponsor as the pool's creator instead of its payer would make LFOwn the owner of a stranger's coin.
+  const selfCreated = await build()
+  selfCreated[1].instructions[0].keys[2] = { pubkey: sponsor.publicKey, isSigner: true, isWritable: false }
+  await refused(selfCreated, /more than the payer/)
+})
+
+await test('funnel: steps are counted per device, unknown ones and other sites are ignored', async () => {
+  for (const [e, d] of [['launch_open', 'mobile'], ['launch_open', 'mobile'], ['launch_open', 'desktop'], ['step_review', 'desktop'], ['nonsense', 'desktop']]) {
+    const r = await post('/api/event', { e, d })
+    assert.equal(r.status, 204)
+  }
+  const foreign = await post('/api/event', { e: 'launched', d: 'desktop' }, { origin: 'https://evil.test' })
+  assert.equal(foreign.status, 204)
+  const r = await call('/api/funnel?days=1')
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.body.total.mobile, { launch_open: 2 })
+  assert.deepEqual(r.body.total.desktop, { launch_open: 1, step_review: 1 })
 })
 
 await test('pumps: only big moves on liquid coins qualify, biggest first, and a missing figure never does', async () => {

@@ -22,6 +22,53 @@ export const JUP = {
   quote: 'https://lite-api.jup.ag/swap/v1/quote',
 }
 
+/** Every coin launched here has 6 decimals, and so does every MetaDAO ownership coin. */
+export const COIN_DECIMALS = 6
+
+/**
+ * Backing coins that are not MetaDAO ownership coins, listed by hand.
+ *
+ * MetaDAO's market API decides which ownership coins are offered; a coin backed by
+ * something other than a futarchy treasury never appears there, so it is named here
+ * instead. Each one says what backs it, because "treasury" would be the wrong word.
+ *
+ * `decimals` is the reason this list exists at all as code rather than data: every
+ * amount of a backing coin that crosses a curve, a fee vault or a payout is scaled by
+ * it, and a wrong figure misprices trades a thousandfold. `referencePrice` stands in
+ * only while the coin has no market for Jupiter to price; once it trades, the market
+ * price wins.
+ */
+export const EXTRA_QUOTES = [
+  {
+    mint: 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB',
+    symbol: 'TRCH1',
+    name: 'Deaton',
+    decimals: 9,
+    // What contributors paid per token: $660,000 raised for ~950,000 TRCH1.
+    referencePrice: 0.6947,
+    icon: 'https://gateway.irys.xyz/9kC4VBpTGcwokbvMpBQsEMDgZrp2xFgSFKiRF21D8zvH',
+    featured: true,
+    backing: {
+      kind: 'dinosaur',
+      label: 'A Triceratops skull',
+      detail: 'Triceratops prorsus · Hell Creek, ~66M years · 1% of supply = 1% of Deaton',
+      usd: 600_000,
+      raised: 660_000,
+      project: 'Jurassic Finance',
+      url: 'https://app.jurassic.finance/',
+    },
+  },
+]
+
+/** Decimals of a coin LFOwn deals in: listed by hand above, or the 6 everything else has. */
+export function tokenDecimals(mint) {
+  const key = typeof mint === 'string' ? mint : mint?.toBase58?.()
+  return EXTRA_QUOTES.find((q) => q.mint === key)?.decimals ?? COIN_DECIMALS
+}
+
+/** Raw units in one whole token of `mint`. */
+export const tokenUnit = (mint) => 10 ** tokenDecimals(mint)
+
 /** Exit sizes we price on every quote asset, in USD. Shown to the user, never used to gate. */
 export const EXIT_SIZES = [1_000, 5_000, 25_000]
 

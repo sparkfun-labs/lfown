@@ -22,11 +22,12 @@
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync } from '@solana/spl-token'
+import { COIN_DECIMALS, tokenDecimals } from '../lib/config.mjs'
 
 export const NATIVE_SOL = 'So11111111111111111111111111111111111111112'
 
-// Every ownership coin is 6 decimals, the same assumption the configs are built on.
-export const COIN_DECIMALS = 6
+// Every coin launched here is 6 decimals; the coin it is paired with may not be.
+export { COIN_DECIMALS }
 
 /**
  * SOL pays rent and signature fees as well as the swap, and opening a pool is the
@@ -115,7 +116,7 @@ export async function quoteSwap({ inMint, inDecimals = COIN_DECIMALS, outMint, o
  */
 export async function quoteInto({ pay, coinMint, uiAmount, slippageBps = 100 }) {
   const priced = await quoteSwap({
-    inMint: pay.mint, inDecimals: pay.decimals, outMint: coinMint, uiAmount, slippageBps,
+    inMint: pay.mint, inDecimals: pay.decimals, outMint: coinMint, outDecimals: tokenDecimals(coinMint), uiAmount, slippageBps,
   })
   return { ...priced, pay }
 }
@@ -202,6 +203,7 @@ export async function topUp({ connection, wallet, coinMint, priced, say }) {
   // Floored at the token's own precision: the difference of two floats can land a
   // hair above what the account holds, and the buy behind this would then ask to
   // spend one unit that is not there.
-  const received = Math.max(0, Math.floor((after - before) * 10 ** COIN_DECIMALS) / 10 ** COIN_DECIMALS)
+  const unit = 10 ** tokenDecimals(coinMint)
+  const received = Math.max(0, Math.floor((after - before) * unit) / unit)
   return { signature, received, balance: after }
 }

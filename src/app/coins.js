@@ -4,6 +4,9 @@ import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
+import { tokenUnit } from '../lib/config.mjs'
+import { track } from './track.js'
+import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -111,12 +114,18 @@ function paintConnect() {
   }
   menu.hidden = true
   const found = available()
-  connectBtn.textContent = found.length ? 'Connect wallet' : 'No wallet found'
-  connectBtn.disabled = !found.length
+  // On a phone the answer to "no wallet" is the wallet's own app, offered on the page.
+  const phoneOffer = !found.length && isPhone()
+  connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
+  connectBtn.disabled = !found.length && !phoneOffer
 }
 
 connectBtn.addEventListener('click', async () => {
   if (session) { menu.hidden = !menu.hidden; return }
+  if (!available().length && isPhone()) {
+    toggleWalletAppsMenu(connectBtn, { url: () => location.href, onOpen: () => track('open_in_wallet') })
+    return
+  }
   connectBtn.textContent = 'Connecting…'
   try { await ensureWallet() } catch (e) { connectBtn.textContent = e.message }
   paintConnect()
@@ -146,20 +155,88 @@ async function launches() {
   return cache
 }
 
+/** The metadata JSON the launch published: image, links, description. Fetched once per coin. */
+function metadata(coin) {
+  if (!coin.meta) {
+    coin.meta = coin.uri
+      ? fetch(coin.uri).then((r) => r.json()).catch(() => null) // a dead uri is not worth a broken page
+      : Promise.resolve(null)
+  }
+  return coin.meta
+}
+
 /** The image lives in the metadata JSON the launch published, not on chain. */
 async function artwork(coin) {
   if (coin.image !== undefined) return coin.image
-  coin.image = null
-  try {
-    if (coin.uri) coin.image = (await fetch(coin.uri).then((r) => r.json())).image || null
-  } catch { /* a dead uri is not worth a broken page */ }
+  coin.image = (await metadata(coin))?.image || null
   return coin.image
+}
+
+/**
+ * The creator's X and website, as the launch wrote them into the metadata: the site
+ * puts the website in `external_url` and X in `extensions.twitter`, other tools at the
+ * top level. X may be a full link or a bare handle. Anything that is not http(s), or
+ * not a plausible handle, is dropped rather than linked.
+ */
+/**
+ * Sharing a coin. On a phone the system sheet does it all — every app the person has —
+ * so it opens directly; elsewhere a small menu offers X and a copied link. The page's
+ * own link is what gets shared: the Worker writes a card for it, so it unfurls with the
+ * coin's picture and progress wherever it is pasted.
+ */
+function wireShare(coin) {
+  const btn = view.querySelector('#share-btn')
+  const menu = view.querySelector('#share-menu')
+  if (!btn || !menu) return
+  const url = `${location.origin}/coins/${coin.baseMint}`
+  const text = `$${coin.symbol ?? ''} — a meme paired with $${coin.quoteSymbol ?? ''} on @LFOWNDOTFUN`
+  view.querySelector('#share-x').href = `https://x.com/intent/post?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`
+  const open = (on) => { menu.hidden = !on; btn.setAttribute('aria-expanded', String(on)) }
+
+  btn.addEventListener('click', async () => {
+    // The native sheet only where it is the whole answer: touch devices.
+    if (navigator.share && matchMedia('(pointer: coarse)').matches) {
+      try { await navigator.share({ title: `$${coin.symbol} on LFOwn`, text, url }); return } catch { /* dismissed: nothing to do */ return }
+    }
+    open(menu.hidden)
+  })
+  view.querySelector('#share-copy').addEventListener('click', async (e) => {
+    const label = e.currentTarget.querySelector('span')
+    try { await navigator.clipboard.writeText(url); label.textContent = 'Copied' } catch { label.textContent = url }
+    setTimeout(() => { label.textContent = 'Copy link'; open(false) }, 1200)
+  })
+  view.querySelector('#share-x').addEventListener('click', () => open(false))
+  document.addEventListener('click', (e) => { if (!e.target.closest('.share')) open(false) })
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') open(false) })
+}
+
+const ICONS = {
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7"/><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/></svg>',
+  link: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+  x: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+  site: '<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg>',
+  tg: '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M21.9 4.3 18.7 19.4c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2L6.5 13.2 1.8 11.7c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3Z"/></svg>',
+}
+
+export function socialLinks(meta) {
+  if (!meta || typeof meta !== 'object') return []
+  const links = []
+  const x = String(meta.extensions?.twitter ?? meta.twitter ?? '').trim()
+  const handle = x.replace(/^@/, '')
+  const xUrl = /^https?:\/\//i.test(x) ? x : /^[A-Za-z0-9_]{1,15}$/.test(handle) ? `https://x.com/${handle}` : ''
+  if (safeUrl(xUrl)) links.push({ kind: 'x', label: 'X', href: xUrl })
+  const site = String(meta.external_url ?? meta.website ?? meta.extensions?.website ?? '').trim()
+  // A website that is only another X link says the same thing twice under a wrong name.
+  if (safeUrl(site) && site !== xUrl) links.push({ kind: 'site', label: /^https?:\/\/(www\.)?(x|twitter)\.com\//i.test(site) ? 'Post on X' : 'Website', href: site })
+  const tg = String(meta.extensions?.telegram ?? meta.telegram ?? '').trim()
+  if (safeUrl(tg)) links.push({ kind: 'tg', label: 'Telegram', href: tg })
+  return links
 }
 
 // ── list ─────────────────────────────────────────────────────────────────────
 /** One card. Artwork and fee figures arrive later and fill themselves in. */
 function coinCard(c) {
-  const raised = Number(c.quoteReserve) / 1e6
+  const raised = Number(c.quoteReserve) / tokenUnit(c.quoteMint)
   const pct = c.isMigrated
     ? 100
     : c.threshold ? Math.min(100, (raised / c.threshold) * 100) : 0
@@ -199,10 +276,10 @@ function coinCard(c) {
 const SORTS = {
   new: { label: 'Newest', of: (c) => c.activationPoint ?? 0 },
   fees: { label: 'Fees', of: (c) => feesByMint.get(c.baseMint)?.totalUsd ?? 0 },
-  raised: { label: 'Raised', of: (c) => (Number(c.quoteReserve) / 1e6) * (c.quoteUsdPrice ?? 0) },
+  raised: { label: 'Raised', of: (c) => (Number(c.quoteReserve) / tokenUnit(c.quoteMint)) * (c.quoteUsdPrice ?? 0) },
   progress: {
     label: 'Progress',
-    of: (c) => (c.isMigrated ? 1 : c.threshold ? Math.min(1, Number(c.quoteReserve) / 1e6 / c.threshold) : 0),
+    of: (c) => (c.isMigrated ? 1 : c.threshold ? Math.min(1, Number(c.quoteReserve) / tokenUnit(c.quoteMint) / c.threshold) : 0),
   },
 }
 
@@ -308,12 +385,34 @@ function section(parent, title, coins) {
 
 async function renderList() {
   clearSessionHooks()
-  view.innerHTML = `<h1>Ownership memes</h1>
-    <p class="lede">Every coin launched here, each paired with an ownership coin that has a treasury behind it.</p>
-    <div class="totals" id="totals"></div>
+  view.innerHTML = `
+    <section class="opener">
+      <div>
+        <p class="eyebrow">Solana · MetaDAO · Futarchy</p>
+        <h1>Launch coins paired with <em>ownership coins.</em></h1>
+      </div>
+      <div class="side">
+        <p>Not SOL, not a stock: every meme here trades against a <b>MetaDAO ownership coin</b> with a treasury behind it. Its creator earns on every trade, and so do its holders.</p>
+        <div class="ctas">
+          <a class="btn" href="/launch">Launch Ownership Memes</a>
+          <a class="btn ghost" href="/rewards">Holder rewards</a>
+        </div>
+        <span class="free" id="free-badge" hidden></span>
+      </div>
+    </section>
+    <div class="list-head"><h2>Ownership memes</h2></div>
     <div id="sections"><p class="skel">Loading…</p></div>`
 
+  // No totals strip on the home page any more (they live on /leaderboard and
+  // /rewards), but the report still fills each card's fee line and the Fees sort.
   paintTotals()
+  // The free launches, while there are any: the single best reason to launch today.
+  fetch('/api/sponsor').then((r) => r.json()).then((st) => {
+    const badge = $('#free-badge')
+    if (!badge || !st?.enabled || !st.remaining) return
+    badge.textContent = `Free launch — ${st.remaining} of ${st.total} left`
+    badge.hidden = false
+  }).catch(() => {})
 
   const coins = await launches()
   const box = $('#sections')
@@ -356,7 +455,7 @@ async function paintTotals() {
   const { generatedUsd, lfownUsd, creatorUsd, holdersUsd = 0 } = report.totals
   const money = usdGroup([creatorUsd, lfownUsd, ...presentShare(holdersUsd)])
   feesByMint = new Map(report.coins.map((c) => [c.baseMint, c]))
-  box.innerHTML = `
+  if (box) box.innerHTML = `
     <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(lfownUsd))}</span></div>
     <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(creatorUsd)}</span></div>
     ${holdersUsd ? `<div class="tot"><span class="lab">To holders</span><span class="big">${money.show(holdersUsd)}</span></div>` : ''}
@@ -401,7 +500,7 @@ async function renderCoin(mint) {
   if (!coin) {
     const res = await fetch(`/api/launch/${mint}`)
     if (!res.ok) {
-      view.innerHTML = '<p class="skel">No pool for this mint. <a href="/coins">Back to the list</a>.</p>'
+      view.innerHTML = '<p class="skel">No pool for this mint. <a href="/">Back to the list</a>.</p>'
       return
     }
     coin = await res.json()
@@ -418,7 +517,7 @@ async function renderCoin(mint) {
   const { PAY_WITH, payWith, quoteSwap, buildSwapTx, balanceOf,
           GAS_RESERVE, COIN_DECIMALS } = await money
   view.innerHTML = `
-    <a class="back" href="/coins">← All coins</a>
+    <a class="back" href="/">← All coins</a>
     <div class="detail">
       <section class="panel">
         <div class="coin-head">
@@ -428,6 +527,16 @@ async function renderCoin(mint) {
             <div class="pair" style="font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:6px">
               ${esc(coin.name ?? '')} · paired with ${esc(coin.quoteSymbol)}
             </div>
+          </div>
+          <div class="coin-side">
+            <div class="share">
+              <button class="share-btn" type="button" id="share-btn" aria-haspopup="menu" aria-expanded="false">${ICONS.share}<span>Share</span></button>
+              <div class="share-menu" id="share-menu" role="menu" hidden>
+                <a role="menuitem" id="share-x" target="_blank" rel="noopener">${ICONS.x}<span>Post on X</span></a>
+                <button role="menuitem" type="button" id="share-copy">${ICONS.link}<span>Copy link</span></button>
+              </div>
+            </div>
+            <div class="coin-links" id="coin-links" hidden></div>
           </div>
         </div>
         <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div>
@@ -459,7 +568,10 @@ async function renderCoin(mint) {
         <div class="quote" id="quote-out">Enter an amount.</div>
         <button class="btn" id="do-trade" disabled>Buy ${esc(coin.symbol)}</button>
         <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
-        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/swap?sell=${esc(coin.quoteMint)}&buy=${esc(coin.baseMint)}" target="_blank" rel="noopener">Buy on Jupiter ↗</a>
+        <!-- The coin's own page on Jupiter, where both sides can be traded. A swap link with
+             a pair Jupiter does not recognise yet falls back to its default, USDC into SOL. -->
+        <div class="open-in-wallet" id="open-in-wallet" hidden></div>
+        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/tokens/${esc(coin.baseMint)}" target="_blank" rel="noopener">Trade on Jupiter ↗</a>
       </section>
     </div>
 
@@ -470,6 +582,21 @@ async function renderCoin(mint) {
   artwork(coin).then((src) => {
     const slot = view.querySelector('.coin-head img')
     if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
+  })
+  wireShare(coin)
+  track('coin_open')
+  offerWalletApps(view.querySelector('#open-in-wallet'), {
+    available,
+    onShow: () => { track('coin_mobile_no_wallet'); paintConnect() },
+    onOpen: () => track('open_in_wallet'),
+  })
+  metadata(coin).then((meta) => {
+    const box = view.querySelector('#coin-links')
+    const links = socialLinks(meta)
+    if (!box || !links.length) return
+    box.innerHTML = links.map((l) =>
+      `<a class="social ${l.kind}" href="${safeUrl(l.href)}" target="_blank" rel="noopener nofollow ugc" title="${esc(l.label)}" aria-label="${esc(l.label)}">${ICONS[l.kind]}</a>`).join('')
+    box.hidden = false
   })
 
   paintChart(coin, state)
@@ -561,21 +688,9 @@ async function renderCoin(mint) {
     ? coin.symbol
     : payVia === coin.quoteMint ? coin.quoteSymbol : payWith(payVia).symbol)
 
-  /** The pair, in the order Jupiter takes it: what leaves the wallet, then what enters. */
-  const jupSwap = (from, to) =>
-    `https://jup.ag/swap?sell=${encodeURIComponent(from)}&buy=${encodeURIComponent(to)}`
-
   function syncLabels() {
     $('#amount-label').textContent = `Amount in ${spending()}`
     action.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} ${coin.symbol}`
-    // The Jupiter link follows the tab. Fixed on "buy", it sat under the Sell panel
-    // offering the opposite trade to the one being made — and, followed, it would
-    // have bought more of the coin somebody was trying to get out of.
-    const jup = $('#jup-link')
-    jup.textContent = `${side === 'buy' ? 'Buy' : 'Sell'} on Jupiter ↗`
-    jup.href = side === 'buy'
-      ? jupSwap(coin.quoteMint, coin.baseMint)
-      : jupSwap(coin.baseMint, coin.quoteMint)
   }
 
   /** The asset being spent: whatever was picked to buy with, or the coin being sold. */
@@ -639,7 +754,8 @@ async function renderCoin(mint) {
   // one unit more than the wallet holds and the whole thing simply fails.
   maxBtn.addEventListener('click', () => {
     const pay = spendingVia()
-    const decimals = pay?.decimals ?? COIN_DECIMALS
+    // Spending the pair itself means its own decimals, which need not be the coin's.
+    const decimals = pay?.decimals ?? (side === 'buy' ? state.quoteDecimals : COIN_DECIMALS)
     const spendable = Math.max(0, trunc(heldNow - (pay?.native ? GAS_RESERVE.trade : 0), decimals))
     // Trimmed to the same precision the balance is shown at, so the field holds a
     // number somebody can read back rather than a six-decimal tail.
@@ -717,6 +833,7 @@ async function renderCoin(mint) {
 
   action.addEventListener('click', async () => {
     action.disabled = true
+    track('trade_click')
     try {
       status.textContent = 'Connecting wallet…'
       const wallet = await ensureWallet()
@@ -736,6 +853,7 @@ async function renderCoin(mint) {
           })
       status.textContent = 'Waiting for your signature…'
       const signature = await wallet.signAndSend(tx, connection)
+      track('traded')
       status.innerHTML = `Done — <a href="https://solscan.io/tx/${signature}" target="_blank" rel="noopener">${signature.slice(0, 8)}…${signature.slice(-8)}</a>`
       amount.value = ''
       out.textContent = 'Enter an amount.'
@@ -1043,8 +1161,11 @@ function paintFees(coin, state, api) {
     : Promise.resolve(null)
   // A shared coin's curve and position hold the creator's fees and the holders'
   // together, so neither figure is the creator's. The vault splits both.
+  // Whoever the creator's part is paid to: the launcher, unless they named a fee
+  // wallet at launch, in which case the vault has that wallet in the creator's slot.
+  const earner = coin.feeWallet ?? coin.creator
   const shared = position
-    .then((lp) => api.vaultFees(state, { vault: coin.vault, creator: coin.creator, lp }))
+    .then((lp) => api.vaultFees(state, { vault: coin.vault, creator: earner, lp }))
     .catch((e) => {
       console.error('vault fees unavailable:', e.message)
       return null
@@ -1053,7 +1174,7 @@ function paintFees(coin, state, api) {
   const render = async () => {
     const lp = await position
     const vf = await shared
-    const mine = session?.address === coin.creator
+    const mine = session?.address === earner
     const c = vf
       ? {
           pending: vf.creator.pending,
@@ -1120,7 +1241,9 @@ function paintFees(coin, state, api) {
           <div class="claimed">${lines.join('<br>')}</div>
           ${mine
             ? `<button class="btn" id="claim-all" ${unclaimed || lpBase ? '' : 'disabled'}>Claim</button>`
-            : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
+            : coin.feeWallet
+              ? `<p class="hint">Paid to <a href="/creator/${esc(earner)}">${esc(short(earner))}</a>, named at launch by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>. Only that wallet can claim.</p>`
+              : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
         </div>
         <p class="hint" id="claim-status"></p>
       </div>`
@@ -1155,12 +1278,14 @@ function paintFees(coin, state, api) {
 
 // ── routing ──────────────────────────────────────────────────────────────────
 function route() {
-  const mint = location.pathname.replace(/^\/coins\/?/, '')
+  // The list is the home page; a coin keeps its /coins/<mint> address.
+  const mint = location.pathname.startsWith('/coins/') ? location.pathname.slice('/coins/'.length).replace(/\/$/, '') : ''
   if (mint) renderCoin(mint)
   else renderList()
 }
 document.addEventListener('click', (e) => {
-  const a = e.target.closest('a[href^="/coins"]')
+  // Coin links, and the way back to the list from inside the page, stay in the app.
+  const a = e.target.closest('a[href^="/coins/"], #view a[href="/"]')
   if (!a || e.metaKey || e.ctrlKey) return
   e.preventDefault()
   history.pushState({}, '', a.getAttribute('href'))

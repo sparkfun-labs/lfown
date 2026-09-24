@@ -28,6 +28,7 @@ const INSTRUCTIONS = `LFOwn launches memecoins on Solana, each paired with a Met
 To launch: call list_launch_options, pick an ownership coin with the user, optionally validate_launch (stores nothing), then prepare_launch.
 If you cannot sign Solana transactions (you have no wallet), call prepare_launch without "creator" and give the user the launchUrl it returns: they review and sign on the site. This is the recommended path whenever a person should approve the launch.
 If you control a wallet, pass it as "creator", sign every returned transaction unchanged and call submit_launch before expiresAt (about a minute). If they expire, call prepare_launch again with the same id and creator: same coin, same address, no new files.
+TRCH1 is also offered: Deaton, a Triceratops skull co-owned through Jurassic Finance. Its options row has "backing" instead of a treasury; amounts stay in whole tokens.
 Every fee share is a ${SHARE_UNIT}: the LFOwn DAO takes 50, the creator splits the other 50 with holders (holderPct).
 Nothing is ever signed for the creator, and the creator's wallet is the one that earns the fees.`
 
@@ -44,7 +45,7 @@ const LAUNCH_INPUT = {
     imageData: { type: 'string', description: 'The image as a base64 data URL, if there is no URL for it' },
     website: { type: 'string' },
     twitter: { type: 'string', description: 'X handle or URL' },
-    holderPct: { type: 'integer', minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share as a ${SHARE_UNIT} — the same unit as feeShares in every response. The DAO always takes 50; the creator keeps 50 minus this. Paid hourly, pro rata. Fixed at launch.` },
+    holderPct: { type: 'number', multipleOf: 0.5, minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share as a ${SHARE_UNIT} — the same unit as feeShares in every response. The DAO always takes 50; the creator keeps 50 minus this. Paid hourly, pro rata. Fixed at launch.` },
     devBuyPercent: { type: 'number', minimum: 0, maximum: 50, default: 0, description: 'Percent of supply the creator buys at launch, paid in the ownership coin' },
     creator: { type: 'string', description: 'Solana wallet that signs and earns the fees. Leave out to get a signing link for a person.' },
   },

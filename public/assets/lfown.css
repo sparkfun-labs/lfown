@@ -69,6 +69,22 @@ body::after{
 .mono{font-family:var(--mono);font-size:.66rem;letter-spacing:.18em;text-transform:uppercase;font-weight:600}
 
 /* ── nav ───────────────────────────── */
+/* The earners strip, under the bar. Slim on purpose: it sits above every page, the
+   launch flow included, which has to fit a laptop screen without scrolling. */
+.earners{position:relative;overflow:hidden;white-space:nowrap;border-bottom:1.5px solid var(--ink);background:var(--card)}
+.earners[hidden]{display:none}
+.earners-track{display:flex;width:max-content;animation:earners-slide 60s linear infinite;will-change:transform}
+.earners:hover .earners-track{animation-play-state:paused}
+.earners-grp{display:flex;flex:0 0 auto}
+.earner{display:inline-flex;align-items:center;gap:7px;padding:7px 22px;text-decoration:none;color:var(--ink-soft);
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.08em}
+.earner b{color:var(--ink);font-weight:600}
+.earner em{font-style:normal;color:var(--red);font-weight:600}
+.earner .dot{width:6px;height:6px;border-radius:50%;background:var(--red);flex:0 0 auto}
+.earner:hover b{color:var(--red)}
+@keyframes earners-slide{from{transform:translate3d(0,0,0)}to{transform:translate3d(-50%,0,0)}}
+@media(prefers-reduced-motion:reduce){.earners-track{animation:none}}
+
 header.top{
   position:sticky;top:0;z-index:50;background:var(--bar);
   backdrop-filter:blur(8px);border-bottom:1.5px solid var(--ink);
@@ -173,3 +189,64 @@ body.menu-open{overflow:hidden}
 }
 .drawer-x:hover{background:var(--ink);color:var(--paper)}
 .drawer-x svg{width:16px;height:16px;flex:0 0 auto;fill:currentColor}
+
+/* A phone with no wallet: the way into one. Shared by /launch and the coin pages. */
+.open-in-wallet{border:1.5px solid var(--ink);background:var(--card);box-shadow:5px 5px 0 var(--red);padding:14px 16px;margin:0 0 20px}
+.open-in-wallet[hidden]{display:none}
+.open-in-wallet p{margin:0 0 12px;font-size:.95rem;color:var(--ink-soft);line-height:1.45}
+.open-in-wallet p b{color:var(--ink)}
+.wallet-apps{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.wallet-apps a{display:flex;align-items:center;justify-content:center;padding:12px 6px;background:var(--red);color:#fff;border:1.5px solid var(--ink);
+  text-decoration:none;font-family:var(--mono);font-size:.62rem;letter-spacing:.12em;text-transform:uppercase;font-weight:600}
+.wallet-apps a:active{transform:translate(1px,1px)}
+/* The header's "Open in wallet": one line, and its menu of apps. */
+#connect{white-space:nowrap}
+.wallet-apps-menu{position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:180px;border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red)}
+.wallet-apps-menu[hidden]{display:none}
+.wallet-apps-menu a{display:block;padding:13px 16px;text-decoration:none;font-family:var(--mono);font-size:.64rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
+.wallet-apps-menu a + a{border-top:1px dashed var(--rule)}
+.wallet-apps-menu a:hover,.wallet-apps-menu a:active{background:var(--red);color:#fff}
+
+/* The wallet button's menu and picker, for every page (the app pages carry their own copy). */
+.wallet-slot{position:relative;display:inline-flex}
+.wallet-menu{
+  position:absolute;top:calc(100% + 8px);right:0;z-index:60;min-width:230px;
+  border:1.5px solid var(--ink);background:var(--card);box-shadow:6px 6px 0 var(--red);
+}
+/* One rule for the anchor and the buttons: they are three entries of one menu and
+   any difference between them reads as a mistake. */
+/* Addressed by id, not class. `.top nav a:hover{color:var(--red)}` in lfown.css
+   scores higher than `.wallet-menu a:hover`, so Profile was painted red on the red
+   hover background and vanished. An id outranks any number of classes. */
+#wallet-menu a,#wallet-menu button{
+  display:block;width:100%;text-align:left;background:transparent;border:0;cursor:pointer;
+  padding:11px 14px;text-decoration:none;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink);transition:background .15s,color .15s
+}
+#wallet-menu a:hover,#wallet-menu button:hover{background:var(--red);color:#fff}
+#wallet-menu a+button,#wallet-menu button+button{border-top:1px dashed var(--rule)}
+
+dialog#wallet-picker{
+  border:1.5px solid var(--ink);background:var(--card);color:var(--ink);padding:0;max-width:340px;width:calc(100% - 40px);
+  box-shadow:12px 12px 0 var(--red);
+}
+dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
+.picker-head{background:var(--red);color:#fff;padding:12px 18px;border-bottom:1.5px solid var(--ink);
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
+.picker-list{list-style:none;margin:0;padding:0}
+.picker-list li+li{border-top:1px dashed var(--rule)}
+.picker-list button{
+  width:100%;display:flex;align-items:center;gap:12px;padding:14px 18px;background:transparent;border:0;
+  font:inherit;font-size:1rem;color:inherit;cursor:pointer;text-align:left;transition:background .15s
+}
+.picker-list button:hover{background:var(--red);color:#fff}
+.picker-list img{width:24px;height:24px;border-radius:4px}
+.picker-list .blank{width:24px;height:24px;border:1.5px solid currentColor;opacity:.4}
+#picker-close{margin:14px 18px 18px;cursor:pointer;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase}
+/* The header's two actions side by side. */
+.nav-actions .launch-cta{white-space:nowrap}
+/* `.top nav a.btn{color:#fff}` is for the red button; the ghost one keeps the ink. */
+.top nav a.btn.ghost{color:var(--ink)}
+.top nav a.btn.ghost:hover{color:var(--paper)}
+@media(max-width:1100px) and (min-width:861px){.nav-actions .launch-cta span{font-size:.62rem;letter-spacing:.1em}}

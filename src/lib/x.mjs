@@ -7,6 +7,8 @@
 // without them. A post that fails is logged and dropped — a timeline is never worth
 // failing a graduation over.
 
+import { tokenUnit } from './config.mjs'
+
 const API = 'https://api.x.com/2/tweets'
 // v2, because the v1.1 endpoint on upload.twitter.com has been retired. The answer
 // moved with it: the id arrives as `data.id` where v1.1 put `media_id_string` at
@@ -209,7 +211,7 @@ export function pumpMessage(coin, change, launchUrl) {
 export function graduatedMessage(coin, origin) {
   const symbol = coin.symbol || '?'
   const quote = coin.quoteSymbol || '?'
-  const raised = Number(coin.quoteReserve ?? 0) / 1e6
+  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
   return fit([
     `🎓 ${symbol} graduated`,
     { text: `Raised ${money(raised)} ${quote} and moved to its Meteora pool.`, drop: true },

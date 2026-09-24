@@ -1,10 +1,8 @@
 // LFOwn — where the DAO's share ends up, for anyone who wants to check.
 //
-// The address is read from the shared config rather than written down again: it is
-// the account every fee claim pays into, and a second copy that drifted would send
-// people to look at the wrong wallet while the figure beside it stayed right.
+// Linked to the DAO's page on MetaDAO rather than to a bare wallet: its health tab
+// shows the treasury together with what the DAO is and how it is governed, which a
+// list of token balances on an explorer never did.
 
-import { FEES } from '../lib/config.mjs'
-
-/** The treasury on Solscan, opened on the portfolio tab — what it is holding. */
-export const TREASURY = `https://solscan.io/account/${FEES.treasury}#portfolio`
+/** The LFOwn DAO on MetaDAO, opened on its health tab. */
+export const TREASURY = 'https://metadao.fi/companies/lfown?tab=health'

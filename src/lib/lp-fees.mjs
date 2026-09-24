@@ -8,6 +8,7 @@
 
 import { PublicKey } from '@solana/web3.js'
 import { CpAmm, getUnClaimLpFee, derivePositionNftAccount } from '@meteora-ag/cp-amm-sdk'
+import { tokenUnit } from './config.mjs'
 
 /**
  * Every graduated position an owner holds, with what is actually claimable.
@@ -28,6 +29,9 @@ export async function lpPositions(connection, owner) {
     if (!pools.has(key)) pools.set(key, await cp.fetchPoolState(positionState.pool))
     const pool = pools.get(key)
     const fee = getUnClaimLpFee(pool, positionState)
+    // Each side in its own token's units: the coin is 6 decimals, the backing coin may not be.
+    const unitA = tokenUnit(pool.tokenAMint.toBase58())
+    const unitB = tokenUnit(pool.tokenBMint.toBase58())
 
     out.push({
       position: position.toBase58(),
@@ -37,12 +41,12 @@ export async function lpPositions(connection, owner) {
       nftMint: positionState.nftMint.toBase58(),
       tokenA: pool.tokenAMint.toBase58(),
       tokenB: pool.tokenBMint.toBase58(),
-      feeA: Number(fee.feeTokenA.toString()) / 1e6,
-      feeB: Number(fee.feeTokenB.toString()) / 1e6,
+      feeA: Number(fee.feeTokenA.toString()) / unitA,
+      feeB: Number(fee.feeTokenB.toString()) / unitB,
       // Lifetime payouts, kept by the position itself. Without these a graduated
       // coin reads as if it had never paid its creator anything.
-      claimedA: Number(positionState.metrics?.totalClaimedAFee?.toString() ?? 0) / 1e6,
-      claimedB: Number(positionState.metrics?.totalClaimedBFee?.toString() ?? 0) / 1e6,
+      claimedA: Number(positionState.metrics?.totalClaimedAFee?.toString() ?? 0) / unitA,
+      claimedB: Number(positionState.metrics?.totalClaimedBFee?.toString() ?? 0) / unitB,
     })
   }
   return out

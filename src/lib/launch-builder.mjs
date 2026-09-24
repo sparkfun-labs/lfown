@@ -16,8 +16,9 @@ import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynam
 import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
-import { FEES } from './config.mjs'
+import { FEES, tokenUnit } from './config.mjs'
 import { clampHolderPct, deriveVault, vaultShares } from './fee-split.mjs'
+import { checkFeeWallet } from './fee-wallet.mjs'
 
 /**
  * What a dev buy of `percent` of supply would cost, priced on the curve this config
@@ -41,7 +42,7 @@ export async function devBuyCost(client, { config, percent }) {
   const input = quote.includedFeeInputAmount ?? quote.maximumAmountIn ?? quote.amountIn
   return {
     baseOut: baseOut / 1e6,
-    quoteIn: Number((input ?? 0).toString()) / 1e6,
+    quoteIn: Number((input ?? 0).toString()) / tokenUnit(state.quoteMint),
   }
 }
 
@@ -55,15 +56,29 @@ export async function devBuyCost(client, { config, percent }) {
  * what a half-finished launch leaves behind — an empty vault nobody will look at,
  * rather than a coin promising a share it has no way to pay.
  *
+ * `feeWallet` pays the creator's part to someone other than the launcher: written
+ * into the vault's creator slot, or, with no vault, handed the pool itself. Either way
+ * it is permanent from the first trade — see src/lib/fee-wallet.mjs.
+ *
  * Returns the transactions in the order they must land, each with its blockhash and
  * fee payer set and nobody's signature on it.
  */
 export async function buildLaunchTransactions({
   client, connection, config, creator, token, devBuyQuote = 0, mint, quoteMint,
-  holderPct = 0, holderPot = FEES.holderPot,
+  holderPct = 0, holderPot = FEES.holderPot, sponsor = null, feeWallet = null,
 }) {
-  const payer = new PublicKey(creator)
+  // The creator signs and earns. Whoever pays rent and network fees is a separate
+  // account: the creator themselves, or LFOwn's sponsor on a launch it pays for. The
+  // sponsor only ever appears as the fee payer and as the `payer` of the two account
+  // creations — see src/lib/sponsor.mjs, which refuses anything else.
+  const owner = new PublicKey(creator)
+  const payer = sponsor ? new PublicKey(sponsor) : owner
   const configKey = new PublicKey(config)
+  // Who the creator's part is paid to: the launcher, unless they named someone else.
+  // Checked again here, whatever the page already did — this is the last stop before
+  // the address is written somewhere it can never be taken back from.
+  const earnerKey = checkFeeWallet(feeWallet, { owner: owner.toBase58(), pot: holderPot })
+  const earner = earnerKey ? new PublicKey(earnerKey) : owner
 
   const createPoolParam = {
     baseMint: mint.publicKey,
@@ -72,7 +87,7 @@ export async function buildLaunchTransactions({
     symbol: token.symbol,
     uri: token.uri ?? '',
     payer,
-    poolCreator: payer,
+    poolCreator: owner,
   }
 
   // The pool does not exist until this transaction lands, so the buy cannot be built
@@ -82,8 +97,9 @@ export async function buildLaunchTransactions({
     ? await client.creator.createPoolWithFirstBuy({
         createPoolParam,
         firstBuyParam: {
-          buyer: payer,
-          receiver: payer,
+          // The buy is the creator's own: their coin, their tokens, their account rent.
+          buyer: owner,
+          receiver: owner,
           buyAmount: new BN(devBuyQuote),
           minimumAmountOut: new BN(0),
           referralTokenAccount: null,
@@ -100,7 +116,7 @@ export async function buildLaunchTransactions({
     const quote = new PublicKey(quoteMint)
     vault = deriveVault(mint.publicKey, quote)
     const dfs = new DynamicFeeSharingClient(connection, 'confirmed')
-    const wanted = vaultShares(share, { creator: payer, holders: holderPot })
+    const wanted = vaultShares(share, { creator: earner, holders: holderPot })
 
     // A retry after a launch that opened its vault and then failed. The same mint means
     // the same vault address, and opening it again would fail on an account that
@@ -111,7 +127,7 @@ export async function buildLaunchTransactions({
     if (existing) {
       const found = await dfs.getFeeVault(vault)
       const live = found.users.filter((u) => u.share > 0)
-      const same = found.owner.equals(payer)
+      const same = found.owner.equals(owner)
         && live.length === wanted.length
         && wanted.every((w) => live.some((u) => u.share === w.share && u.address.equals(w.address)))
       if (!same) {
@@ -122,7 +138,7 @@ export async function buildLaunchTransactions({
         base: mint.publicKey,
         tokenMint: quote,
         tokenProgram: TOKEN_PROGRAM_ID,
-        owner: payer,
+        owner,
         payer,
         userShare: wanted,
       })
@@ -138,8 +154,28 @@ export async function buildLaunchTransactions({
       .accountsPartial({
         virtualPool: deriveDbcPoolAddress(quote, mint.publicKey, configKey),
         config: configKey,
-        creator: payer,
+        creator: owner,
         newCreator: vault,
+        eventAuthority: deriveDbcEventAuthority(),
+        program: program.programId,
+      })
+      .instruction())
+  }
+
+  // No vault, and the fees are someone else's: the pool itself is handed to them, in
+  // the launch. From then on they are its creator — the curve's fees, the surplus, and
+  // the locked position when it graduates. The launcher keeps nothing but the coin.
+  if (!vault && earnerKey) {
+    if (!quoteMint) throw new Error('Paying the fees to another wallet needs the pool\'s quote mint.')
+    const quote = new PublicKey(quoteMint)
+    const program = client.state.program ?? client.program
+    transaction.add(await program.methods
+      .transferPoolCreator()
+      .accountsPartial({
+        virtualPool: deriveDbcPoolAddress(quote, mint.publicKey, configKey),
+        config: configKey,
+        creator: owner,
+        newCreator: earner,
         eventAuthority: deriveDbcEventAuthority(),
         program: program.programId,
       })
@@ -161,5 +197,6 @@ export async function buildLaunchTransactions({
     pool: quoteMint ? deriveDbcPoolAddress(new PublicKey(quoteMint), mint.publicKey, configKey).toBase58() : null,
     vault: vault?.toBase58() ?? null,
     holderPct: vault ? share : 0,
+    feeWallet: earnerKey,
   }
 }

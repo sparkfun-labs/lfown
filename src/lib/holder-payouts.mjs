@@ -21,6 +21,7 @@ import {
   createAssociatedTokenAccountIdempotentInstruction, createTransferInstruction,
 } from '@solana/spl-token'
 import { allocate, deriveVault } from './fee-split.mjs'
+import { tokenUnit } from './config.mjs'
 
 /**
  * Below this, in dollars, a coin is left alone for the next run.
@@ -127,7 +128,7 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
       if (amount <= 0n) continue
       const price = prices.get(launch.quoteMint) ?? launch.quoteUsdPrice ?? 0
       owed.push({
-        launch, vault, amount, usd: (Number(amount) / 1e6) * price, price, poolState,
+        launch, vault, amount, usd: (Number(amount) / tokenUnit(launch.quoteMint)) * price, price, poolState,
         needsPull: inPool > 0n,
         position: inPosition > 0n ? position.entry : null,
       })
@@ -149,7 +150,7 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
  * is what each batch sends, so a run that fails part way knows what never went out.
  */
 export function payoutInstructions({ holders, pot, payer, quoteMint, amount, price, exclude }) {
-  const dust = price > 0 ? BigInt(Math.ceil((PER_HOLDER_FLOOR_USD / price) * 1e6)) : 0n
+  const dust = price > 0 ? BigInt(Math.ceil((PER_HOLDER_FLOOR_USD / price) * tokenUnit(quoteMint))) : 0n
   const { payouts, paid, carried } = allocate(holders, amount, { exclude, dust })
   if (!payouts.length) return { batches: [], totals: [], paid: 0n, carried, payouts: [] }
 

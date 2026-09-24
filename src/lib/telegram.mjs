@@ -7,6 +7,8 @@
 // exactly as before without them. A post that fails is logged and dropped: a group
 // chat is never worth failing a graduation over.
 
+import { tokenUnit } from './config.mjs'
+
 const API = 'https://api.telegram.org'
 
 const ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;' }
@@ -92,7 +94,7 @@ export function pumpMessage(coin, change, launchUrl) {
 /** A curve has filled and its liquidity has moved to Meteora. */
 export function graduatedMessage(coin, origin) {
   const quote = esc(coin.quoteSymbol || '?')
-  const raised = Number(coin.quoteReserve ?? 0) / 1e6
+  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
   return `🎓 <b>${esc(coin.symbol || '?')}</b> graduated · raised ${money(raised)} ${quote}\n` +
     links(coin, origin)
 }

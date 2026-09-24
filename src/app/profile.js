@@ -7,6 +7,7 @@
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain, declined } from './errors.js'
+import { isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -64,12 +65,15 @@ function paintConnect() {
   }
   menu.hidden = true
   const found = available()
-  connectBtn.textContent = found.length ? 'Connect wallet' : 'No wallet found'
-  connectBtn.disabled = !found.length
+  // On a phone the answer to "no wallet" is the wallet's own app.
+  const phoneOffer = !found.length && isPhone()
+  connectBtn.textContent = found.length ? 'Connect wallet' : phoneOffer ? 'Open in wallet' : 'No wallet found'
+  connectBtn.disabled = !found.length && !phoneOffer
 }
 
 connectBtn.addEventListener('click', async () => {
   if (session) { menu.hidden = !menu.hidden; return }
+  if (!available().length && isPhone()) { toggleWalletAppsMenu(connectBtn); return }
   connectBtn.textContent = 'Connecting…'
   try { await ensureWallet() } catch (e) { connectBtn.textContent = e.message }
   paintConnect()
@@ -121,7 +125,9 @@ async function gather(address) {
     fetch('/api/launches').then((r) => r.json()).catch(() => ({ launches: [] })),
     fetch('/api/fees').then((r) => r.json()).catch(() => null),
   ])
-  const mine = (list.launches ?? []).filter((l) => l.creator === address)
+  // The coins this wallet is paid for: the ones it launched, less any whose fees it
+  // gave to another wallet, plus any another launcher gave to it.
+  const mine = (list.launches ?? []).filter((l) => (l.feeWallet ?? l.creator) === address)
   if (!mine.length) return { mine: [], rows: [], report }
 
   const earned = new Map((report?.coins ?? []).map((c) => [c.baseMint, c]))
@@ -166,7 +172,7 @@ async function gather(address) {
       : null
     const curvePending = coin.vault
       ? (shared?.creator.pending ?? 0)
-      : state ? Number(state.pool.creatorQuoteFee.toString()) / 1e6 : 0
+      : state ? Number(state.pool.creatorQuoteFee.toString()) / 10 ** state.quoteDecimals : 0
     // Already inside the vault's figures for a shared coin, split — counted again here
     // it would give the holders' part to this wallet.
     const lpQuote = lp && !coin.vault ? (quoteIsB ? lp.feeB : lp.feeA) : 0

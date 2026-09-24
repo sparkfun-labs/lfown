@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES } from './lib/config.mjs'
+import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, USDC as USDC_MINT } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -15,10 +15,11 @@ import { tradeHistory, ammLeg } from './lib/chart.mjs'
 import * as telegram from './lib/telegram.mjs'
 import * as x from './lib/x.mjs'
 import { PUMP, pumpCandidates, launchUrl } from './lib/pumps.mjs'
+import * as random from './lib/random-token.mjs'
 
 // The filter is part of the key: change the floor and yesterday's catalogue stops
 // being served, without anyone having to remember to bump a version.
-const CATALOGUE_KEY = `catalogue:v4:t${MIN_TREASURY_USD}`
+const CATALOGUE_KEY = `catalogue:v5:t${MIN_TREASURY_USD}`
 // Bump these whenever the shape of what they hold changes. A deploy does not clear
 // KV, so without a bump the old payload keeps being served until it expires — which
 // is how a fix can ship and appear not to work for the next ten minutes.
@@ -87,7 +88,7 @@ const RPC_MAX_BODY = 64 * 1024
 // The routes that cost something to answer: a program scan, a Jupiter quote, an
 // object in the bucket. They share one per-address ceiling; the RPC proxy has its
 // own, because a trade polls it every second while a signature lands.
-const HEAVY = ['/api/chart', '/api/launch', '/api/exit', '/api/graduate', '/api/image', '/api/metadata']
+const HEAVY = ['/api/chart', '/api/launch', '/api/exit', '/api/graduate', '/api/image', '/api/metadata', '/api/sponsor']
 
 /**
  * The RPC proxy and the upload endpoints exist for this site's own pages. Nothing
@@ -235,6 +236,11 @@ async function handleApi(url, request, env, ctx) {
 
   if (path === '/api/rpc') {
     if (await limited(env.RPC_LIMITER, request)) return tooMany()
+  } else if (path === '/api/event') {
+    if (await limited(env.EVENT_LIMITER, request)) return new Response(null, { status: 204 })
+  } else if (path.startsWith('/api/random/')) {
+    // Every call here runs a model. Its own ceiling, well under the heavy routes'.
+    if (await limited(env.RANDOM_LIMITER, request)) return tooMany()
   } else if (HEAVY.some((p) => path === p || path.startsWith(`${p}/`))) {
     if (await limited(env.HEAVY_LIMITER, request)) return tooMany()
   }
@@ -292,6 +298,15 @@ async function handleApi(url, request, env, ctx) {
   // response. This report walks every pool and every graduated position and takes
   // about seven seconds; with a one-minute life, somebody paid those seven seconds
   // every single minute, and on a coin page that wait came before anything was drawn.
+  // What holders have been paid, from the holder pot's own history. See src/lib/rewards.mjs.
+  if (path === '/api/rewards') {
+    return json(await readCached(env, ctx, 'rewards', REWARDS_FRESH, buildRewards), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+  // The $LFOWN page: the token, and what the DAO treasury holds.
+  if (path === '/api/lfown') {
+    return json(await readCached(env, ctx, 'lfown', LFOWN_FRESH, buildLfown), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+
   if (path === '/api/fees') {
     const report = await readFeeReport(env, ctx)
     return json(report, { headers: { 'cache-control': report.pending ? 'no-store' : 'public, max-age=30' } })
@@ -389,6 +404,49 @@ async function handleApi(url, request, env, ctx) {
     return json({ url: `${env.PUBLIC_ORIGIN || url.origin}/i/${key}` })
   }
 
+  // The launch page's Random button: an idea first, its picture second. See
+  // src/lib/random-token.mjs for why the picture is asked for by id.
+  if (path === '/api/random/idea' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    if (!env.AI) return json({ error: 'random coins are not available here' }, { status: 501 })
+    if (!(await random.takeFromCap(env.REGISTRY))) {
+      return json({ error: 'The random generator has had a busy day. Try again tomorrow, or name your own.' }, { status: 429 })
+    }
+    let idea = null
+    for (let attempt = 0; attempt < 2 && !idea; attempt++) {
+      idea = await random.writeIdea(env.AI).catch((e) => {
+        console.error(`random idea failed: ${e.message}`)
+        return null
+      })
+    }
+    if (!idea) return json({ error: 'No idea came back this time. Press it again.' }, { status: 502 })
+    const id = crypto.randomUUID()
+    await env.REGISTRY?.put(random.ideaKey(id), JSON.stringify(idea), { expirationTtl: random.IDEA_TTL })
+    return json({ id, name: idea.ticker, symbol: idea.ticker, description: idea.description })
+  }
+
+  if (path === '/api/random/image' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    if (!env.AI || !env.IMAGES || !env.REGISTRY) return json({ error: 'random images are not available here' }, { status: 501 })
+    const body = await request.json().catch(() => null)
+    const id = String(body?.id ?? '')
+    const idea = /^[0-9a-f-]{36}$/.test(id) ? await env.REGISTRY.get(random.ideaKey(id), 'json') : null
+    if (!idea) return json({ error: 'that idea has expired — press Random again' }, { status: 404 })
+    // One picture per idea: deleted before drawing, so the same id cannot be replayed
+    // into a stream of free images.
+    await env.REGISTRY.delete(random.ideaKey(id))
+    let drawn
+    try {
+      drawn = await random.drawIdea(env.AI, idea.image)
+    } catch (e) {
+      console.error(`random image failed: ${e.message}`)
+      return json({ error: 'The picture did not come out. Upload your own, or press Random again.' }, { status: 502 })
+    }
+    const key = `${crypto.randomUUID()}.${drawn.type.split('/')[1].replace('jpeg', 'jpg')}`
+    await env.IMAGES.put(key, drawn.bytes, { httpMetadata: { contentType: drawn.type, cacheControl: 'public, max-age=31536000, immutable' } })
+    return json({ url: `${env.PUBLIC_ORIGIN || url.origin}/i/${key}` })
+  }
+
   // Token metadata. The on-chain `uri` must point at a JSON document, not at the
   // image itself — wallets fetch it and read `image` out of it.
   if (path === '/api/metadata' && request.method === 'POST') {
@@ -427,6 +485,38 @@ async function handleApi(url, request, env, ctx) {
   // time to stare at a full bar. The trade that filled it can say so immediately.
   // This is a hint, not an instruction: every claim in it is checked against chain
   // before a lamport is spent, so the worst a caller can do is make us read.
+  // The launch funnel: which step people reach, per day and per kind of device. See
+  // src/app/track.js. Answers 204 whatever happens: a page must never wait on this.
+  if (path === '/api/event' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return new Response(null, { status: 204 })
+    const body = await request.json().catch(() => null)
+    const event = String(body?.e ?? '')
+    if (FUNNEL_EVENTS.includes(event) && env.REGISTRY) {
+      ctx.waitUntil(countEvent(env, event, body?.d === 'mobile' ? 'mobile' : 'desktop').catch((e) => console.error(`event ${event}: ${e.message}`)))
+    }
+    return new Response(null, { status: 204 })
+  }
+  if (path === '/api/funnel' && request.method === 'GET') {
+    const days = Math.min(30, Math.max(1, Number(url.searchParams.get('days')) || 7))
+    return json(await readFunnel(env, days), { headers: { 'cache-control': 'public, max-age=60' } })
+  }
+
+  // Launches LFOwn pays for. See src/lib/sponsor.mjs for what the sponsor will sign.
+  if (path === '/api/sponsor' && request.method === 'GET') {
+    return json(await sponsorStatus(env, url.searchParams.get('wallet')), { headers: { 'cache-control': 'no-store' } })
+  }
+  if (path === '/api/sponsor/launch' && request.method === 'POST') {
+    if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
+    const body = await request.json().catch(() => null)
+    try {
+      return json(await sponsorLaunch(env, body?.transactions))
+    } catch (e) {
+      const status = e.status ?? 502
+      if (status >= 500) console.error(`sponsored launch failed: ${e.message}`)
+      return json({ error: e.message, landed: e.landed ?? [] }, { status })
+    }
+  }
+
   if (path === '/api/graduate' && request.method === 'POST') {
     if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
     const { mint } = (await request.json().catch(() => ({}))) ?? {}
@@ -487,6 +577,14 @@ const oneLine = (v, cap = 140) => {
   return clean.length > cap ? clean.slice(0, cap - 1) + '…' : clean
 }
 
+/** What stands behind a backing coin, in a phrase that follows its symbol. */
+function backedBy(quoteMint) {
+  const extra = EXTRA_QUOTES.find((q) => q.mint === quoteMint)
+  return extra
+    ? `a coin backed by ${extra.backing.label.replace(/^A /, 'a ')} on ${extra.backing.project}`
+    : 'an ownership coin launched on MetaDAO with a treasury behind it'
+}
+
 /**
  * Absolute http(s) only, or nothing. A creator's links are fetched by strangers'
  * servers and shown in strangers' wallets, so anything else is dropped at the door.
@@ -535,9 +633,10 @@ const CHANNELS = [
     // curve — and each post carrying a link costs $0.20. A graduation is rare, it is
     // the moment that means something, and it stays affordable.
     //
-    // And a big move in an ownership coin: rare by construction (see PUMP), and aimed
-    // squarely at the people who might launch — the whole point of paying for a post.
-    events: ['graduated', 'pump'],
+    // A big move in an ownership coin used to be posted here too. It read as a price
+    // call on a coin that is not ours, several times a week, and it is off. The same
+    // post still goes to the Telegram group, where it costs nothing and is asked for.
+    events: ['graduated'],
     pump: (env, coin, change, origin) => x.announce(env, { text: x.pumpMessage(coin, change, launchUrl(coin, origin)) }),
     ready: (env) => Boolean(env.X_CONSUMER_KEY && env.X_CONSUMER_SECRET && env.X_ACCESS_TOKEN && env.X_ACCESS_SECRET),
     launched: async (env, coin, origin, image) =>
@@ -773,7 +872,7 @@ async function coinCard(env, mint, origin) {
   const symbol = oneLine(coin.symbol || '?', 24)
   const name = oneLine(coin.name || symbol, 60)
   const quote = oneLine(coin.quoteSymbol || '?', 24)
-  const raised = Number(coin.quoteReserve ?? 0) / 1e6
+  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
   const pct = coin.threshold ? Math.min(100, (raised / coin.threshold) * 100) : 0
   const progress = coin.isMigrated
     ? 'Graduated to its Meteora pool.'
@@ -781,7 +880,7 @@ async function coinCard(env, mint, origin) {
 
   return {
     title: `${symbol} — paired with ${quote} · LFOwn`,
-    description: `${name} is a memecoin on LFOwn, paired with ${quote}, an ownership coin launched on MetaDAO with a treasury behind it. ${progress}`,
+    description: `${name} is a memecoin on LFOwn, paired with ${quote}, ${backedBy(coin.quoteMint)}. ${progress}`,
     url: `${origin}/coins/${mint}`,
     image,
   }
@@ -808,7 +907,8 @@ const CARD_TAGS = {
  */
 async function creatorCard(env, wallet, origin) {
   const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
-  const mine = (cached?.launches ?? []).filter((l) => l.creator === wallet)
+  // Keyed as the creator page is: by who is paid the creator's part.
+  const mine = (cached?.launches ?? []).filter((l) => (l.feeWallet ?? l.creator) === wallet)
   if (!mine.length) return null
 
   const report = env.REGISTRY ? (await env.REGISTRY.get(FEES_KEY, 'json'))?.report : null
@@ -856,7 +956,8 @@ async function creatorShell(wallet, url, request, env) {
  * streams, so the page is not buffered to do it.
  */
 async function coinShell(mint, url, request, env) {
-  const page = await shell('/coins', url, request, env)
+  // The coin list is the home page now, and a coin's page is drawn by the same app.
+  const page = await env.ASSETS.fetch(new Request(new URL('/', url.origin), request))
   const card = await coinCard(env, mint, env.PUBLIC_ORIGIN || url.origin).catch((e) => {
     console.error(`card for ${mint} failed: ${e.message}`)
     return null
@@ -1011,7 +1112,7 @@ async function watchGraduations(env) {
       continue
     }
     if (state.isMigrated) continue
-    if (Number(state.quoteReserve.toString()) / 1e6 < live[i].threshold) continue
+    if (Number(state.quoteReserve.toString()) / tokenUnit(live[i].quoteMint) < live[i].threshold) continue
     console.log(`graduation watch: ${live[i].symbol ?? live[i].baseMint} has filled`)
     return crankOne(env, live[i].baseMint)
   }
@@ -1053,6 +1154,95 @@ async function readFeeReport(env, ctx) {
   const built = await buildFeeReport(env)
   if (built) return built
   return (await waitForKey(env, FEES_KEY, 25_000))?.report ?? EMPTY_REPORT()
+}
+
+// ── rewards and $LFOWN ───────────────────────────────────────────────────────
+const REWARDS_FRESH = 5 * 60_000
+const LFOWN_FRESH = 10 * 60_000
+const LFOWN_MINT = '5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta'
+
+/**
+ * A page's data, stored with the time it was built. Served from store whatever its
+ * age and rebuilt behind the response once stale; only a first-ever request waits.
+ */
+async function readCached(env, ctx, name, fresh, build) {
+  const key = `page:${name}:v1`
+  const cached = env.REGISTRY ? await env.REGISTRY.get(key, 'json') : null
+  const rebuild = () => withLock(env, `page:${name}`, async () => {
+    const data = await build(env)
+    if (env.REGISTRY) await env.REGISTRY.put(key, JSON.stringify({ data, at: Date.now() }), { expirationTtl: 7 * 86_400 })
+    return data
+  })
+  if (cached?.data) {
+    if (Date.now() - (cached.at ?? 0) > fresh) ctx?.waitUntil(rebuild().catch((e) => console.error(`${name} rebuild failed: ${e.message}`)))
+    return cached.data
+  }
+  return (await rebuild()) ?? (await waitForKey(env, key, 25_000))?.data ?? {}
+}
+
+async function buildRewards(env) {
+  const [{ Connection, PublicKey }, rewards] = await Promise.all([import('@solana/web3.js'), import('./lib/rewards.mjs')])
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const stateKey = 'rewards:state:v1'
+  const stored = env.REGISTRY ? await env.REGISTRY.get(stateKey, 'json') : null
+  const state = await rewards.updatePayouts(connection, PublicKey, env.HELIUS_RPC, FEES.holderPot, stored)
+  if (env.REGISTRY) await env.REGISTRY.put(stateKey, rewards.serialise(state))
+  const [{ coins }, report, list] = await Promise.all([readCatalogue(env), readFeeReport(env), readLaunches(env)])
+  // Payouts are in backing coins; a coin that is not (or no longer) in the catalogue
+  // is priced from the launches that pair with it.
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+  const symbols = new Map(coins.map((c) => [c.mint, c.symbol]))
+  for (const l of list.launches ?? []) {
+    if (!prices.has(l.quoteMint) && l.quoteUsdPrice) prices.set(l.quoteMint, l.quoteUsdPrice)
+    if (!symbols.has(l.quoteMint) && l.quoteSymbol) symbols.set(l.quoteMint, l.quoteSymbol)
+  }
+  return rewards.rewardsView(state, { prices, symbols, report })
+}
+
+async function buildLfown(env) {
+  const { Connection, PublicKey } = await import('@solana/web3.js')
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const [{ coins }, report] = await Promise.all([readCatalogue(env), readFeeReport(env)])
+  const token = coins.find((c) => c.mint === LFOWN_MINT) ?? null
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+  const symbols = new Map(coins.map((c) => [c.mint, c.symbol]))
+  prices.set(USDC_MINT, 1)
+  symbols.set(USDC_MINT, 'USDC')
+
+  // What the DAO treasury holds: every token account it owns, priced where we can.
+  const owner = new PublicKey(FEES.treasury)
+  const [accounts, lamports, supply] = await Promise.all([
+    connection.getParsedTokenAccountsByOwner(owner, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }),
+    connection.getBalance(owner),
+    connection.getTokenSupply(new PublicKey(LFOWN_MINT)).then((r) => Number(r.value.uiAmount) || 0).catch(() => 0),
+  ])
+  const holdings = accounts.value
+    .map((a) => a.account.data.parsed.info)
+    .map((i) => ({ mint: i.mint, amount: Number(i.tokenAmount.uiAmount) || 0 }))
+    .filter((h) => h.amount > 0)
+  const unpriced = holdings.filter((h) => !prices.has(h.mint)).map((h) => h.mint)
+  if (unpriced.length) {
+    try {
+      const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${unpriced.slice(0, 50).join(',')}`)
+      const found = await res.json()
+      for (const [mint, p] of Object.entries(found ?? {})) if (p?.usdPrice) prices.set(mint, Number(p.usdPrice))
+    } catch { /* unpriced holdings are listed without a value */ }
+  }
+  const treasury = holdings
+    .map((h) => ({ ...h, symbol: symbols.get(h.mint) ?? `${h.mint.slice(0, 4)}…${h.mint.slice(-4)}`, usd: h.amount * (prices.get(h.mint) ?? 0) }))
+    .sort((a, b) => b.usd - a.usd)
+  return {
+    updatedAt: new Date().toISOString(),
+    // Market cap from the same price the page prints and the supply on chain, rather
+    // than Jupiter's figure, which trails the price and disagreed with it on the page.
+    token: token ? { ...token, supply, mcap: supply * token.usdPrice } : null,
+    treasuryAddress: FEES.treasury,
+    treasury,
+    sol: lamports / 1e9,
+    treasuryUsd: treasury.reduce((s, h) => s + h.usd, 0),
+    feesToDaoUsd: report?.totals?.lfownUsd ?? 0,
+    feesGeneratedUsd: report?.totals?.generatedUsd ?? 0,
+  }
 }
 
 /** Builds the fee report and stores it with the time it was built — one at a time. */
@@ -1127,7 +1317,7 @@ async function chartFor(env, mint) {
       baseVault: state.baseVault.toBase58(),
       quoteVault: state.quoteVault.toBase58(),
       baseDecimals: 6,
-      quoteDecimals: 6,
+      quoteDecimals: tokenDecimals(quoteMint),
       newest: null,
     }]
   }
@@ -1170,6 +1360,156 @@ async function chartFor(env, mint) {
  * keeper pay ~0.03 SOL a time to migrate it; and the reserve has to have genuinely
  * reached the threshold.
  */
+// ── the launch funnel ────────────────────────────────────────────────────────
+/** Every step the pages report, in the order a launch goes through them. */
+const FUNNEL_EVENTS = [
+  'launch_open', 'mobile_no_wallet', 'open_in_wallet', 'step_token', 'random_used', 'step_review',
+  'wallet_connected', 'sign_click', 'launched', 'launched_free', 'launch_error',
+  'coin_open', 'coin_mobile_no_wallet', 'trade_click', 'traded',
+]
+
+/**
+ * One more of `event` today on `device`. The count rides in the key's metadata so the
+ * report can read a month of them from a single list call. Two increments in the same
+ * instant can lose one — these are rates to read trends from, not a ledger.
+ */
+async function countEvent(env, event, device) {
+  const key = `funnel:${new Date().toISOString().slice(0, 10)}:${device}:${event}`
+  const { metadata } = await env.REGISTRY.getWithMetadata(key)
+  await env.REGISTRY.put(key, '', { metadata: { n: (Number(metadata?.n) || 0) + 1 }, expirationTtl: 90 * 86400 })
+}
+
+async function readFunnel(env, days) {
+  const since = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10)
+  const out = { days, since, events: FUNNEL_EVENTS, total: { mobile: {}, desktop: {} }, byDay: {} }
+  if (!env.REGISTRY) return out
+  let cursor
+  do {
+    const page = await env.REGISTRY.list({ prefix: 'funnel:', cursor })
+    for (const { name, metadata } of page.keys) {
+      const [, date, device, event] = name.split(':')
+      if (date < since || !out.total[device]) continue
+      const n = Number(metadata?.n) || 0
+      out.total[device][event] = (out.total[device][event] ?? 0) + n
+      ;((out.byDay[date] ??= { mobile: {}, desktop: {} })[device])[event] = n
+    }
+    cursor = page.list_complete ? null : page.cursor
+  } while (cursor)
+  return out
+}
+
+// ── sponsored launches ───────────────────────────────────────────────────────
+const SPONSOR_COUNT = 'sponsor:count'
+const sponsorWalletKey = (wallet) => `sponsor:wallet:${wallet}`
+/** Below this the sponsor could not cover one more launch, so none is offered. */
+const SPONSOR_FLOOR_LAMPORTS = 30_000_000 // one launch, pool and vault, with room to spare
+
+class HttpError extends Error {
+  constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra) }
+}
+
+/** Whether LFOwn will pay for a launch right now, and for this wallet. */
+async function sponsorStatus(env, wallet) {
+  const { SPONSORED_LAUNCHES } = await import('./lib/sponsor.mjs')
+  const sponsor = await loadKey(env.SPONSOR_KEY).catch(() => null)
+  const used = Number(await env.REGISTRY?.get(SPONSOR_COUNT)) || 0
+  const remaining = Math.max(0, SPONSORED_LAUNCHES - used)
+  const out = { enabled: false, total: SPONSORED_LAUNCHES, remaining, sponsor: null, eligible: false }
+  if (!sponsor || !env.REGISTRY || !remaining) return out
+
+  const { Connection, PublicKey } = await import('@solana/web3.js')
+  const balance = await new Connection(env.HELIUS_RPC, 'confirmed').getBalance(sponsor.publicKey).catch(() => 0)
+  if (balance < SPONSOR_FLOOR_LAMPORTS) return out
+  out.enabled = true
+  out.sponsor = sponsor.publicKey.toBase58()
+
+  let valid = false
+  try { valid = Boolean(wallet) && PublicKey.isOnCurve(new PublicKey(wallet).toBytes()) } catch { valid = false }
+  if (valid) out.eligible = !(await env.REGISTRY.get(sponsorWalletKey(wallet)))
+  return out
+}
+
+/**
+ * Checks, signs and sends a launch the sponsor pays for.
+ *
+ * One per wallet, and a fixed number in all. KV cannot make the check and the claim one
+ * step, so two requests from the same wallet in the same second could both pass; the
+ * sponsor's balance is what really bounds this, and it is funded for the run and no more.
+ */
+async function sponsorLaunch(env, encoded) {
+  const [{ Connection, Transaction, PublicKey }, sponsorLib, { waitFor }, { DynamicBondingCurveClient }, { DynamicFeeSharingClient }] = await Promise.all([
+    import('@solana/web3.js'), import('./lib/sponsor.mjs'), import('./lib/confirm.mjs'),
+    import('@meteora-ag/dynamic-bonding-curve-sdk'), import('@meteora-ag/dynamic-fee-sharing-sdk'),
+  ])
+  const status = await sponsorStatus(env, null)
+  if (!status.enabled) throw new HttpError(409, 'Free launches are not available right now. Launch normally instead.')
+
+  const sponsor = await loadKey(env.SPONSOR_KEY)
+  if (!Array.isArray(encoded)) throw new HttpError(400, 'transactions are required')
+  let txs
+  try {
+    txs = encoded.map((e) => Transaction.from(Uint8Array.from(atob(String(e)), (c) => c.charCodeAt(0))))
+  } catch {
+    throw new HttpError(400, 'transactions must be base64 Solana transactions')
+  }
+
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const dbcClient = new DynamicBondingCurveClient(connection, 'confirmed')
+  const programs = {
+    dbc: dbcClient.pool?.program ?? dbcClient.program ?? dbcClient.state.program,
+    dfs: new DynamicFeeSharingClient(connection, 'confirmed').program,
+  }
+  let launch
+  try {
+    launch = sponsorLib.checkSponsored(txs, { sponsor: sponsor.publicKey, programs, configs: await ourConfigs(env) })
+  } catch (e) {
+    // Logged: a refusal is either an attack or a wallet doing something new, and the
+    // second is only fixed by someone reading why.
+    console.log(`sponsored launch refused: ${e.message}`)
+    throw new HttpError(400, `This launch cannot be paid for by LFOwn: ${e.message}`)
+  }
+
+  const walletKey = sponsorWalletKey(launch.creator)
+  if (await env.REGISTRY.get(walletKey)) throw new HttpError(409, 'This wallet has already had its free launch.')
+  // Claimed before anything is sent, released if nothing lands.
+  await env.REGISTRY.put(walletKey, JSON.stringify({ status: 'pending', mint: launch.baseMint, at: new Date().toISOString() }), { expirationTtl: 600 })
+
+  const signatures = []
+  try {
+    for (const [i, tx] of txs.entries()) {
+      tx.partialSign(sponsor)
+      // What this transaction would take from the sponsor, measured before it is sent.
+      const before = await connection.getBalance(sponsor.publicKey, 'confirmed')
+      const sim = await connection.simulateTransaction(tx, undefined, [sponsor.publicKey])
+      if (sim.value.err) {
+        const logs = (sim.value.logs ?? []).slice(-6).join(' | ')
+        throw new HttpError(400, `transaction ${i} would fail: ${JSON.stringify(sim.value.err)}${logs ? ` — ${logs}` : ''}`)
+      }
+      const after = Number(sim.value.accounts?.[0]?.lamports ?? before)
+      if (before - after > sponsorLib.MAX_SPONSOR_LAMPORTS) {
+        throw new HttpError(400, `transaction ${i} would cost the sponsor ${(before - after) / 1e9} SOL, more than a launch can`)
+      }
+      const signature = await connection.sendRawTransaction(tx.serialize(), { preflightCommitment: 'confirmed' })
+      await waitFor(connection, signature, null, { timeoutMs: 60_000 })
+      signatures.push(signature)
+    }
+  } catch (e) {
+    if (!signatures.length) await env.REGISTRY.delete(walletKey).catch(() => {})
+    if (e instanceof HttpError) { e.landed = signatures; throw e }
+    throw new HttpError(/blockhash not found|expired/i.test(e.message) ? 410 : 502,
+      /blockhash not found|expired/i.test(e.message) ? 'The launch took too long to reach us and expired. Sign it again.' : `The launch did not land: ${e.message}`,
+      { landed: signatures })
+  }
+
+  const used = (Number(await env.REGISTRY.get(SPONSOR_COUNT)) || 0) + 1
+  await Promise.all([
+    env.REGISTRY.put(SPONSOR_COUNT, String(used)),
+    env.REGISTRY.put(walletKey, JSON.stringify({ status: 'launched', mint: launch.baseMint, signatures, at: new Date().toISOString() })),
+  ])
+  console.log(`sponsored launch ${used}/${sponsorLib.SPONSORED_LAUNCHES}: ${launch.baseMint} for ${launch.creator}`)
+  return { baseMint: launch.baseMint, signatures, remaining: Math.max(0, sponsorLib.SPONSORED_LAUNCHES - used) }
+}
+
 async function crankOne(env, mint) {
   const [{ Connection, PublicKey }, { DynamicBondingCurveClient }] =
     await Promise.all([import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk')])
@@ -1232,7 +1572,7 @@ async function crankOne(env, mint) {
   try {
     const signature = await graduate(client, connection, poolAddress.toBase58(), collector)
     console.log(`graduated on request ${mint}: ${signature}`)
-    await announceGraduation(env, record ?? { baseMint: mint, symbol: '?', quoteSymbol: '?', quoteReserve: pool.quoteReserve.toString() })
+    await announceGraduation(env, record ?? { baseMint: mint, symbol: '?', quoteSymbol: cfg.symbol, quoteMint: cfg.mint, quoteReserve: pool.quoteReserve.toString() })
       .catch((e) => console.error(`telegram graduation: ${e.message}`))
     // Its status just changed; the list is told rather than thrown away.
     await patchLaunches(env, mint, { isMigrated: true, quoteReserve: pool.quoteReserve.toString() })
@@ -1464,7 +1804,7 @@ async function distributeToHolders(env) {
         exclude: [...custodians, o.launch.pool].filter(Boolean),
       }
       if (!payoutInstructions({ ...plan, amount: o.amount }).batches.length) {
-        console.log(`holder payouts: ${name} has nobody over the floor yet — ${(Number(o.amount) / 1e6).toFixed(6)} left in its vault`)
+        console.log(`holder payouts: ${name} has nobody over the floor yet — ${(Number(o.amount) / tokenUnit(o.launch.quoteMint)).toFixed(6)} left in its vault`)
         continue
       }
 
@@ -1544,7 +1884,7 @@ async function distributeToHolders(env) {
         transactions++
       }
       done.push({ symbol: o.launch.symbol, baseMint: o.launch.baseMint, holders: payouts.length,
-        quote: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * o.price, transactions })
+        quote: Number(claimed) / tokenUnit(o.launch.quoteMint), usd: (Number(claimed) / tokenUnit(o.launch.quoteMint)) * o.price, transactions })
     } catch (e) {
       console.error(`holder payouts failed on ${name}: ${e.message}`)
       // Before the claim, nothing moved: the share is still in the vault and the next
@@ -1623,6 +1963,11 @@ export default {
     // The launch app is a single page. Real files under /launch (its script, any
     // future chunk) must still be served as themselves — only unknown paths fall
     // through to the shell, so client-side routes survive a reload.
+    // The coin list moved to the home page; old links to it land there.
+    if (url.pathname === '/coins' || url.pathname === '/coins/') {
+      return Response.redirect(new URL(`/${url.search}`, url.origin).toString(), 301)
+    }
+
     for (const section of ['/launch', '/coins', '/creator']) {
       if (url.pathname !== section && !url.pathname.startsWith(`${section}/`)) continue
       if (url.pathname === section || url.pathname === `${section}/`) return shell(section, url, request, env)

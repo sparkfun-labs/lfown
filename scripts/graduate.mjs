@@ -11,7 +11,7 @@ import { homedir } from 'node:os'
 import { buildRegistry } from '../src/lib/registry.mjs'
 import { listLaunches } from '../src/lib/launches.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
-import { TIERS } from '../src/lib/config.mjs'
+import { TIERS, tokenUnit } from '../src/lib/config.mjs'
 
 const ARMED = process.env.LFOWN_ARM === 'yes'
 const RPC = readFileSync('.dev.vars', 'utf8').match(/https:\/\/[^\s"]+/)[0]
@@ -44,7 +44,7 @@ console.log('payer   :', payer.publicKey.toBase58())
 console.log('launches:', launches.length, '| ready to graduate:', ready.length, '\n')
 
 for (const p of ready) {
-  console.log(`  ${p.symbol ?? p.baseMint} — curve full at ${Number(p.poolState.quoteReserve.toString()) / 1e6} ${p.quoteSymbol}`)
+  console.log(`  ${p.symbol ?? p.baseMint} — curve full at ${Number(p.poolState.quoteReserve.toString()) / tokenUnit(p.quoteMint)} ${p.quoteSymbol}`)
   if (!ARMED) continue
   try {
     console.log('    migrated:', await graduate(client, connection, p.pool, payer))

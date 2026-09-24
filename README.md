@@ -66,12 +66,21 @@ Before the first deploy:
     npx wrangler secret put FEE_COLLECTOR_KEY     # optional — see "Where the claimer lives"
     npx wrangler secret put HOLDER_POT_KEY        # optional — see "Sharing fees with holders"
     npx wrangler secret put RESOLVED_API_KEY      # optional — 01Resolved financials on the launch page
+    npx wrangler secret put SPONSOR_KEY < .keys/sponsor.json   # optional — see "Free launches"
     npx wrangler secret put TELEGRAM_BOT_TOKEN    # optional, with TELEGRAM_CHAT_ID
     npx wrangler secret put TELEGRAM_CHAT_ID
     npx wrangler secret put X_CONSUMER_KEY        # optional — all four, or none
     npx wrangler secret put X_CONSUMER_SECRET     #   see "Announcements"
     npx wrangler secret put X_ACCESS_TOKEN
     npx wrangler secret put X_ACCESS_SECRET
+
+The launch page's **Random coin** button uses Workers AI, bound as `AI` in
+`wrangler.jsonc`: Llama 3.3 writes a ticker (also the name), a description and an image
+prompt together, and FLUX.1 schnell draws it in 4 steps into the `IMAGES` bucket. The
+picture is requested by the id of an idea the Worker wrote, never by a prompt from the
+browser. Presses are limited per address (`RANDOM_LIMITER`) and to 1,500 per day across
+the site (`src/lib/random-token.mjs`). Without the binding, the button answers that it
+is unavailable.
 
 Then add a **rate limiting rule on `/api/*`** in the zone's WAF (Security → WAF →
 Rate limiting rules; one rule is included on the free plan). The Worker enforces
@@ -95,6 +104,35 @@ trust with a hot wallet.
 one `FEES.holderPot` names. The secret goes to the file and nowhere else: it is never
 printed, only the public key is. It refuses to overwrite a file that exists, because a
 key something already depends on is not replaced by replacing its file — only lost.
+
+## Free launches
+
+LFOwn pays the rent and network fees of the next `SPONSORED_LAUNCHES` launches (30),
+one per wallet, so someone can launch holding no SOL. A launch measures 0.026 SOL on
+devnet: 0.0206 for the pool (Metaplex's metadata fee included) and 0.0040 for the
+holders' fee vault. The creator still signs, owns the coin and earns its fees; an
+initial buy is still theirs to pay, plus the rent of the account their tokens land in.
+
+The launch page builds the transactions with the sponsor as fee payer and as the payer
+of the two account creations, the creator signs, and `POST /api/sponsor/launch` checks,
+signs and sends them. `src/lib/sponsor.mjs` decides what the sponsor will sign: only
+the bonding curve, the fee-sharing vault, compute budget (capped) and associated token
+programs; the sponsor only as fee payer and as `payer` of opening the pool and its
+vault; a pool on a config LFOwn opened; a vault owned by that pool's creator. Each
+transaction is simulated first and refused if it would take more than 0.03 SOL from
+the sponsor. `GET /api/sponsor?wallet=` says whether one is on offer.
+
+To turn it on:
+
+    node scripts/keygen.mjs sponsor                          # prints the address
+    # send it 0.8 SOL: 30 launches at 0.026, and a little over
+    npx wrangler secret put SPONSOR_KEY < .keys/sponsor.json
+
+It turns itself off when the count is reached or the sponsor holds less than 0.03 SOL,
+and the page goes back to the paid launch. One per wallet is checked in KV, which is
+not atomic and does not stop someone from using many wallets; the sponsor's balance is
+the real ceiling, so fund it for the run and no more. `npm run test:sponsor` runs a free
+launch end to end on devnet.
 
 ## Opening a coin for launches
 
@@ -126,6 +164,28 @@ whatever its first minutes of trading print. This works before the coin is liste
 reaches the catalogue, and can be launched on, once MetaDAO's market API lists it:
 
     LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --price 0.014
+
+### Backing coins that are not ownership coins
+
+A coin backed by something other than a futarchy treasury never shows up in MetaDAO's
+market API, so it is listed by hand in `EXTRA_QUOTES` (`src/lib/config.mjs`). The first
+is **TRCH1**: Deaton, a Triceratops skull co-owned through Jurassic Finance
+(`DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB`). Each entry names:
+
+- **`decimals`**. TRCH1 has 9, whereas every ownership coin and every memecoin has 6.
+  `tokenDecimals(mint)` and `tokenUnit(mint)` are the only way the code turns raw
+  amounts of a backing coin into whole tokens, on the curve and in fee vaults, positions,
+  payouts, charts and posts. `create-config.mjs` builds the curve in those same decimals
+  and refuses any coin whose on-chain decimals the site does not know.
+- **`referencePrice`**. This is the raise price, used until Jupiter can price the coin.
+  The catalogue marks it `priceSource: "reference"`, and the launch card shows "raise"
+  next to it.
+- **`backing`**. What stands behind the coin: shown instead of a treasury on the launch
+  card, in the review and to agents. `featured` pins the card first.
+
+Opening it works like any other coin:
+
+    LFOWN_ARM=yes node scripts/create-config.mjs DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB starter
 
 The graduation threshold lives inside the config, so it cannot vary per launch —
 a creator picks one of the tiers in `src/lib/config.mjs` ($5k / $15k / $50k,
@@ -578,9 +638,13 @@ channel is simply not live.
 
 Someone holding AVICI while it is up a third is the person most likely to launch a meme
 against it. So the catalogue cron (every 10 minutes) looks at each coin's 24-hour move,
-from 01Resolved, and when one is up **20% or more** it posts to X and Telegram —
+from 01Resolved, and when one is up **20% or more** it posts to the Telegram group —
 *"📈 $AVICI +31% today — launch a meme against AVICI"* — with a link to
 `/launch?quote=AVICI`, which opens the launch page with that coin already picked.
+
+Telegram only: on X the same post read as a price call on a coin that is not ours,
+several times a week, so `CHANNELS` no longer lists `pump` among the X events. The
+message and its rules are unchanged, and adding it back is one word.
 
 The rules live in `PUMP` in `src/lib/pumps.mjs`: at least $10k of liquidity (a thin coin
 jumps 50% on a few hundred dollars), a tier open for it, one post per coin per 24 hours

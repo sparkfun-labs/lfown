@@ -4,6 +4,9 @@
 // confirmed but whose callback never fired still has to appear, and a pool opened
 // directly against one of our configs is just as real as one opened through the UI.
 
+import { FEES } from './config.mjs'
+import { feeWalletOf } from './fee-wallet.mjs'
+
 const METAPLEX = 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s'
 const FEE_SHARING = 'dfsdo2UqvwfN8DuUVrMRNfQe11VaiNoKcMqLHVvDPzh'
 /** Anchor's account discriminator for `FeeVault`, read from the program's IDL. */
@@ -21,6 +24,11 @@ const FEE_VAULT_DISCRIMINATOR = [192, 178, 69, 232, 58, 149, 157, 132]
  *
  * Checked by program and discriminator, not by guessing from the address: anything
  * else the fee-sharing program owns is left exactly as it was.
+ *
+ * The launcher is not always who earns. A launch can write another wallet into the
+ * creator's slot (see src/lib/fee-wallet.mjs); that wallet is `feeWallet`, and every
+ * page that pays or credits the creator's part goes by it. `creator` stays the person
+ * who launched the coin.
  */
 export async function resolveVaultCreators(connection, PublicKey, entries) {
   for (let i = 0; i < entries.length; i += 100) {
@@ -31,6 +39,8 @@ export async function resolveVaultCreators(connection, PublicKey, entries) {
       if (!FEE_VAULT_DISCRIMINATOR.every((b, k) => info.data[k] === b)) return
       slice[j].vault = slice[j].creator
       slice[j].creator = new PublicKey(info.data.subarray(8, 40)).toBase58()
+      const feeWallet = feeWalletOf(info.data, { pot: FEES.holderPot })
+      if (feeWallet) slice[j].feeWallet = feeWallet
     })
   }
   return entries

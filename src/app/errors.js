@@ -38,7 +38,7 @@ export function readable(error) {
   // their own supply than is ever sold on the curve — a fifth of it is reserved for
   // the pool the coin graduates into.
   if (/not enough liquidity/i.test(raw)) {
-    return 'That dev buy is larger than the curve holds. Most of the supply is sold on the curve, but a fifth is reserved for the pool your coin graduates into — try a smaller share.'
+    return 'That initial buy is larger than the curve holds. Most of the supply is sold on the curve, but a fifth is reserved for the pool your coin graduates into — try a smaller share.'
   }
 
   const short = raw.match(/insufficient lamports (\d+),?\s*need (\d+)/i)

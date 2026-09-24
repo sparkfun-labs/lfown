@@ -39,7 +39,7 @@ import {
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
-import { FEES, TIERS } from '../src/lib/config.mjs'
+import { FEES, TIERS, tokenDecimals } from '../src/lib/config.mjs'
 
 const argv = process.argv.slice(2)
 const flag = (name) => {
@@ -89,7 +89,7 @@ if (PRICE !== null) {
     }).then((r) => r.json()).catch(() => null)
     const meta = asset?.result?.content?.metadata
     if (!meta) { console.error('no token found at', target); process.exit(1) }
-    listed = { mint: target, symbol: meta.symbol || target.slice(0, 4), name: meta.name }
+    listed = { mint: target, symbol: meta.symbol || target.slice(0, 4), name: meta.name, decimals: asset.result.token_info?.decimals }
     console.log(`${listed.symbol} (${listed.name}) is not listed yet; opening it at the price given.`)
   }
   queue = [{ ...listed, usdPrice: PRICE }]
@@ -128,13 +128,24 @@ function openedAlready(mint) {
   } catch { return false }
 }
 
+const DECIMAL = { 6: TokenDecimal.SIX, 7: TokenDecimal.SEVEN, 8: TokenDecimal.EIGHT, 9: TokenDecimal.NINE }
+
 const todo = []
 for (const coin of queue) {
   if (openedAlready(coin.mint)) {
     console.log(`  skip ${coin.symbol.padEnd(9)} already open on ${tier.id}`)
     continue
   }
-  todo.push({ ...coin, threshold: Math.round(tier.usd / coin.usdPrice) })
+  // The curve is built in the coin's own decimals, and the site reads every amount back
+  // with `tokenDecimals`. If the two disagreed, every trade on the config would be
+  // mispriced by powers of ten, so a coin whose chain decimals the site does not know
+  // is refused here rather than opened.
+  const decimals = coin.decimals ?? tokenDecimals(coin.mint)
+  if (decimals !== tokenDecimals(coin.mint) || !DECIMAL[decimals]) {
+    console.error(`  skip ${coin.symbol.padEnd(9)} has ${decimals} decimals; list it in EXTRA_QUOTES (src/lib/config.mjs) first`)
+    continue
+  }
+  todo.push({ ...coin, decimals, threshold: Math.round(tier.usd / coin.usdPrice) })
 }
 
 if (!todo.length) { console.log('\nnothing to do.'); process.exit(0) }
@@ -157,7 +168,7 @@ for (const coin of todo) {
     token: {
       tokenType: TokenType.SPL,
       tokenBaseDecimal: TokenDecimal.SIX,
-      tokenQuoteDecimal: TokenDecimal.SIX, // every ownership coin is 6
+      tokenQuoteDecimal: DECIMAL[coin.decimals], // ownership coins are 6; hand-listed ones say
       tokenAuthorityOption: TokenAuthorityOption.Immutable,
       totalTokenSupply: 1_000_000_000,
       leftover: 0,

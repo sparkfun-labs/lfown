@@ -15,10 +15,13 @@
 // the exact moment the coin got interesting. Each half is a leg, each leg remembers
 // how far it has been read, and their points are merged in time.
 
+import { COIN_DECIMALS, tokenDecimals } from './config.mjs'
+
 const HELIUS_TX = 'https://api.helius.xyz/v0/transactions'
 const BATCH = 100
-// Every coin launched here and every ownership coin it can be paired with is six.
-const DECIMALS = 6
+
+// Only a fallback: Helius reports each balance change with its token's own decimals.
+const DECIMALS = COIN_DECIMALS
 
 /** The api key lives in the RPC url and nowhere else. */
 function heliusKey(rpcUrl) {
@@ -156,7 +159,7 @@ export async function ammLeg(connection, PublicKey, baseMint, quoteMint) {
     baseVault: (baseIsA ? state.tokenAVault : state.tokenBVault).toBase58(),
     quoteVault: (baseIsA ? state.tokenBVault : state.tokenAVault).toBase58(),
     baseDecimals: DECIMALS,
-    quoteDecimals: DECIMALS,
+    quoteDecimals: tokenDecimals(quoteMint),
     newest: null,
   }
 }
