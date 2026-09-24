@@ -25,6 +25,7 @@ anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = "0.32.1"
 bytemuck = { version = "1.14", features = ["derive", "min_const_generics"] }
 uint = { version = "0.9.5", default-features = false }
+solana-sha256-hasher = { version = "2.3", features = ["sha2"] }
 lfown_raise = { path = "../lfown_raise", features = ["cpi"] }
 vault = { path = "../vault", features = ["cpi"] }
 amm = { path = "../amm", features = ["cpi"] }

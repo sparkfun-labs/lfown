@@ -53,6 +53,11 @@ pub struct InitializeRaiseArgs {
     pub quote_to_pool: u64,
     pub duration_seconds: i64,
     pub claim_delay_seconds: i64,
+    /// A hash of the DAO this raise will open if it succeeds — its name, withdrawal share
+    /// and governance rules (see futarchy's `bootstrap_dao`). Fixed before anyone commits,
+    /// so backers know the rules they are buying into, and so opening the DAO needs no one's
+    /// permission: whoever calls it can only open exactly this one.
+    pub dao_commitment: [u8; 32],
 }
 
 #[program]
@@ -108,6 +113,7 @@ pub mod lfown_raise {
             ends_at: now.checked_add(args.duration_seconds).ok_or(RaiseError::Overflow)?,
             settled_at: 0,
             claim_delay_seconds: args.claim_delay_seconds,
+            dao_commitment: args.dao_commitment,
             state: RaiseState::Live,
             claims_open: false,
             bump,

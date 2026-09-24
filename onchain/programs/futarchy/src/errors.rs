@@ -138,4 +138,7 @@ pub enum FutarchyError {
 
     #[msg("The stake has already been returned")]
     StakeAlreadyReturned,
+
+    #[msg("This is not the DAO the raise committed to")]
+    DaoCommitmentMismatch,
 }

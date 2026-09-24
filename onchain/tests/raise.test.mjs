@@ -111,6 +111,7 @@ function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintA
   const init = () => w.send([program.instruction.initializeRaise({
     goal: bn(spec.goal), tokensForInvestors: bn(spec.tokensForInvestors), tokensForPool: bn(spec.tokensForPool),
     quoteToPool: bn(spec.quoteToPool), durationSeconds: bn(duration), claimDelaySeconds: bn(claimDelay),
+    daoCommitment: Array(32).fill(0),
   }, { accounts: {
     baseMint, quoteMint: usdcMint, raise, baseVault: w.ata(baseMint, raise), quoteVault: w.ata(usdcMint, raise),
     treasury, poolOperator: operator.publicKey, authority: w.payer.publicKey,

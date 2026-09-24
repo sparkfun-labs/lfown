@@ -40,6 +40,8 @@ pub struct Raise {
     /// Claims open on their own this long after settlement even if the operator never
     /// confirms the pool, so backers can never be locked out by an operator who vanished.
     pub claim_delay_seconds: i64,
+    /// The DAO it opens on success, committed to at creation: see `InitializeRaiseArgs`.
+    pub dao_commitment: [u8; 32],
     pub state: RaiseState,
     pub claims_open: bool,
     pub bump: u8,

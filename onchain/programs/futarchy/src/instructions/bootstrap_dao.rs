@@ -16,8 +16,10 @@
 //      straight to the liquidity authority
 //   5. opens the raise's claims, as the pool operator, now that the pool exists
 //
-// Only the raise's authority can call it: it chooses the DAO's name, its admin (the account
-// that creates proposals) and its withdrawal share, and those are not for a stranger to pick.
+// Anyone can call it — LFOwn's keeper does, the minute a raise settles — because there is
+// nothing left to choose: the raise committed, before a single backer joined, to a hash of
+// the DAO's name, withdrawal share and governance rules, and this instruction refuses any
+// others. Backers are never left waiting on the creator to come back.
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::token::{self, spl_token::instruction::AuthorityType, Mint, SetAuthority, Token, TokenAccount};
@@ -47,8 +49,9 @@ pub struct DAOBootstrapped {
 #[derive(Accounts)]
 #[instruction(name: String)]
 pub struct BootstrapDAO<'info> {
-    #[account(mut, address = raise.authority @ FutarchyError::Unauthorized)]
-    pub authority: Signer<'info>,
+    /// Pays for the DAO's accounts and the pool's creation. Chooses nothing.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     #[account(
         mut,
@@ -58,10 +61,10 @@ pub struct BootstrapDAO<'info> {
     )]
     pub raise: Box<Account<'info, Raise>>,
 
-    #[account(init, payer = authority, space = 8 + DAOAccount::INIT_SPACE, seeds = [DAO_SEED, name.as_bytes()], bump)]
+    #[account(init, payer = payer, space = 8 + DAOAccount::INIT_SPACE, seeds = [DAO_SEED, name.as_bytes()], bump)]
     pub dao: Box<Account<'info, DAOAccount>>,
 
-    #[account(init, payer = authority, space = 8 + ModeratorAccount::INIT_SPACE, seeds = [MODERATOR_SEED, name.as_bytes()], bump)]
+    #[account(init, payer = payer, space = 8 + ModeratorAccount::INIT_SPACE, seeds = [MODERATOR_SEED, name.as_bytes()], bump)]
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     /// CHECK: the DAO's treasury PDA.
@@ -130,6 +133,10 @@ pub fn bootstrap_dao_handler(
 ) -> Result<()> {
     require!(name.len() <= 32, FutarchyError::NameTooLong);
     governance.validate()?;
+    require!(
+        dao_commitment(&name, withdrawal_bps, &governance)? == ctx.accounts.raise.dao_commitment,
+        FutarchyError::DaoCommitmentMismatch
+    );
     require!(withdrawal_bps >= 1 && withdrawal_bps <= MAX_WITHDRAWAL_BPS, FutarchyError::InvalidWithdrawal);
 
     let dao_key = ctx.accounts.dao.key();
@@ -164,7 +171,7 @@ pub fn bootstrap_dao_handler(
         CpiContext::new(
             ctx.accounts.system_program.to_account_info(),
             system_program::Transfer {
-                from: ctx.accounts.authority.to_account_info(),
+                from: ctx.accounts.payer.to_account_info(),
                 to: ctx.accounts.liquidity_authority.to_account_info(),
             },
         ),
@@ -215,7 +222,8 @@ pub fn bootstrap_dao_handler(
         },
     )?;
 
-    let admin = ctx.accounts.authority.key();
+    // The DAO's admin only attaches a position on the manual path; proposals are open to all.
+    let admin = ctx.accounts.raise.authority;
     let moderator_key = ctx.accounts.moderator.key();
     let base_mint = ctx.accounts.base_mint.key();
     let quote_mint = ctx.accounts.quote_mint.key();
@@ -275,4 +283,11 @@ pub fn bootstrap_dao_handler(
         liquidity,
     });
     Ok(())
+}
+
+/// What a raise commits to: sha256 of the DAO's name, its withdrawal share (u16, little
+/// endian) and its governance config (borsh). The launch page computes the same bytes.
+pub fn dao_commitment(name: &str, withdrawal_bps: u16, governance: &GovernanceConfig) -> Result<[u8; 32]> {
+    let config = governance.try_to_vec()?;
+    Ok(solana_sha256_hasher::hashv(&[name.as_bytes(), &withdrawal_bps.to_le_bytes(), &config]).to_bytes())
 }

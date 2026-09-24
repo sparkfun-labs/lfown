@@ -13,6 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { LiteSVM, Clock, FailedTransactionMetadata } from 'litesvm'
 import anchor from '@coral-xyz/anchor'
 import {
@@ -43,6 +44,10 @@ const MIN_SQRT = 4_295_048_016n
 const MAX_SQRT = 79_226_673_521_066_979_257_578_248_091n
 
 const UNIT = 1_000_000n
+/** What a raise commits to: sha256(name ‖ withdrawal bps, u16 LE ‖ governance, borsh). */
+const daoCommitment = (name, bps, gov) => [...createHash('sha256').update(Buffer.concat([
+  Buffer.from(name), Buffer.from([bps & 0xff, bps >> 8]), fut.coder.types.encode('governanceConfig', gov),
+])).digest()]
 /** A DAO's governance, as the tests run it: five-minute markets, no warmup, no margin. */
 const GOV = { proposalLengthMinutes: 5, warmupSeconds: 0, marketBiasBps: 0, maxObservationChangeBps: 10_000, marketFeeBps: 50, proposalStake: new anchor.BN(0) }
 const u16 = (n) => { const b = Buffer.alloc(2); b.writeUInt16LE(n); return b }
@@ -514,6 +519,7 @@ test('a settled raise becomes a DAO with its own pool in one transaction, and no
     await raiseP.methods.initializeRaise({
       goal: bn(1_000n * UNIT), tokensForInvestors: bn(10_000_000n * UNIT), tokensForPool: bn(8_000_000n * UNIT),
       quoteToPool: bn(800n * UNIT), durationSeconds: bn(60), claimDelaySeconds: bn(86_400),
+      daoCommitment: daoCommitment(name, 5_000, GOV),
     }).accountsStrict({
       baseMint, quoteMint: coin, raise, baseVault: ata(baseMint, raise), quoteVault: ata(coin, raise),
       treasury, poolOperator: liquidityAuthority, authority: authority.publicKey,
@@ -534,12 +540,12 @@ test('a settled raise becomes a DAO with its own pool in one transaction, and no
   }
 
   const nftMint = (daoKey) => pda(fut, ['position_nft', daoKey])
-  const bootstrap = async (signer, daoName = name) => {
+  const bootstrap = async (signer, daoName = name, bps = 5_000, gov = GOV) => {
     const d = pda(fut, ['dao', daoName])
     const mint = nftMint(d)
     const pool = deriveCustomizablePoolAddress(baseMint, coin)
-    return fut.methods.bootstrapDao(daoName, 5_000, GOV).accountsStrict({
-      authority: signer.publicKey, raise, dao: d, moderator: pda(fut, ['moderator', daoName]),
+    return fut.methods.bootstrapDao(daoName, bps, gov).accountsStrict({
+      payer: signer.publicKey, raise, dao: d, moderator: pda(fut, ['moderator', daoName]),
       treasury: pda(fut, ['treasury', d]), mintAuthority: pda(fut, ['mint_authority', d]), liquidityAuthority: pda(fut, ['liquidity', d]),
       baseMint, quoteMint: coin, liquidityBase: ata(baseMint, pda(fut, ['liquidity', d])), liquidityQuote: ata(coin, pda(fut, ['liquidity', d])),
       positionNftMint: mint, positionNftAccount: derivePositionNftAccount(mint), poolAuthority: DAMM_POOL_AUTHORITY, pool,
@@ -562,7 +568,8 @@ test('a settled raise becomes a DAO with its own pool in one transaction, and no
   assert.equal(w.balance(ata(coin, liquidityAuthority)), 800n * UNIT, 'the DAO liquidity authority holds the pool share')
 
   const stranger = w.person()
-  w.refused(w.send([await bootstrap(stranger)], [stranger]), 'Unauthorized', 'a stranger bootstrapping the DAO')
+  w.refused(w.send([await bootstrap(stranger, name, 9_000)], [stranger]), 'DaoCommitmentMismatch', 'a DAO with another withdrawal share than the raise committed to')
+  w.refused(w.send([await bootstrap(stranger, name, 5_000, { ...GOV, proposalLengthMinutes: 10 })], [stranger]), 'DaoCommitmentMismatch', 'a DAO with other rules than the raise committed to')
   // A DAO under another name has other PDAs. Give its liquidity authority token accounts so
   // the refusal comes from the rule itself, not from a missing account.
   const otherLiquidity = pda(fut, ['liquidity', pda(fut, ['dao', 'someone-else'])])
@@ -572,7 +579,9 @@ test('a settled raise becomes a DAO with its own pool in one transaction, and no
   ], [authority]), 'token accounts for the other DAO')
   w.refused(w.send([await bootstrap(authority, 'someone-else')], [authority]), 'RaiseNotForThisDao', 'bootstrapping a DAO the raise did not pay')
 
-  w.must(w.send([await bootstrap(authority)], [authority]), 'bootstrap the DAO, its pool and its position')
+  // Nothing is left to choose, so anyone can open it: here a stranger, as LFOwn's keeper would.
+  w.must(w.send([await bootstrap(stranger)], [stranger]), 'a stranger bootstraps the committed DAO, its pool and its position')
+  assert.equal(w.decode(fut, 'daoAccount', dao).admin.toBase58(), authority.publicKey.toBase58(), 'the raise’s creator is the DAO’s admin, not whoever paid')
 
   const daoAccount = w.decode(fut, 'daoAccount', dao)
   const mint = nftMint(dao)

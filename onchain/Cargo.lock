@@ -727,6 +727,7 @@ dependencies = [
  "anchor-spl",
  "bytemuck",
  "lfown_raise",
+ "solana-sha256-hasher",
  "uint",
  "vault",
 ]
