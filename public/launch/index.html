@@ -223,9 +223,11 @@ textarea{min-height:96px;resize:vertical}
 .review .earn b{color:var(--red);font-weight:600}
 /* Paying the creator's part to another wallet: folded away behind one line, because
    almost nobody needs it and the review must still fit without scrolling. */
-.fee-wallet{margin-top:18px}
-.fee-wallet .toggle{font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;background:none;border:0;padding:0;color:var(--ink-soft);cursor:pointer;border-bottom:1px solid var(--rule)}
-.fee-wallet .toggle:hover,.fee-wallet .toggle[aria-expanded="true"]{color:var(--red);border-color:var(--red)}
+.fee-wallet{margin-top:4px}
+.fee-wallet .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;background:transparent;border:1.5px dashed var(--ink);padding:11px 13px;color:var(--ink);cursor:pointer;text-align:left}
+.fee-wallet .toggle::after{content:"+";font-size:.95rem;line-height:1}
+.fee-wallet .toggle[aria-expanded="true"]::after{content:"\2212"}
+.fee-wallet .toggle:hover,.fee-wallet .toggle[aria-expanded="true"]{border-color:var(--red);color:var(--red)}
 .fee-wallet-box{margin-top:10px}
 .fee-wallet-box input{font-family:var(--mono);font-size:.82rem}
 .fee-wallet-box .hint{margin-top:6px;overflow-wrap:anywhere}
@@ -563,13 +565,6 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
            grows with a dev buy and would push it below the fold. -->
       <div>
         <div class="review" id="review"></div>
-        <div class="fee-wallet">
-          <button type="button" class="toggle" id="fee-wallet-toggle" aria-expanded="false" aria-controls="fee-wallet-box">Pay my fees to another wallet</button>
-          <div class="fee-wallet-box" id="fee-wallet-box" hidden>
-            <label><span class="lab">Fees go to</span><input id="f-feewallet" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Wallet address or name.sol"></label>
-            <p class="hint" id="fee-wallet-out">That wallet claims your share of every trading fee, for good. It cannot be changed after launch.</p>
-          </div>
-        </div>
         <div class="actions">
           <button class="btn ghost" data-back="2">Back</button>
         </div>
@@ -585,10 +580,17 @@ button.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;box-shadow:5px 
           <span class="with-unit"><input id="f-devbuy" type="number" min="0" max="50" step="1" placeholder="Other" aria-label="Initial buy, percent of supply"><span class="unit">%</span></span>
         </div>
         <p class="hint warn-text" id="devbuy-cap" hidden>Capped at 50% — that is what will be priced and launched.</p>
-        <p class="hint" id="devbuy-cost">Bought in the launch itself, so nobody can buy before you.</p>
+        <p class="hint" id="devbuy-cost"></p>
         <div class="funding" id="funding" hidden></div>
         <p class="hint" id="vanity"></p>
         <p class="free-note" id="free-note" hidden></p>
+        <div class="fee-wallet">
+          <button type="button" class="toggle" id="fee-wallet-toggle" aria-expanded="false" aria-controls="fee-wallet-box">Pay my fees to another wallet</button>
+          <div class="fee-wallet-box" id="fee-wallet-box" hidden>
+            <label><span class="lab">Fees go to</span><input id="f-feewallet" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Wallet address or name.sol"></label>
+            <p class="hint" id="fee-wallet-out">That wallet claims your share of every trading fee, for good. It cannot be changed after launch.</p>
+          </div>
+        </div>
         <button class="btn sign" id="sign" disabled>Connect wallet to launch</button>
         <p class="hint" id="sign-status"></p>
       </div>

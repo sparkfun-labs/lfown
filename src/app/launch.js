@@ -484,7 +484,7 @@ async function priceDevBuy(asset) {
   if (!percent || !state.configs?.[state.curve.tier]) {
     state.curve.devBuyQuote = 0
     state.funding.priced = null
-    hint.textContent = 'Bought in the launch itself, so nobody can buy before you.'
+    hint.textContent = ''
     paintFunding()
     return
   }
