@@ -607,6 +607,36 @@ await test('sponsor: signs a real launch, and nothing that spends its SOL any ot
   await refused(selfCreated, /more than the payer/)
 })
 
+await test('fair launch: off without FAIR_RPC, and the library agrees with the raise program', async () => {
+  // Production has no FAIR_* settings: every fair route must answer as if it did not exist.
+  for (const path of ['/api/fair/config', '/api/fair/faucet', '/api/fair/rpc']) {
+    const r = await worker.fetch(new Request(`https://example.test${path}`, { method: path === '/api/fair/config' ? 'GET' : 'POST', body: path === '/api/fair/config' ? undefined : '{}' }), env, ctx)
+    assert.equal(r.status, 404, `${path} must not exist in production`)
+  }
+  const on = { ...env, FAIR_RPC: 'http://127.0.0.1:1', FAIR_CLUSTER: 'devnet', FAIR_QUOTES: '[{"mint":"So11111111111111111111111111111111111111112","symbol":"tMETA","usdPrice":5}]' }
+  const cfg = await (await worker.fetch(new Request('https://example.test/api/fair/config'), on, ctx)).json()
+  assert.equal(cfg.cluster, 'devnet')
+  assert.equal(cfg.rpc, undefined, 'the RPC URL, which may carry a key, is never sent to the browser')
+  const refused = await worker.fetch(new Request('https://example.test/api/fair/rpc', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'requestAirdrop', params: [] }) }), on, ctx)
+  assert.equal(refused.status, 400, 'methods off the list are refused')
+  const faucet = await worker.fetch(new Request('https://example.test/api/fair/faucet', { method: 'POST', body: '{}' }), on, ctx)
+  assert.equal(faucet.status, 404, 'no faucet outside localnet')
+
+  const F = await import(new URL('../src/lib/fair-launch.mjs', import.meta.url).href)
+  // The same cases as the raise's own tests: 6,000 + 3,000 + 1,000 against a 5,000 goal.
+  const raise = { goal: 5_000_000_000n, totalCommitted: 10_000_000_000n, tokensForInvestors: 10_000_000_000_000n }
+  assert.deepEqual(F.allocation(raise, 6_000_000_000n), { tokens: 6_000_000_000_000n, kept: 3_000_000_000n, refund: 3_000_000_000n })
+  assert.deepEqual(F.allocation(raise, 1_000_000_000n), { tokens: 1_000_000_000_000n, kept: 500_000_000n, refund: 500_000_000n })
+  // Rounding: tokens down, the part kept up, so the vault is never short.
+  const odd = { goal: 1_000n, totalCommitted: 3_000n, tokensForInvestors: 10n }
+  assert.deepEqual(F.allocation(odd, 1_000n), { tokens: 3n, kept: 334n, refund: 666n })
+  assert.equal(F.goalInCoin(5.98), 836_120_401n, '$5,000 of a $5.98 coin')
+  assert.throws(() => F.goalInCoin(0), /no price/)
+  const d = F.daoAddresses('So11111111111111111111111111111111111111112', 'CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta')
+  assert.equal(d.name.length, 32, 'a DAO name fits its 32 bytes')
+  assert.equal(F.daoAddresses('So11111111111111111111111111111111111111112', 'CREDBHvVqREBCAxMihzr8D1nepHMr2gmQoZWpmgGmeta').dao.toBase58(), d.dao.toBase58(), 'addresses are deterministic')
+})
+
 await test('funnel: steps are counted per device, unknown ones and other sites are ignored', async () => {
   for (const [e, d] of [['launch_open', 'mobile'], ['launch_open', 'mobile'], ['launch_open', 'desktop'], ['step_review', 'desktop'], ['nonsense', 'desktop']]) {
     const r = await post('/api/event', { e, d })

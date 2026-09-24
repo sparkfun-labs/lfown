@@ -41,7 +41,7 @@ import vaultIdl from './idl/vault.json' with { type: 'json' }
 import cpAmmIdl from './idl/cp_amm.json' with { type: 'json' }
 
 // Anchor ships CommonJS: Node only offers it as a default export, a bundler as named ones.
-const anchor = anchorModule.AnchorProvider ? anchorModule : Reflect.get(anchorModule, 'default')
+const anchor = Reflect.get(anchorModule, 'default') ?? anchorModule
 const { AnchorProvider, BN, Program } = anchor
 
 // ── the terms ────────────────────────────────────────────────────────────────

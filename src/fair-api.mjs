@@ -23,6 +23,11 @@ const json = (body, init = {}) => new Response(JSON.stringify(body, (_, v) => (t
   headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...(init.headers ?? {}) },
 })
 
+/** An option's action with its keys and amounts as strings. */
+const plainAction = (a) => (a.transfer
+  ? { transfer: { mint: a.transfer.mint.toBase58(), amount: a.transfer.amount.toString(), recipient: a.transfer.recipient.toBase58() } }
+  : { mintTo: { amount: a.mintTo.amount.toString(), recipient: a.mintTo.recipient.toBase58() } })
+
 const parse = (value, fallback) => {
   if (!value) return fallback
   try { return JSON.parse(value) } catch { return fallback }
@@ -73,6 +78,36 @@ export async function handleFair(url, request, env, { limited }) {
     }
     const upstream = await fetch(config.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     return new Response(upstream.body, { status: upstream.status, headers: { 'content-type': 'application/json' } })
+  }
+
+  // Read-only, for agents and anything else that would rather not decode accounts: every
+  // raise, or one raise with its DAO and proposals. Opening a raise or backing one stays in
+  // the page (and a wallet) until the programs are audited: an agent that moves backers'
+  // money should come after that, not before.
+  if (path === '/api/fair/raises' && request.method === 'GET') {
+    const F = await import('./lib/fair-launch.mjs')
+    const { Connection } = await import('@solana/web3.js')
+    return json({ cluster: config.cluster, raises: await F.listRaises(new Connection(config.rpc, 'confirmed')) })
+  }
+  const one = path.match(/^\/api\/fair\/raise\/([1-9A-HJ-NP-Za-km-z]{32,44})$/)
+  if (one && request.method === 'GET') {
+    const F = await import('./lib/fair-launch.mjs')
+    const { Connection } = await import('@solana/web3.js')
+    const connection = new Connection(config.rpc, 'confirmed')
+    const raise = await F.readRaise(connection, one[1])
+    if (!raise) return json({ error: 'no raise for that mint' }, { status: 404 })
+    const dao = raise.state === 'succeeded' ? await F.readDao(connection, raise.baseMint, raise.quoteMint) : null
+    const proposals = dao ? await F.readProposals(connection, dao, dao.proposalCount) : []
+    return json({
+      cluster: config.cluster,
+      raise,
+      dao: dao && {
+        address: dao.dao.toBase58(), name: dao.name, pool: dao.pool.toBase58(), treasury: dao.treasury.toBase58(),
+        activeProposal: dao.activeProposal, proposalCount: dao.proposalCount,
+        governance: { ...dao.governance, proposalStake: dao.governance.proposalStake.toString() },
+      },
+      proposals: proposals.map(({ actions, ...p }) => ({ ...p, actions: actions.map((list) => list.map(plainAction)) })),
+    })
   }
 
   // Test SOL and test coin for a wallet, so a local run needs nothing from outside.

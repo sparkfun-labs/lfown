@@ -42,3 +42,21 @@ This fork puts every one of those under the program.
 **`amm`**
 - `remove_liquidity` refuses while the pool is still trading: upstream let the liquidity
   provider drain a live proposal's market.
+
+**Step 3 — nobody's permission, nobody's timing** (`futarchy`, `lfown_raise`)
+- A raise stores, before its first backer, a sha256 of the DAO it will open: name,
+  withdrawal share and governance rules (`dao_commitment`). `bootstrap_dao` refuses any
+  other DAO and so needs nobody's signature: a keeper, or anyone, opens it at settlement.
+- A proposal's length, warmup, pass margin, TWAP bounds and market fee come from the DAO's
+  `GovernanceConfig`, fixed when it opens; the proposer chooses the question and its
+  options only. Upstream took them from the proposer, harmless while one admin proposed.
+- Anyone may propose, by locking the DAO's `proposal_stake` in a proposal-owned escrow;
+  `return_stake` (anyone) gives it back to the proposer once the market has decided.
+- The markets open at the DAO pool's own price, computed on-chain (`price_guard.rs`),
+  instead of at a starting observation the proposer supplied.
+- A price guard on every move of the DAO's liquidity (`prepare_proposal_liquidity`,
+  `return_liquidity`, `initialize_proposal`): `record_price` (anyone, at most every five
+  minutes) writes a checkpoint, and the pool must be within 5% of one between one and
+  thirty minutes old. A push and pull within one transaction never passes.
+- Once the liquidity is out, the options are frozen and `launch_proposal` is open to anyone,
+  so a proposer who walks away cannot strand the DAO's liquidity outside its pool.

@@ -158,20 +158,26 @@ async function sendAll(groups, { extra = [], say = () => {} } = {}) {
   }
 }
 
-/** Wires a button to an action, with its status line. */
+/**
+ * Wires a button to an action, with its status line. While any action runs the page does
+ * not redraw itself: a redraw would drop the status line the result is written to.
+ */
+let busy = 0
 function wire(button, status, action, done = 'Done.') {
   if (!button) return
   button.addEventListener('click', async () => {
     const say = (m, warn = false) => { if (status) { status.textContent = m; status.className = `status${warn ? ' warn' : ''}` } }
     button.disabled = true
+    busy++
     try {
       await action(say)
       say(done)
-      setTimeout(render, 600)
+      setTimeout(render, 1500)
     } catch (e) {
       console.error(e)
       say(fairError(e), true)
     } finally {
+      busy--
       button.disabled = false
     }
   })
@@ -338,7 +344,9 @@ function positionCard(raise, mine, q, ended) {
   if (raise.state === 'live' && !ended) {
     const projected = F.allocation({ ...raise, totalCommitted: raise.totalCommitted > raise.goal ? raise.totalCommitted : raise.goal }, committed)
     return `<h2>Back this raise</h2>
-      <p>You have committed <b>${coins(committed)} ${esc(q.symbol)}</b>${committed ? ` — about ${tokensM(projected.tokens)} tokens if it closes now` : ''}.
+      <p>You have committed <b>${coins(committed)} ${esc(q.symbol)}</b>${!committed ? '' : raise.totalCommitted >= raise.goal
+        ? ` — about ${tokensM(projected.tokens)} tokens if it closes now`
+        : ` — about ${tokensM(projected.tokens)} tokens if it reaches its goal; below it, everything comes back`}.
         Anything over the goal is refunded pro rata when it closes.</p>
       <label><span class="lab">Commit (${esc(q.symbol)})</span><input id="p-amount" inputmode="decimal" placeholder="100"></label>
       <button class="btn" type="button" id="p-commit">Commit</button><p class="status" id="p-status"></p>`
@@ -540,6 +548,6 @@ async function boot() {
   const resumed = await reconnect().catch(() => null)
   if (resumed) { session = resumed; paintConnect(); render() }
   // A raise and its markets move by the minute; so does this page.
-  setInterval(() => { if (!document.hidden && !document.activeElement?.matches('input, select')) render() }, 20_000)
+  setInterval(() => { if (!busy && !document.hidden && !document.activeElement?.matches('input, select')) render() }, 20_000)
 }
 boot()

@@ -1226,3 +1226,7 @@ async function applyDraft() {
   unlock(3)
   startVanity()
 }
+
+// Fair launches, when this Worker has a cluster for them: until their programs are
+// audited that is a test one, so production answers 404 and the link never shows.
+fetch('/api/fair/config').then((r) => { if (r.ok) $('#fair-link').hidden = false }).catch(() => {})
