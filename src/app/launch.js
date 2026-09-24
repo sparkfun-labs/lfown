@@ -750,7 +750,9 @@ function paintFeeWallet() {
   if (fw.resolving) { feeOut.innerHTML = `Looking up ${esc(fw.name)}…`; feeOut.className = 'hint'; return }
   if (fw.error) { feeOut.innerHTML = fw.error; feeOut.className = 'hint warn-text'; return }
   if (fw.self) { feeOut.innerHTML = 'That is the wallet you are launching with — the fees are yours already.'; feeOut.className = 'hint'; return }
-  feeOut.innerHTML = `${fw.name ? `${esc(fw.name)} → ` : ''}<b>${esc(fw.address)}</b><br>This wallet claims your share of every trading fee, for good. It cannot be changed after launch.`
+  // A name does not say where the money goes, so the address it resolved to is shown in
+  // full. A pasted address already is on screen, in the field itself.
+  feeOut.innerHTML = `${fw.name ? `${esc(fw.name)} → <b>${esc(fw.address)}</b><br>` : ''}This wallet claims your share of every trading fee, for good. It cannot be changed after launch.`
   feeOut.className = 'hint'
 }
 
