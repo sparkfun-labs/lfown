@@ -4,8 +4,26 @@
     {
       "name": "lfown",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["wrangler", "dev", "--port", "8794"],
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--port",
+        "8794"
+      ],
       "port": 8794
+    },
+    {
+      "name": "lfown-fair",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "wrangler",
+        "dev",
+        "--port",
+        "8796",
+        "--persist-to",
+        ".wrangler/state-fair"
+      ],
+      "port": 8796
     }
   ]
 }

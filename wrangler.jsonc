@@ -27,7 +27,10 @@
       "/coins",
       "/coins/*",
       "/creator",
-      "/creator/*"
+      "/creator/*",
+      // Fair launches' raise and DAO pages; the shell answers any /raise/<mint>.
+      "/raise",
+      "/raise/*"
     ]
   },
   "observability": {

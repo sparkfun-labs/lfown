@@ -53,6 +53,8 @@ const pages = [
   // answered /leaderboard with a 307 to /leaderboard/.
   { file: 'public/leaderboard.html', here: '/leaderboard', wallet: 'header' },
   { file: 'public/creator/index.html', here: null, wallet: 'header' },
+  // Fair launches: its own bundle drives the wallet, and signs for a test cluster.
+  { file: 'public/raise/index.html', here: null, wallet: 'own' },
   { file: 'public/404.html', here: null, wallet: 'header' },
   { file: 'public/design.html', here: null, wallet: 'header' },
   // The first landing, kept as a model and linked from nowhere.

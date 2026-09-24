@@ -234,6 +234,12 @@ async function patchLaunches(env, mint, patch) {
 async function handleApi(url, request, env, ctx) {
   const path = url.pathname
 
+  // Fair launches: off unless FAIR_RPC names a test cluster (see src/fair-api.mjs).
+  if (path.startsWith('/api/fair/')) {
+    const { handleFair } = await import('./fair-api.mjs')
+    return handleFair(url, request, env, { limited })
+  }
+
   if (path === '/api/rpc') {
     if (await limited(env.RPC_LIMITER, request)) return tooMany()
   } else if (path === '/api/event') {
@@ -564,6 +570,17 @@ async function handleApi(url, request, env, ctx) {
   }
 
   return json({ error: 'not found' }, { status: 404 })
+}
+
+/** One keeper pass over every fair launch, remembering fee claims in KV. */
+async function tendFairLaunches(env) {
+  const [{ fairConfig }, { runFairKeeper }] = await Promise.all([import('./fair-api.mjs'), import('./lib/fair-keeper.mjs')])
+  const memory = {
+    get: (k) => env.REGISTRY?.get(`fair:${k}`) ?? null,
+    set: (k, v) => env.REGISTRY?.put(`fair:${k}`, v, { expirationTtl: 7 * 86_400 }),
+  }
+  await runFairKeeper({ config: fairConfig(env), keeperSecret: env.FAIR_KEEPER_KEY, memory, log: (m) => console.log(`fair: ${m}`) })
+    .catch((e) => console.error(`fair keeper failed: ${e.message}`))
 }
 
 // '/launch/index.html' would be redirected to '/launch/' by the assets handler's
@@ -1968,7 +1985,7 @@ export default {
       return Response.redirect(new URL(`/${url.search}`, url.origin).toString(), 301)
     }
 
-    for (const section of ['/launch', '/coins', '/creator']) {
+    for (const section of ['/launch', '/coins', '/creator', '/raise']) {
       if (url.pathname !== section && !url.pathname.startsWith(`${section}/`)) continue
       if (url.pathname === section || url.pathname === `${section}/`) return shell(section, url, request, env)
       const asset = await env.ASSETS.fetch(request)
@@ -1998,6 +2015,9 @@ export default {
     }
     if (event.cron === WATCH) {
       ctx.waitUntil(watchGraduations(env))
+      // Fair launches, on their test cluster, when a keeper key is configured. Never in
+      // production until the programs are audited: there FAIR_KEEPER_KEY does not exist.
+      if (env.FAIR_KEEPER_KEY && env.FAIR_RPC) ctx.waitUntil(tendFairLaunches(env))
       // Alongside, not after: the watch is mostly waiting on the network, and the
       // search is the only thing here that needs the CPU.
       ctx.waitUntil(refillMintPool(env).catch((e) => console.error(`mint pool refill failed: ${e.message}`)))

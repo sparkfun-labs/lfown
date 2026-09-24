@@ -5,7 +5,8 @@
   "scripts": {
     "build": "anchor build",
     "test": "node --test tests/*.test.mjs",
-    "fixtures": "mkdir -p tests/fixtures && solana program dump cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG tests/fixtures/cp_amm.so --url devnet"
+    "fixtures": "mkdir -p tests/fixtures && solana program dump cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG tests/fixtures/cp_amm.so --url devnet && solana program dump metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s tests/fixtures/mpl_token_metadata.so --url devnet",
+    "localnet": "node scripts/localnet.mjs"
   },
   "devDependencies": {
     "@coral-xyz/anchor": "0.32.1",
