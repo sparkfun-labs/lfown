@@ -17,6 +17,8 @@ pub struct SetOptionActions<'info> {
         seeds = [PROPOSAL_SEED, proposal.moderator.as_ref(), &proposal.id.to_le_bytes()],
         bump = proposal.bump,
         constraint = proposal.state == ProposalState::Setup @ FutarchyError::InvalidState,
+        // Frozen once the liquidity is out: `launch_proposal` is open to anyone from then on.
+        constraint = proposal.base_liquidity == 0 @ FutarchyError::LiquidityAlreadyPrepared,
     )]
     pub proposal: Box<Account<'info, ProposalAccount>>,
 

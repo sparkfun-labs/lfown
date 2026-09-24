@@ -9,6 +9,7 @@ pub mod constants;
 pub mod errors;
 pub mod instructions;
 pub mod liquidity;
+pub mod price_guard;
 pub mod state;
 
 pub use constants::*;
@@ -32,12 +33,22 @@ pub mod futarchy {
         pool: Pubkey,
         pool_type: PoolType,
         withdrawal_bps: u16,
+        governance: GovernanceConfig,
     ) -> Result<()> {
-        instructions::initialize_dao::initialize_dao_handler(ctx, name, pool, pool_type, withdrawal_bps)
+        instructions::initialize_dao::initialize_dao_handler(ctx, name, pool, pool_type, withdrawal_bps, governance)
     }
 
-    pub fn bootstrap_dao(ctx: Context<BootstrapDAO>, name: String, withdrawal_bps: u16) -> Result<()> {
-        instructions::bootstrap_dao::bootstrap_dao_handler(ctx, name, withdrawal_bps)
+    pub fn bootstrap_dao(
+        ctx: Context<BootstrapDAO>,
+        name: String,
+        withdrawal_bps: u16,
+        governance: GovernanceConfig,
+    ) -> Result<()> {
+        instructions::bootstrap_dao::bootstrap_dao_handler(ctx, name, withdrawal_bps, governance)
+    }
+
+    pub fn record_price(ctx: Context<RecordPrice>) -> Result<()> {
+        instructions::record_price::record_price_handler(ctx)
     }
 
     pub fn attach_position(ctx: Context<AttachPosition>) -> Result<()> {
@@ -58,10 +69,9 @@ pub mod futarchy {
 
     pub fn initialize_proposal<'info>(
         ctx: Context<'_, '_, 'info, 'info, InitializeProposal<'info>>,
-        proposal_params: ProposalParams,
         metadata: Option<String>,
     ) -> Result<u16> {
-        instructions::initialize_proposal::initialize_proposal_handler(ctx, proposal_params, metadata)
+        instructions::initialize_proposal::initialize_proposal_handler(ctx, metadata)
     }
 
     pub fn add_option<'info>(ctx: Context<'_, '_, 'info, 'info, AddOption<'info>>) -> Result<()> {
@@ -92,6 +102,10 @@ pub mod futarchy {
         ctx: Context<'_, '_, 'info, 'info, RedeemLiquidity<'info>>,
     ) -> Result<()> {
         instructions::redeem_liquidity::redeem_liquidity_handler(ctx)
+    }
+
+    pub fn return_stake(ctx: Context<ReturnStake>) -> Result<()> {
+        instructions::return_stake::return_stake_handler(ctx)
     }
 
     pub fn execute_transfer(ctx: Context<ExecuteTransfer>, action_index: u8) -> Result<()> {

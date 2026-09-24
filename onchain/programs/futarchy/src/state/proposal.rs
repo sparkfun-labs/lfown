@@ -7,6 +7,10 @@ pub const PROPOSAL_VERSION: u8 = 1;
 #[constant]
 pub const PROPOSAL_SEED: &[u8] = b"proposal";
 
+/// Seeds: [STAKE_SEED, proposal]. The token account holding a proposer's stake.
+#[constant]
+pub const STAKE_SEED: &[u8] = b"stake";
+
 #[derive(Copy, Clone, InitSpace, AnchorSerialize, AnchorDeserialize, PartialEq, Eq)]
 pub enum ProposalState {
     Setup,        // Options being added
@@ -68,6 +72,10 @@ pub struct ProposalAccount {
     // proposal's markets. Zero until then.
     pub base_liquidity: u64,
     pub quote_liquidity: u64,
+
+    // LFOwn fork: DAO tokens the creator locked to propose, held by the proposal until
+    // it is decided. Zero once returned.
+    pub stake: u64,
 
     #[max_len(64)] // Should cover v0 & most of v1
     pub metadata: Option<String>, // IPFS CID

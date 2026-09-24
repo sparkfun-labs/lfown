@@ -63,7 +63,9 @@ pub fn initialize_dao_handler(
     pool: Pubkey,
     pool_type: PoolType,
     withdrawal_bps: u16,
+    governance: GovernanceConfig,
 ) -> Result<()> {
+    governance.validate()?;
     require!(name.len() <= 32, FutarchyError::NameTooLong);
     require!(withdrawal_bps >= 1 && withdrawal_bps <= MAX_WITHDRAWAL_BPS, FutarchyError::InvalidWithdrawal);
 
@@ -101,6 +103,10 @@ pub fn initialize_dao_handler(
         position: Pubkey::default(),
         withdrawal_bps,
         active_proposal: Pubkey::default(),
+        governance,
+        // No checkpoint until the position is attached and someone records the price.
+        price_checkpoint: 0,
+        price_checkpoint_at: 0,
     });
 
     emit!(ModeratorInitialized {

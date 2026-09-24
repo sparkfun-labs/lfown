@@ -1,7 +1,11 @@
 use amm::cpi::accounts::CreatePool;
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, TokenAccount, Transfer};
 use vault::VAULT_VERSION;
 use vault::cpi::accounts::InitializeVault;
+
+use crate::cp_amm;
+use crate::price_guard::{check_fair_price, max_observation_delta, observation_for, spot_sqrt_price};
 
 use crate::state::moderator::{ModeratorAccount, MODERATOR_SEED};
 use crate::state::dao::{DAOAccount, DAO_SEED};
@@ -22,12 +26,16 @@ pub struct ProposalInitialized {
     pub creator: Pubkey,
 }
 
+// LFOwn fork: anyone may propose, by locking the DAO's `proposal_stake` until the
+// proposal is decided (`return_stake` gives it back). Upstream allowed the moderator's
+// admin alone, which made a DAO's governance only as open as one key.
+//
+// The creator picks the question and its options, nothing else: the length, TWAP bounds,
+// pass margin and fee come from the DAO's governance config, and the markets open at the
+// DAO pool's own price, checked against the price guard.
 #[derive(Accounts)]
 pub struct InitializeProposal<'info> {
-    #[account(
-        mut,
-        address = moderator.admin
-    )]
+    #[account(mut)]
     pub creator: Signer<'info>,
 
     #[account(
@@ -61,6 +69,28 @@ pub struct InitializeProposal<'info> {
     )]
     pub proposal: Box<Account<'info, ProposalAccount>>,
 
+    /// The DAO's DAMM v2 pool, whose price the markets open at.
+    #[account(address = dao.pool @ FutarchyError::InvalidPool)]
+    pub pool: AccountLoader<'info, cp_amm::accounts::Pool>,
+
+    #[account(address = dao.token_mint @ FutarchyError::InvalidMint)]
+    pub token_mint: Box<Account<'info, Mint>>,
+
+    /// Where the creator's stake comes from.
+    #[account(mut, token::mint = token_mint, token::authority = creator)]
+    pub creator_token: Box<Account<'info, TokenAccount>>,
+
+    /// Holds the stake until the proposal is decided.
+    #[account(
+        init,
+        payer = creator,
+        seeds = [STAKE_SEED, proposal.key().as_ref()],
+        bump,
+        token::mint = token_mint,
+        token::authority = proposal,
+    )]
+    pub stake_escrow: Box<Account<'info, TokenAccount>>,
+
     // Programs
     pub system_program: Program<'info, System>,
     pub vault_program: Program<'info, Vault>,
@@ -91,7 +121,6 @@ pub struct InitializeProposal<'info> {
 
 pub fn initialize_proposal_handler<'info>(
     ctx: Context<'_, '_, 'info, 'info, InitializeProposal<'info>>,
-    proposal_params: ProposalParams,
     metadata: Option<String>,
 ) -> Result<u16> {
     require!(
@@ -103,7 +132,38 @@ pub fn initialize_proposal_handler<'info>(
         require!(m.len() <= 64, FutarchyError::MetadataTooLong);
     }
 
+    // The markets open at the pool's price, and only a price the guard accepts.
+    let dao = &ctx.accounts.dao;
+    require_keys_neq!(dao.position, Pubkey::default(), FutarchyError::PositionNotAttached);
+    let sqrt_price = spot_sqrt_price(&ctx.accounts.pool)?;
+    check_fair_price(dao, sqrt_price, Clock::get()?.unix_timestamp)?;
+    let starting_observation = observation_for(sqrt_price);
+    let governance = dao.governance;
+    let proposal_params = ProposalParams {
+        length: governance.proposal_length_minutes,
+        starting_observation,
+        max_observation_delta: max_observation_delta(starting_observation, governance.max_observation_change_bps),
+        warmup_duration: governance.warmup_seconds,
+        market_bias: governance.market_bias_bps,
+        fee: governance.market_fee_bps,
+    };
     proposal_params.validate()?;
+
+    let stake = governance.proposal_stake;
+    if stake > 0 {
+        require!(ctx.accounts.creator_token.amount >= stake, FutarchyError::InsufficientStake);
+        token::transfer(
+            CpiContext::new(
+                ctx.accounts.token_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.creator_token.to_account_info(),
+                    to: ctx.accounts.stake_escrow.to_account_info(),
+                    authority: ctx.accounts.creator.to_account_info(),
+                },
+            ),
+            stake,
+        )?;
+    }
 
     // Validate mints match moderator
     let moderator = &mut ctx.accounts.moderator;
@@ -138,6 +198,7 @@ pub fn initialize_proposal_handler<'info>(
     // pools[2..] already default/zeroed
     proposal.vault = ctx.remaining_accounts[2].key();
     proposal.metadata = metadata;
+    proposal.stake = stake;
 
     // Build proposal PDA signer seeds
     let proposal_seeds = &[

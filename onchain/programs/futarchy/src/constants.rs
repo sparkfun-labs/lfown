@@ -45,5 +45,27 @@ pub const POOL_BASE_FEE_DATA: [u8; 27] = [128, 150, 152, 0, 0, 0, 0, 0, 0, 0, 0,
 /// which DAMM v2 creates with the authority as payer. What is not spent stays with it.
 pub const POOL_CREATION_LAMPORTS: u64 = 50_000_000;
 
+/// Bounds on a DAO's proposal length: long enough that a market can form, short enough
+/// that the DAO's liquidity is not away from its pool for weeks.
+#[constant]
+pub const MIN_PROPOSAL_MINUTES: u16 = 5;
+#[constant]
+pub const MAX_PROPOSAL_MINUTES: u16 = 14 * 24 * 60;
+
+/// The pool price a DAO's liquidity moves at must be close to one recorded earlier:
+/// recorded at least `CHECKPOINT_MIN_AGE` seconds ago, at most `CHECKPOINT_MAX_AGE`, and
+/// within `MAX_PRICE_MOVE_BPS` of it. A price pushed and pulled back within one block
+/// cannot pass; one held for a minute costs whoever holds it against every arbitrageur.
+#[constant]
+pub const CHECKPOINT_MIN_AGE: i64 = 60;
+#[constant]
+pub const CHECKPOINT_MAX_AGE: i64 = 30 * 60;
+/// A checkpoint cannot be replaced before this age, so there is always a window in which
+/// the one in place is usable and nobody can refresh it away.
+#[constant]
+pub const CHECKPOINT_REFRESH: i64 = 5 * 60;
+#[constant]
+pub const MAX_PRICE_MOVE_BPS: u16 = 500;
+
 /// Meteora DAMM v2's pool authority, the same on every network.
 pub const DAMM_POOL_AUTHORITY: Pubkey = pubkey!("HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC");

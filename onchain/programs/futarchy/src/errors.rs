@@ -120,4 +120,22 @@ pub enum FutarchyError {
 
     #[msg("The raise did not pay this DAO's treasury and liquidity authority")]
     RaiseNotForThisDao,
+
+    #[msg("Invalid governance configuration")]
+    InvalidGovernance,
+
+    #[msg("No usable price checkpoint: record the pool price, then wait a minute")]
+    NoPriceCheckpoint,
+
+    #[msg("The price checkpoint is too recent to replace")]
+    CheckpointTooRecent,
+
+    #[msg("The pool price has moved too far from the recorded checkpoint")]
+    PriceMovedTooFar,
+
+    #[msg("The proposer does not hold enough DAO tokens to stake")]
+    InsufficientStake,
+
+    #[msg("The stake has already been returned")]
+    StakeAlreadyReturned,
 }

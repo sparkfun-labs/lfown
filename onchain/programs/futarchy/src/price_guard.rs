@@ -1,0 +1,104 @@
+// LFOwn addition to a fork of zcombinatorio/programs (AGPL-3.0).
+//
+// A price the DAO's liquidity can be moved at.
+//
+// Every move of the DAO's liquidity happens at the pool's spot price: taking a share out
+// for a proposal's markets, putting it back afterwards, and opening a market's TWAP at
+// the price the pool shows. Spot is what a sandwich controls: push the price, let the DAO
+// deposit or withdraw at it, push it back, keep the difference. `return_liquidity` is open
+// to anyone, so the attacker could even trigger the deposit themselves, in one bundle.
+//
+// So spot has to agree with a price recorded earlier. `record_price` writes the pool's
+// price and the time; the guard then accepts a spot price only if that checkpoint is at
+// least a minute old, not stale, and within a few percent of it. A price moved and moved
+// back in one block never gets there. Holding a false price for a minute means paying
+// every arbitrageur who trades against it for that minute.
+//
+// A checkpoint cannot be replaced until it is five minutes old. Otherwise anyone could
+// keep refreshing it and never let it reach a minute of age: with this rule there is
+// always a stretch of at least four minutes in which the one in place is usable.
+
+use anchor_lang::prelude::*;
+
+use crate::constants::*;
+use crate::cp_amm;
+use crate::errors::FutarchyError;
+use crate::liquidity::U256;
+use crate::state::dao::DAOAccount;
+
+/// The amm's price scale: an observation is `quote / base · 10^12`, in base units.
+const OBSERVATION_SCALE: u128 = 1_000_000_000_000;
+
+/// The pool's square-root price, Q64.64, token B (the quote coin) per token A.
+pub fn spot_sqrt_price(pool: &AccountLoader<cp_amm::accounts::Pool>) -> Result<u128> {
+    Ok(pool.load()?.sqrt_price)
+}
+
+/// Whether `sqrt_price` may be used now, against the DAO's recorded checkpoint.
+pub fn check_fair_price(dao: &DAOAccount, sqrt_price: u128, now: i64) -> Result<()> {
+    let checkpoint = dao.price_checkpoint;
+    let age = now.saturating_sub(dao.price_checkpoint_at);
+    require!(
+        checkpoint > 0 && age >= CHECKPOINT_MIN_AGE && age <= CHECKPOINT_MAX_AGE,
+        FutarchyError::NoPriceCheckpoint
+    );
+    require!(within_band(sqrt_price, checkpoint), FutarchyError::PriceMovedTooFar);
+    Ok(())
+}
+
+/// Whether the price `spot²` is within `MAX_PRICE_MOVE_BPS` of `checkpoint²`. Compared
+/// squared, so the band is on the price itself rather than on its square root.
+pub fn within_band(spot: u128, checkpoint: u128) -> bool {
+    let spot2 = U256::from(spot) * U256::from(spot) * U256::from(10_000u32);
+    let check2 = U256::from(checkpoint) * U256::from(checkpoint);
+    let lo = check2 * U256::from(10_000u32 - MAX_PRICE_MOVE_BPS as u32);
+    let hi = check2 * U256::from(10_000u32 + MAX_PRICE_MOVE_BPS as u32);
+    spot2 >= lo && spot2 <= hi
+}
+
+/// The amm observation for a pool at `sqrt_price`: (√p)² / 2¹²⁸ · 10¹², the same units
+/// `crank_twap` reads out of a market's reserves.
+pub fn observation_for(sqrt_price: u128) -> u128 {
+    let scaled = U256::from(sqrt_price) * U256::from(sqrt_price) * U256::from(OBSERVATION_SCALE);
+    let observation = scaled >> 128;
+    if observation > U256::from(u128::MAX) { u128::MAX } else { observation.low_u128() }
+}
+
+/// How far an observation may move per update: `bps` of where the market opened, and
+/// never less than one unit, or the TWAP could not move at all.
+pub fn max_observation_delta(starting_observation: u128, bps: u16) -> u128 {
+    (starting_observation / 10_000 * bps as u128).max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ONE: u128 = 1u128 << 64; // √1 in Q64.64
+
+    #[test]
+    fn a_price_of_one_is_an_observation_of_one() {
+        assert_eq!(observation_for(ONE), OBSERVATION_SCALE);
+    }
+
+    #[test]
+    fn the_band_is_five_percent_of_the_price() {
+        // √1.049 and √1.051 around √1
+        let up_ok = (ONE as f64 * 1.049f64.sqrt()) as u128;
+        let up_bad = (ONE as f64 * 1.051f64.sqrt()) as u128;
+        let down_ok = (ONE as f64 * 0.951f64.sqrt()) as u128;
+        let down_bad = (ONE as f64 * 0.949f64.sqrt()) as u128;
+        assert!(within_band(up_ok, ONE));
+        assert!(!within_band(up_bad, ONE));
+        assert!(within_band(down_ok, ONE));
+        assert!(!within_band(down_bad, ONE));
+    }
+
+    #[test]
+    fn the_extremes_of_damm_prices_do_not_overflow() {
+        assert!(within_band(DAMM_MAX_SQRT_PRICE, DAMM_MAX_SQRT_PRICE));
+        assert!(within_band(DAMM_MIN_SQRT_PRICE, DAMM_MIN_SQRT_PRICE));
+        let _ = observation_for(DAMM_MAX_SQRT_PRICE);
+        assert_eq!(max_observation_delta(0, 500), 1);
+    }
+}

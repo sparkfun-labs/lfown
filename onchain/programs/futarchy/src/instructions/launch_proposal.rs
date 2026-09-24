@@ -22,13 +22,14 @@ pub struct ProposalLaunched {
     pub created_at: i64,
 }
 
+// LFOwn fork: anyone may launch, once the creator has prepared the liquidity. From then
+// on the options are frozen and there is nothing left to choose, while the DAO's
+// liquidity sits outside its pool: a creator who walked away at that point must not be
+// able to leave it there.
 #[derive(Accounts)]
 pub struct LaunchProposal<'info> {
-    #[account(
-        mut,
-        address = proposal.creator @ FutarchyError::Unauthorized
-    )]
-    pub creator: Signer<'info>,
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     #[account(
         mut,
@@ -130,7 +131,7 @@ pub fn launch_proposal_handler<'info>(
     let activate_ctx = CpiContext::new_with_signer(
         ctx.accounts.vault_program.to_account_info(),
         ActivateVault {
-            payer: ctx.accounts.creator.to_account_info(),
+            payer: ctx.accounts.payer.to_account_info(),
             owner: ctx.accounts.proposal.to_account_info(),
             vault: ctx.accounts.vault.to_account_info(),
         },

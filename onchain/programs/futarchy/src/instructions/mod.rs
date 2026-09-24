@@ -6,7 +6,9 @@ pub mod initialize_dao;
 pub mod initialize_proposal;
 pub mod launch_proposal;
 pub mod liquidity;
+pub mod record_price;
 pub mod redeem_liquidity;
+pub mod return_stake;
 pub mod set_option_actions;
 pub mod transfer_admin;
 
@@ -18,6 +20,8 @@ pub use initialize_dao::*;
 pub use initialize_proposal::*;
 pub use launch_proposal::*;
 pub use liquidity::*;
+pub use record_price::*;
 pub use redeem_liquidity::*;
+pub use return_stake::*;
 pub use set_option_actions::*;
 pub use transfer_admin::*;

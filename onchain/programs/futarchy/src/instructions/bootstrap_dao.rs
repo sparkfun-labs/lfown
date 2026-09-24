@@ -122,8 +122,14 @@ pub struct BootstrapDAO<'info> {
     pub system_program: Program<'info, System>,
 }
 
-pub fn bootstrap_dao_handler(ctx: Context<BootstrapDAO>, name: String, withdrawal_bps: u16) -> Result<()> {
+pub fn bootstrap_dao_handler(
+    ctx: Context<BootstrapDAO>,
+    name: String,
+    withdrawal_bps: u16,
+    governance: GovernanceConfig,
+) -> Result<()> {
     require!(name.len() <= 32, FutarchyError::NameTooLong);
+    governance.validate()?;
     require!(withdrawal_bps >= 1 && withdrawal_bps <= MAX_WITHDRAWAL_BPS, FutarchyError::InvalidWithdrawal);
 
     let dao_key = ctx.accounts.dao.key();
@@ -241,6 +247,11 @@ pub fn bootstrap_dao_handler(ctx: Context<BootstrapDAO>, name: String, withdrawa
         position: ctx.accounts.position.key(),
         withdrawal_bps,
         active_proposal: Pubkey::default(),
+        governance,
+        // The pool opens at the raise's price, so that is the first checkpoint. It becomes
+        // usable a minute from now, like any other.
+        price_checkpoint: sqrt_price,
+        price_checkpoint_at: Clock::get()?.unix_timestamp,
     });
 
     // Backers can claim now: the pool they would otherwise race to open already exists.

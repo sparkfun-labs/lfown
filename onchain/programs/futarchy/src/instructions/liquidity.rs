@@ -24,6 +24,7 @@ use crate::constants::*;
 use crate::cp_amm;
 use crate::errors::FutarchyError;
 use crate::liquidity::liquidity_for_amounts;
+use crate::price_guard::{check_fair_price, spot_sqrt_price};
 use crate::state::dao::*;
 use crate::state::moderator::*;
 use crate::state::proposal::*;
@@ -178,6 +179,8 @@ pub fn prepare_proposal_liquidity_handler(ctx: Context<PrepareProposalLiquidity>
     let dao = &ctx.accounts.dao;
     require_keys_neq!(dao.position, Pubkey::default(), FutarchyError::PositionNotAttached);
     require_keys_eq!(dao.active_proposal, Pubkey::default(), FutarchyError::ProposalAlreadyActive);
+    // Withdrawn at a price the guard accepts, not at whatever a sandwich made it.
+    check_fair_price(dao, spot_sqrt_price(&ctx.accounts.pool)?, Clock::get()?.unix_timestamp)?;
 
     let liquidity_delta = {
         let position = ctx.accounts.position.load()?;
@@ -291,6 +294,9 @@ pub fn return_liquidity_handler(ctx: Context<ReturnLiquidity>) -> Result<()> {
         let pool = ctx.accounts.pool.load()?;
         (pool.sqrt_price, pool.sqrt_min_price, pool.sqrt_max_price)
     };
+    // Anyone can call this, the attacker included, so the deposit has to be at a price
+    // that held before their transaction: see price_guard.rs.
+    check_fair_price(dao, sqrt_price, Clock::get()?.unix_timestamp)?;
     let base = ctx.accounts.liquidity_base.amount;
     let quote = ctx.accounts.liquidity_quote.amount;
     let liquidity_delta = liquidity_for_amounts(base, quote, sqrt_price, sqrt_min, sqrt_max)
