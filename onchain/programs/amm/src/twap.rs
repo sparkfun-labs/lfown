@@ -204,8 +204,21 @@ impl TwapOracle {
         let elapsed = (self.last_update_unix_time - accumulation_start) as u128;
 
         require_neq!(elapsed, 0);
-        require_neq!(self.cumulative_observations, 0);
 
+        // LFOwn fork: a market whose price rounds to zero has a TWAP of zero. Upstream
+        // refused it, and with it every crank and every swap on that market.
         Ok(self.cumulative_observations / elapsed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_market_priced_at_zero_reads_a_twap_of_zero() {
+        let mut oracle = TwapOracle::new(0, 0, 1, 0, 3_600);
+        oracle.last_update_unix_time = 600;
+        assert_eq!(oracle.fetch_twap().unwrap(), 0);
     }
 }
