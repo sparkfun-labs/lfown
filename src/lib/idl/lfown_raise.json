@@ -401,7 +401,8 @@
       "accounts": [
         {
           "name": "base_mint",
-          "writable": true
+          "writable": true,
+          "signer": true
         },
         {
           "name": "quote_mint"
@@ -642,52 +643,6 @@
           }
         }
       ]
-    },
-    {
-      "name": "open_claims",
-      "discriminator": [
-        111,
-        108,
-        90,
-        115,
-        178,
-        90,
-        24,
-        228
-      ],
-      "accounts": [
-        {
-          "name": "raise",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  114,
-                  97,
-                  105,
-                  115,
-                  101
-                ]
-              },
-              {
-                "kind": "account",
-                "path": "raise.base_mint",
-                "account": "Raise"
-              }
-            ]
-          }
-        },
-        {
-          "name": "pool_operator",
-          "signer": true,
-          "relations": [
-            "raise"
-          ]
-        }
-      ],
-      "args": []
     },
     {
       "name": "refund",
@@ -1370,6 +1325,21 @@
       "code": 6012,
       "name": "Overflow",
       "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6013,
+      "name": "PoolPriceMismatch",
+      "msg": "The pool's share does not open the pool at the backers' price"
+    },
+    {
+      "code": 6014,
+      "name": "MintMustSign",
+      "msg": "The new mint must sign the raise that sells it"
+    },
+    {
+      "code": 6015,
+      "name": "NotTheDao",
+      "msg": "The treasury and pool operator must be the DAO this mint derives"
     }
   ],
   "types": [
@@ -1479,6 +1449,10 @@
           },
           {
             "name": "claim_delay_seconds",
+            "docs": [
+              "How long after `ends_at` a raise that met its goal may wait to become a DAO; past",
+              "it, the raise fails and everyone is refunded."
+            ],
             "type": "i64"
           },
           {
@@ -1587,8 +1561,8 @@
           {
             "name": "claim_delay_seconds",
             "docs": [
-              "Claims open on their own this long after settlement even if the operator never",
-              "confirms the pool, so backers can never be locked out by an operator who vanished."
+              "How long after `ends_at` a raise that met its goal may wait to become a DAO. Past",
+              "it, `settle` marks it failed and everyone takes their commitment back."
             ],
             "type": "i64"
           },

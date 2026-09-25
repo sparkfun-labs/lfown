@@ -73,7 +73,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -134,7 +134,7 @@
               },
               {
                 "kind": "account",
-                "path": "dao.name",
+                "path": "dao.token_mint",
                 "account": "DAOAccount"
               }
             ]
@@ -219,8 +219,9 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "name"
+                "kind": "account",
+                "path": "raise.base_mint",
+                "account": "Raise"
               }
             ]
           }
@@ -245,8 +246,9 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "name"
+                "kind": "account",
+                "path": "raise.base_mint",
+                "account": "Raise"
               }
             ]
           }
@@ -339,6 +341,18 @@
           "name": "quote_mint"
         },
         {
+          "name": "base_vault",
+          "writable": true
+        },
+        {
+          "name": "quote_vault",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
           "name": "liquidity_base",
           "writable": true
         },
@@ -415,6 +429,10 @@
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
           "name": "token_2022_program",
           "address": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
         },
@@ -474,7 +492,7 @@
               },
               {
                 "kind": "account",
-                "path": "dao.name",
+                "path": "dao.token_mint",
                 "account": "DAOAccount"
               }
             ]
@@ -1019,7 +1037,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -1244,7 +1262,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -1569,6 +1587,16 @@
           "signer": true
         },
         {
+          "name": "base_mint",
+          "docs": [
+            "The DAO must already hold its token's mint authority. A DAO that governs a token",
+            "someone else can still mint governs nothing, so the handover comes first."
+          ]
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
           "name": "dao",
           "writable": true,
           "pda": {
@@ -1582,8 +1610,8 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "name"
+                "kind": "account",
+                "path": "base_mint"
               }
             ]
           }
@@ -1608,8 +1636,8 @@
                 ]
               },
               {
-                "kind": "arg",
-                "path": "name"
+                "kind": "account",
+                "path": "base_mint"
               }
             ]
           }
@@ -1694,16 +1722,6 @@
           }
         },
         {
-          "name": "base_mint",
-          "docs": [
-            "The DAO must already hold its token's mint authority. A DAO that governs a token",
-            "someone else can still mint governs nothing, so the handover comes first."
-          ]
-        },
-        {
-          "name": "quote_mint"
-        },
-        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1778,7 +1796,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -1798,7 +1816,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -1979,7 +1997,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -2100,7 +2118,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -2210,7 +2228,7 @@
               },
               {
                 "kind": "account",
-                "path": "dao.name",
+                "path": "dao.token_mint",
                 "account": "DAOAccount"
               }
             ]
@@ -2295,7 +2313,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -2373,6 +2391,7 @@
         },
         {
           "name": "dao",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2385,7 +2404,7 @@
               },
               {
                 "kind": "account",
-                "path": "dao.name",
+                "path": "dao.token_mint",
                 "account": "DAOAccount"
               }
             ]
@@ -2532,6 +2551,140 @@
                 "path": "proposal"
               }
             ]
+          }
+        },
+        {
+          "name": "dao",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  97,
+                  111
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.base_mint",
+                "account": "ProposalAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dao"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "treasury"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
           }
         },
         {
@@ -2752,7 +2905,7 @@
               },
               {
                 "kind": "account",
-                "path": "dao.name",
+                "path": "dao.token_mint",
                 "account": "DAOAccount"
               }
             ]
@@ -2779,7 +2932,7 @@
               },
               {
                 "kind": "account",
-                "path": "moderator.name",
+                "path": "moderator.base_mint",
                 "account": "ModeratorAccount"
               }
             ]
@@ -3340,6 +3493,31 @@
       "code": 6045,
       "name": "DaoCommitmentMismatch",
       "msg": "This is not the DAO the raise committed to"
+    },
+    {
+      "code": 6046,
+      "name": "InvalidAccount",
+      "msg": "An account is not the one this instruction requires"
+    },
+    {
+      "code": 6047,
+      "name": "LiquidityNotReturned",
+      "msg": "The last proposal's liquidity must go back into the pool first"
+    },
+    {
+      "code": 6048,
+      "name": "ActionOverLimit",
+      "msg": "This action exceeds the DAO's limit for one proposal"
+    },
+    {
+      "code": 6049,
+      "name": "ExecutionDelay",
+      "msg": "The winning actions cannot run yet: the execution delay has not passed"
+    },
+    {
+      "code": 6050,
+      "name": "ExecutionExpired",
+      "msg": "The winning actions can no longer run: their window has closed"
     }
   ],
   "types": [
@@ -3493,7 +3671,7 @@
         "`execute_transfer` and `execute_mint`, and those only run an action attached to the",
         "option that won.",
         "",
-        "Seeds: [DAO_SEED, name]"
+        "Seeds: [DAO_SEED, token_mint]"
       ],
       "type": {
         "kind": "struct",
@@ -3610,6 +3788,15 @@
           {
             "name": "price_checkpoint_at",
             "type": "i64"
+          },
+          {
+            "name": "pending_return",
+            "docs": [
+              "Set when a proposal's liquidity comes home, cleared when it is back in the pool. No",
+              "proposal may take liquidity out in between, or each would take a share of what was",
+              "left in the pool while the rest sat outside it, and the position would melt away."
+            ],
+            "type": "bool"
           }
         ]
       }
@@ -3818,6 +4005,46 @@
               "DAO tokens a proposer locks until the proposal is decided. Zero for none."
             ],
             "type": "u64"
+          },
+          {
+            "name": "max_transfer_bps",
+            "docs": [
+              "The most one `Transfer` action may take, in basis points of what the treasury holds",
+              "of that token when it runs. A market worth a few thousand dollars must not be able",
+              "to hand over everything in one vote."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "max_mint_bps",
+            "docs": [
+              "The most one `MintTo` action may issue, in basis points of the supply when it runs."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "execution_delay_seconds",
+            "docs": [
+              "Seconds between a proposal's decision and its actions becoming executable: time for",
+              "holders who disagree to leave before a hostile outcome lands."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "execution_window_seconds",
+            "docs": [
+              "Seconds after that during which the actions may run. Past it they never can: an",
+              "old decision must not be executable against a treasury that has moved on."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "failed_stake_slash_bps",
+            "docs": [
+              "Share of the stake kept by the treasury when the market turns a proposal down, in",
+              "basis points. Proposing costs something only if it can cost something."
+            ],
+            "type": "u16"
           }
         ]
       }
@@ -3918,7 +4145,7 @@
     {
       "name": "ModeratorAccount",
       "docs": [
-        "Seeds: [MODERATOR_SEED, &id.to_le_bytes()]"
+        "Seeds: [MODERATOR_SEED, base_mint]"
       ],
       "type": {
         "kind": "struct",
@@ -4680,6 +4907,10 @@
             "type": "u64"
           },
           {
+            "name": "resolved_at",
+            "type": "i64"
+          },
+          {
             "name": "metadata",
             "type": {
               "option": "string"
@@ -4940,8 +5171,8 @@
           {
             "name": "claim_delay_seconds",
             "docs": [
-              "Claims open on their own this long after settlement even if the operator never",
-              "confirms the pool, so backers can never be locked out by an operator who vanished."
+              "How long after `ends_at` a raise that met its goal may wait to become a DAO. Past",
+              "it, `settle` marks it failed and everyone takes their commitment back."
             ],
             "type": "i64"
           },
@@ -5086,6 +5317,10 @@
           {
             "name": "amount",
             "type": "u64"
+          },
+          {
+            "name": "kept_by_treasury",
+            "type": "u64"
           }
         ]
       }
@@ -5127,34 +5362,35 @@
       "value": "[97, 99, 116, 105, 111, 110, 115]"
     },
     {
-      "name": "CHECKPOINT_MAX_AGE",
-      "type": "i64",
-      "value": "1800"
-    },
-    {
-      "name": "CHECKPOINT_MIN_AGE",
-      "docs": [
-        "The pool price a DAO's liquidity moves at must be close to one recorded earlier:",
-        "recorded at least `CHECKPOINT_MIN_AGE` seconds ago, at most `CHECKPOINT_MAX_AGE`, and",
-        "within `MAX_PRICE_MOVE_BPS` of it. A price pushed and pulled back within one block",
-        "cannot pass; one held for a minute costs whoever holds it against every arbitrageur."
-      ],
+      "name": "CHECKPOINT_INTERVAL",
       "type": "i64",
       "value": "60"
     },
     {
-      "name": "CHECKPOINT_REFRESH",
+      "name": "CHECKPOINT_MAX_AGE",
       "docs": [
-        "A checkpoint cannot be replaced before this age, so there is always a window in which",
-        "the one in place is usable and nobody can refresh it away."
+        "The pool price a DAO's liquidity moves at must be within `MAX_PRICE_MOVE_BPS` of a",
+        "checkpoint updated in the last `CHECKPOINT_MAX_AGE` seconds. The checkpoint itself",
+        "follows the pool slowly: at most once per `CHECKPOINT_INTERVAL`, and by at most",
+        "`MAX_CHECKPOINT_STEP_BPS` each time (see price_guard.rs)."
       ],
       "type": "i64",
-      "value": "300"
+      "value": "1800"
     },
     {
       "name": "DAO_SEED",
       "type": "bytes",
       "value": "[100, 97, 111]"
+    },
+    {
+      "name": "LFOWN_MAX_OPTIONS",
+      "docs": [
+        "LFOwn fork: a proposal is a yes or a no. The program could hold six options, but every",
+        "screen that shows a proposal, and every trader reading one, deals in two: a third",
+        "option nobody looks at is where a hostile action would hide."
+      ],
+      "type": "u8",
+      "value": "2"
     },
     {
       "name": "LIQUIDITY_SEED",
@@ -5173,6 +5409,11 @@
       ],
       "type": "u8",
       "value": "4"
+    },
+    {
+      "name": "MAX_CHECKPOINT_STEP_BPS",
+      "type": "u16",
+      "value": "100"
     },
     {
       "name": "MAX_OPTIONS",

@@ -159,6 +159,7 @@ pub fn finalize_proposal_handler<'info>(
     // Update proposal state
     let proposal = &mut ctx.accounts.proposal;
     proposal.state = ProposalState::Resolved(winning_idx);
+    proposal.resolved_at = Clock::get()?.unix_timestamp;
 
     emit!(ProposalFinalized {
         proposal_id: proposal.id,

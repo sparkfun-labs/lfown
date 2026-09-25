@@ -42,7 +42,7 @@ pub struct InitializeProposal<'info> {
         mut,
         seeds = [
             MODERATOR_SEED,
-            moderator.name.as_bytes()
+            moderator.base_mint.as_ref()
         ],
         bump = moderator.bump
     )]
@@ -50,7 +50,7 @@ pub struct InitializeProposal<'info> {
 
     // LFOwn fork: the DAO whose liquidity authority provides the markets' liquidity.
     #[account(
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
     )]

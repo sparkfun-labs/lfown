@@ -237,7 +237,7 @@ async function handleApi(url, request, env, ctx) {
   // Fair launches: off unless FAIR_RPC names a test cluster (see src/fair-api.mjs).
   if (path.startsWith('/api/fair/')) {
     const { handleFair } = await import('./fair-api.mjs')
-    return handleFair(url, request, env, { limited })
+    return handleFair(url, request, env, { limited, ctx })
   }
 
   if (path === '/api/rpc') {

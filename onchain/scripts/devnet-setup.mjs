@@ -10,8 +10,10 @@
 //     and for every crank, the faucet for the token accounts it opens
 //   - dMETA, a stand-in ownership coin (ownership coins do not exist on devnet), minted by
 //     the faucet key; made once and kept, so reruns do not scatter coins
-//   - the FAIR_* settings in the site's .dev.vars, pointing at devnet through the Helius
-//     key already there, with three-minute raises and five-minute proposals for testing
+//   - the FAIR_* settings in the site's .dev.vars, pointing at Solana's public devnet RPC
+//     (or FAIR_DEVNET_RPC, a devnet-only endpoint of your own), with three-minute raises
+//     and five-minute proposals for testing. Never the production RPC key: a test setting
+//     that leaks, or a keeper that loops, must not spend the site's quota
 //
 // Run it again to top the keeper up. `npm run localnet` writes localnet settings over
 // these, and this writes devnet ones over those.
@@ -25,10 +27,9 @@ import { MINT_SIZE, TOKEN_PROGRAM_ID, createInitializeMint2Instruction } from '@
 
 const here = (p) => new URL(p, import.meta.url).pathname
 const devVars = here('../../.dev.vars')
-const heliusKey = readFileSync(devVars, 'utf8').match(/api-key=([a-f0-9-]+)/)?.[1]
-if (!heliusKey) throw new Error('No Helius key in .dev.vars')
-const RPC = `https://devnet.helius-rpc.com/?api-key=${heliusKey}`
+const RPC = process.env.FAIR_DEVNET_RPC || 'https://api.devnet.solana.com'
 const connection = new Connection(RPC, 'confirmed')
+if (await connection.getGenesisHash() !== 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG') throw new Error('That RPC is not devnet.')
 
 const funder = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(`${homedir()}/.config/solana/id.json`, 'utf8'))))
 const KEYS = here('../.keys/devnet-fair/')
@@ -69,7 +70,7 @@ const settings = {
   FAIR_RPC: RPC,
   FAIR_QUOTES: JSON.stringify([{ mint: coin.publicKey.toBase58(), symbol: 'dMETA', name: 'Devnet META', usdPrice: 5.98 }]),
   FAIR_TERMS: JSON.stringify({ durationSeconds: 180, claimDelaySeconds: 900 }),
-  FAIR_GOVERNANCE: JSON.stringify({ proposalLengthMinutes: 5, warmupSeconds: 60, maxObservationChangeBps: 1_000 }),
+  FAIR_GOVERNANCE: JSON.stringify({ proposalLengthMinutes: 5, warmupSeconds: 60, maxObservationChangeBps: 1_000, executionDelaySeconds: 60, executionWindowSeconds: 3_600 }),
   FAIR_KEEPER_KEY: JSON.stringify([...keeper.secretKey]),
   FAIR_FAUCET_KEY: JSON.stringify([...faucet.secretKey]),
 }

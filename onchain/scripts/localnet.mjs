@@ -86,7 +86,7 @@ const settings = {
   FAIR_RPC: RPC,
   FAIR_QUOTES: JSON.stringify([{ mint: coin.publicKey.toBase58(), symbol: 'tMETA', name: 'Test META', usdPrice: 5.98 }]),
   FAIR_TERMS: JSON.stringify({ durationSeconds: 180, claimDelaySeconds: 900 }),
-  FAIR_GOVERNANCE: JSON.stringify({ proposalLengthMinutes: 5, warmupSeconds: 60, maxObservationChangeBps: 1_000 }),
+  FAIR_GOVERNANCE: JSON.stringify({ proposalLengthMinutes: 5, warmupSeconds: 60, maxObservationChangeBps: 1_000, executionDelaySeconds: 60, executionWindowSeconds: 3_600 }),
   FAIR_KEEPER_KEY: JSON.stringify([...keeper.secretKey]),
   FAIR_FAUCET_KEY: JSON.stringify([...faucet.secretKey]),
 }

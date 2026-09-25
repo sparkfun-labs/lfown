@@ -66,23 +66,24 @@ pub fn redeem_winnings_handler<'info>(
         let cond_mint_info = &ctx.remaining_accounts[i * 2];
         let user_cond_ata_info = &ctx.remaining_accounts[i * 2 + 1];
 
-        // Skip if ATA doesn't exist or is empty
-        if user_cond_ata_info.data_is_empty() {
-            continue;
-        }
-
-        // Validate the conditional mint PDA
+        // LFOwn fork: validated first, skipped after. Upstream skipped an empty account
+        // before checking it was the right one, so a caller could pass empty stand-ins, redeem
+        // nothing, and still have the redemption count as done — which, for the DAO's
+        // liquidity, stranded it for good.
         require!(
             cond_mint_info.key() == vault_cond_mints[i],
             VaultError::InvalidConditionalMint
         );
-
-        // Validate user's ATA
         UserVaultAction::validate_user_ata(
             &cond_mint_info.key(),
             &ctx.accounts.signer.key(),
             user_cond_ata_info,
         )?;
+
+        // The signer's own account for this option does not exist: nothing to redeem there.
+        if user_cond_ata_info.data_is_empty() {
+            continue;
+        }
 
         require!(
             user_cond_ata_info.owner == &ctx.accounts.token_program.key(),

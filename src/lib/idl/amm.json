@@ -26,6 +26,7 @@
         },
         {
           "name": "pool",
+          "writable": true,
           "pda": {
             "seeds": [
               {

@@ -25,7 +25,7 @@ export function installDevWallet() {
   const account = {
     address: keypair.publicKey.toBase58(),
     publicKey: keypair.publicKey.toBytes(),
-    chains: ['solana:localnet', 'solana:devnet', 'solana:mainnet'],
+    chains: ['solana:localnet', 'solana:devnet'],
     features: ['solana:signTransaction'],
   }
   const sign = (bytes) => {

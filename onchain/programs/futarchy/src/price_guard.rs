@@ -8,15 +8,18 @@
 // deposit or withdraw at it, push it back, keep the difference. `return_liquidity` is open
 // to anyone, so the attacker could even trigger the deposit themselves, in one bundle.
 //
-// So spot has to agree with a price recorded earlier. `record_price` writes the pool's
-// price and the time; the guard then accepts a spot price only if that checkpoint is at
-// least a minute old, not stale, and within a few percent of it. A price moved and moved
-// back in one block never gets there. Holding a false price for a minute means paying
-// every arbitrageur who trades against it for that minute.
+// So spot has to agree with a checkpoint, and the checkpoint cannot be moved quickly.
+// `record_price` (anyone, at most once a minute) moves it toward the pool's price by at
+// most 1%, however far that price is. A price pushed and pulled back inside a transaction
+// shifts it by 1% at most; shifting it 5% takes five such transactions a minute apart, one
+// per minute, each one paid for against the pool — and every honest update in between
+// pulls it back. The guard then accepts a spot price within 5% of a checkpoint no older
+// than half an hour.
 //
-// A checkpoint cannot be replaced until it is five minutes old. Otherwise anyone could
-// keep refreshing it and never let it reach a minute of age: with this rule there is
-// always a stretch of at least four minutes in which the one in place is usable.
+// (The first version recorded the spot price outright and asked it to be a minute old:
+// pushing the price, recording, and pulling it back in one transaction, then doing the
+// same a minute later around the move itself, beat it. Clamping the step is what closes
+// that: no single transaction can place the checkpoint anywhere.)
 
 use anchor_lang::prelude::*;
 
@@ -38,12 +41,19 @@ pub fn spot_sqrt_price(pool: &AccountLoader<cp_amm::accounts::Pool>) -> Result<u
 pub fn check_fair_price(dao: &DAOAccount, sqrt_price: u128, now: i64) -> Result<()> {
     let checkpoint = dao.price_checkpoint;
     let age = now.saturating_sub(dao.price_checkpoint_at);
-    require!(
-        checkpoint > 0 && age >= CHECKPOINT_MIN_AGE && age <= CHECKPOINT_MAX_AGE,
-        FutarchyError::NoPriceCheckpoint
-    );
+    require!(checkpoint > 0 && age <= CHECKPOINT_MAX_AGE, FutarchyError::NoPriceCheckpoint);
     require!(within_band(sqrt_price, checkpoint), FutarchyError::PriceMovedTooFar);
     Ok(())
+}
+
+/// The next checkpoint: `spot`, but no further than `MAX_CHECKPOINT_STEP_BPS` (in price)
+/// from `previous`. Square roots move by half as many basis points as prices, near enough.
+pub fn next_checkpoint(previous: u128, spot: u128) -> u128 {
+    if previous == 0 {
+        return spot;
+    }
+    let step = previous / 20_000 * MAX_CHECKPOINT_STEP_BPS as u128;
+    spot.clamp(previous.saturating_sub(step), previous.saturating_add(step))
 }
 
 /// Whether the price `spot²` is within `MAX_PRICE_MOVE_BPS` of `checkpoint²`. Compared
@@ -92,6 +102,17 @@ mod tests {
         assert!(!within_band(up_bad, ONE));
         assert!(within_band(down_ok, ONE));
         assert!(!within_band(down_bad, ONE));
+    }
+
+    #[test]
+    fn a_checkpoint_moves_one_percent_at_most() {
+        let up = next_checkpoint(ONE, ONE * 2);
+        let price = |s: u128| (s as f64 / ONE as f64).powi(2);
+        assert!((price(up) - 1.01).abs() < 0.0002, "{}", price(up));
+        let down = next_checkpoint(ONE, ONE / 2);
+        assert!((price(down) - 0.99).abs() < 0.0002, "{}", price(down));
+        assert_eq!(next_checkpoint(ONE, ONE + 5), ONE + 5, "a small move is taken whole");
+        assert_eq!(next_checkpoint(0, ONE), ONE, "the first one is the price");
     }
 
     #[test]

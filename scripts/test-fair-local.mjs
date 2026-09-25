@@ -7,8 +7,8 @@
 // Whichever cluster .dev.vars names. On devnet the three test wallets are funded from
 // ~/.config/solana/id.json, a quarter of a SOL each.
 //
-// A raise opened for 20 seconds and oversubscribed, settled and turned into a DAO by the
-// keeper, claimed; a proposal staked and prepared by a backer, launched by the keeper,
+// A raise opened for 20 seconds and oversubscribed, settled into its DAO by the keeper in
+// one instruction, claimed; a proposal staked and prepared by a backer, launched by the keeper,
 // backed by a trader, decided by its market, executed, its liquidity and stake returned —
 // every step checked on chain. About seven minutes, most of it the proposal's market.
 
@@ -66,7 +66,7 @@ const opened = await F.buildOpenRaise(connection, {
   name: 'Fair Test', symbol: 'FAIR', uri: '', terms, governance: config.governance,
 })
 await send(opened.transactions[0].instructions, [creator, mint], 'token')
-await send(opened.transactions[1].instructions, [creator], 'raise')
+await send(opened.transactions[1].instructions, [creator, mint], 'raise')
 const raise = await F.readRaise(connection, mint.publicKey)
 assert.equal(raise.state, 'live')
 assert.equal(raise.goal, F.goalInCoin(coin.usdPrice))
@@ -81,10 +81,9 @@ const committed = await F.readRaise(connection, mint.publicKey)
 assert.equal(committed.totalCommitted, 1_000n * F.UNIT)
 say('alice commits 600, bob 400: oversubscribed')
 
-// ── the keeper settles it and opens the DAO the raise committed to ──
+// ── the keeper settles it by opening the DAO the raise committed to ──
 while ((await F.readRaise(connection, mint.publicKey)).endsAt > Math.floor(Date.now() / 1000) - 2) await sleep(2)
-await keeperPass() // settle
-await keeperPass() // open the DAO
+await keeperPass()
 const settled = await F.readRaise(connection, mint.publicKey)
 assert.equal(settled.state, 'succeeded')
 assert.ok(settled.claimsOpen, 'claims opened with the pool')
@@ -103,7 +102,7 @@ for (const who of [alice, bob]) {
 say(`claims: alice ${whole(F.allocation(settled, 600n * F.UNIT).tokens) / 1e6}M tokens, bob ${whole(F.allocation(settled, 400n * F.UNIT).tokens) / 1e6}M, the excess refunded`)
 
 // ── a proposal: alice stakes, pays herself 10 coins from the treasury if it passes ──
-await sleep(62) // the bootstrap's price checkpoint becomes usable after a minute
+// The bootstrap left a checkpoint at the raise price, so the markets can open at once.
 const d = await F.readDao(connection, mint.publicKey, quoteMint)
 await send(await F.proposeIxs(connection, d, 0, alice.publicKey, 'Pay alice 10 tMETA'), [alice], 'propose')
 await send([
@@ -128,9 +127,15 @@ assert.equal(p.state, 'resolved', 'the market decided')
 assert.equal(p.winner, 1, 'option 1 won')
 say(`option 1 won: TWAPs ${p.markets.map((m) => F.observationPrice(m.twap).toFixed(8)).join(' vs ')}`)
 
-// One more pass or two: liquidity home and back in the pool, action executed, stake returned.
+// A few more passes: liquidity home and back in the pool, stake returned, and the action
+// executed once the DAO's delay (a minute here) is over.
 const aliceCoinBefore = await balance(F.ata(quoteMint, alice.publicKey))
-for (let i = 0; i < 6; i++) { await keeperPass(); await sleep(12) }
+for (let i = 0; i < 12; i++) {
+  await keeperPass()
+  ;[p] = await F.readProposals(connection, await F.readDao(connection, mint.publicKey, quoteMint), 1)
+  if (p.executed[1] & 1 && p.stake === 0n) break
+  await sleep(12)
+}
 const after = await F.readDao(connection, mint.publicKey, quoteMint)
 assert.equal(after.activeProposal, null, 'the liquidity came home')
 ;[p] = await F.readProposals(connection, after, 1)

@@ -5,6 +5,10 @@
 // LiteSVM executes the real .so in-process, and lets the clock jump to the end of a raise
 // instead of waiting for it. Every rule the program enforces is tried from the side that
 // should be refused, not only from the side that should pass.
+//
+// A raise that meets its goal succeeds only by becoming its DAO (futarchy's bootstrap_dao
+// settles it): that path, and the claims after it, are in futarchy.test.mjs. Here is
+// everything the raise decides on its own.
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -22,6 +26,10 @@ import {
 
 const IDL = JSON.parse(readFileSync(new URL('../target/idl/lfown_raise.json', import.meta.url), 'utf8'))
 const PROGRAM_ID = new PublicKey(IDL.address)
+// A raise pays only the DAO its mint derives in the futarchy program.
+const FUTARCHY_ID = new PublicKey(JSON.parse(readFileSync(new URL('../target/idl/futarchy.json', import.meta.url), 'utf8')).address)
+const futarchyPda = (...seeds) => PublicKey.findProgramAddressSync(seeds.map((x) => (typeof x === 'string' ? Buffer.from(x) : x.toBuffer())), FUTARCHY_ID)[0]
+const daoOf = (mint) => { const dao = futarchyPda('dao', mint); return { dao, treasury: futarchyPda('treasury', dao), operator: futarchyPda('liquidity', dao) } }
 const SO = new URL('../target/deploy/lfown_raise.so', import.meta.url).pathname
 
 // Building instructions needs no network; the connection is never called.
@@ -92,7 +100,7 @@ function world() {
 }
 
 /** A raise opened on fresh mints, with its addresses and one call per instruction. */
-function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintAuthority } = {}) {
+function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintAuthority, recipients, mintSigns = true } = {}) {
   const usdcMint = w.createMint(w.payer.publicKey)
   const baseMintKp = Keypair.generate()
   const [raise] = PublicKey.findProgramAddressSync([Buffer.from('raise'), baseMintKp.publicKey.toBuffer()], PROGRAM_ID)
@@ -103,20 +111,25 @@ function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintA
     createInitializeMint2Instruction(baseMintKp.publicKey, 6, mintAuthority ?? raise, null),
   ], [w.payer, baseMintKp]), 'create base mint')
   const baseMint = baseMintKp.publicKey
-  const treasury = Keypair.generate().publicKey
-  const operator = Keypair.generate()
-  w.svm.airdrop(operator.publicKey, BigInt(LAMPORTS_PER_SOL))
+  const { treasury, operator } = recipients ?? daoOf(baseMint)
 
   const bn = (v) => new anchor.BN(v.toString())
-  const init = () => w.send([program.instruction.initializeRaise({
+  const initIx = (over = {}) => program.instruction.initializeRaise({
     goal: bn(spec.goal), tokensForInvestors: bn(spec.tokensForInvestors), tokensForPool: bn(spec.tokensForPool),
     quoteToPool: bn(spec.quoteToPool), durationSeconds: bn(duration), claimDelaySeconds: bn(claimDelay),
-    daoCommitment: Array(32).fill(0),
+    daoCommitment: Array(32).fill(0), ...over,
   }, { accounts: {
     baseMint, quoteMint: usdcMint, raise, baseVault: w.ata(baseMint, raise), quoteVault: w.ata(usdcMint, raise),
-    treasury, poolOperator: operator.publicKey, authority: w.payer.publicKey,
+    treasury, poolOperator: operator, authority: w.payer.publicKey,
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
-  } })], [w.payer])
+  } })
+  // The new mint signs its own raise: that is what keeps anyone else from opening one on it.
+  const init = (over) => {
+    const ix = initIx(over)
+    // An intruder's transaction: the mint listed as a plain account, not as a signer.
+    if (!mintSigns) ix.keys = ix.keys.map((k) => (k.pubkey.equals(baseMintKp.publicKey) ? { ...k, isSigner: false } : k))
+    return w.send([ix], mintSigns ? [w.payer, baseMintKp] : [w.payer])
+  }
 
   const commitment = (user) => PublicKey.findProgramAddressSync([Buffer.from('commitment'), raise.toBuffer(), user.toBuffer()], PROGRAM_ID)[0]
   const commit = (user, amount) => w.send([program.instruction.commit(bn(amount), { accounts: {
@@ -125,13 +138,10 @@ function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintA
   } })], [user])
   const settle = (cranker = w.payer) => w.send([program.instruction.settle({ accounts: {
     raise, baseMint, quoteMint: usdcMint, baseVault: w.ata(baseMint, raise), quoteVault: w.ata(usdcMint, raise),
-    treasury, treasuryQuote: w.ata(usdcMint, treasury), poolOperator: operator.publicKey,
-    operatorQuote: w.ata(usdcMint, operator.publicKey), operatorBase: w.ata(baseMint, operator.publicKey),
+    treasury, treasuryQuote: w.ata(usdcMint, treasury), poolOperator: operator,
+    operatorQuote: w.ata(usdcMint, operator), operatorBase: w.ata(baseMint, operator),
     cranker: cranker.publicKey, tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   } })], [cranker])
-  const openClaims = (signer = operator) => w.send([program.instruction.openClaims({ accounts: { raise, poolOperator: signer.publicKey } })], [signer])
-  // `owner` names whose commitment is claimed; `signer` is who actually signs. They differ
-  // only in the test that tries to claim someone else's.
   const claim = (signer, owner = signer.publicKey) => w.send([program.instruction.claim({ accounts: {
     raise, commitment: commitment(owner), baseMint, quoteMint: usdcMint,
     baseVault: w.ata(baseMint, raise), quoteVault: w.ata(usdcMint, raise),
@@ -144,67 +154,24 @@ function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintA
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   } })], [user])
 
-  return { usdcMint, baseMint, raise, treasury, operator, init, commit, settle, openClaims, claim, refund }
+  return { usdcMint, baseMint, raise, treasury, operator, init, commit, settle, claim, refund }
 }
-
-test('an oversubscribed raise keeps exactly the goal, pays the pool and treasury, and refunds pro rata', () => {
-  const w = world()
-  const r = openRaise(w)
-  w.must(r.init(), 'initialize')
-
-  const mint = () => MintLayout.decode(Buffer.from(w.svm.getAccount(r.baseMint).data))
-  assert.equal(mint().supply, SPEC.tokensForInvestors + SPEC.tokensForPool, 'the launch supply is minted up front')
-  assert.equal(new PublicKey(mint().mintAuthority).toBase58(), r.raise.toBase58(), 'the raise holds the mint authority while it runs')
-
-  const alice = w.person(r.usdcMint, USDC(6_000))
-  const bob = w.person(r.usdcMint, USDC(3_000))
-  const carol = w.person(r.usdcMint, USDC(1_000))
-  w.must(r.commit(alice, USDC(4_000)), 'alice commits')
-  w.must(r.commit(alice, USDC(2_000)), 'alice commits again')
-  w.must(r.commit(bob, USDC(3_000)), 'bob commits')
-  w.must(r.commit(carol, USDC(1_000)), 'carol commits')
-  assert.equal(w.balance(w.ata(r.usdcMint, r.raise)), USDC(10_000))
-
-  w.refused(r.settle(), 'NotEnded', 'settling before the end')
-  w.warp(3601)
-  w.refused(r.commit(carol, 1n), 'Ended', 'committing after the end')
-
-  w.must(r.settle(), 'settle')
-  assert.equal(w.balance(w.ata(r.usdcMint, r.treasury)), USDC(1_000), 'treasury gets 1,000 USDC')
-  assert.equal(w.balance(w.ata(r.usdcMint, r.operator.publicKey)), USDC(4_000), 'pool operator gets 4,000 USDC')
-  assert.equal(w.balance(w.ata(r.baseMint, r.operator.publicKey)), TOKENS(8_000_000), 'and 8M tokens')
-  assert.equal(mint().mintAuthorityOption, 1, 'the token stays mintable')
-  assert.equal(new PublicKey(mint().mintAuthority).toBase58(), r.operator.publicKey.toBase58(), 'with the authority handed to the operator, for the DAO')
-  w.refused(r.settle(), 'NotLive', 'settling twice')
-
-  w.refused(r.claim(alice), 'ClaimsNotOpen', 'claiming before the pool exists')
-  w.refused(r.openClaims(alice), 'NotOperator', 'opening claims as someone else')
-  w.must(r.openClaims(), 'operator opens claims')
-
-  const expected = [[alice, 6_000_000, 3_000], [bob, 3_000_000, 1_500], [carol, 1_000_000, 500]]
-  for (const [who, tokens, refund] of expected) {
-    const before = w.balance(w.ata(r.usdcMint, who.publicKey))
-    w.must(r.claim(who), 'claim')
-    assert.equal(w.balance(w.ata(r.baseMint, who.publicKey)), TOKENS(tokens))
-    assert.equal(w.balance(w.ata(r.usdcMint, who.publicKey)) - before, USDC(refund))
-  }
-  w.refused(r.claim(alice), 'AlreadySettled', 'claiming twice')
-  assert.equal(w.balance(w.ata(r.baseMint, r.raise)), 0n, 'every token paid out')
-  assert.equal(w.balance(w.ata(r.usdcMint, r.raise)), 0n, 'every USDC paid out')
-})
 
 test('a raise below its goal fails and gives everyone their whole commitment back', () => {
   const w = world()
   const r = openRaise(w)
   w.must(r.init(), 'initialize')
+  const mint = () => MintLayout.decode(Buffer.from(w.svm.getAccount(r.baseMint).data))
+  assert.equal(mint().supply, SPEC.tokensForInvestors + SPEC.tokensForPool, 'the launch supply is minted up front')
   const alice = w.person(r.usdcMint, USDC(4_000))
   w.must(r.commit(alice, USDC(4_000)), 'commit')
+  w.refused(r.settle(), 'NotEnded', 'settling before the end')
   w.warp(3601)
-  w.must(r.settle(), 'settle')
+  w.refused(r.commit(alice, 1n), 'Ended', 'committing after the end')
+  w.must(r.settle(), 'anyone settles a raise that missed its goal')
   assert.equal(w.decode('raise', r.raise).state.failed !== undefined, true, 'the raise is failed')
   assert.equal(w.balance(w.ata(r.usdcMint, r.treasury)), 0n, 'the treasury is paid nothing')
-  const authority = new PublicKey(MintLayout.decode(Buffer.from(w.svm.getAccount(r.baseMint).data)).mintAuthority)
-  assert.equal(authority.toBase58(), r.raise.toBase58(), 'a failed raise keeps the authority, so nobody can mint it')
+  assert.equal(new PublicKey(mint().mintAuthority).toBase58(), r.raise.toBase58(), 'a failed raise keeps the authority, so nobody can mint it')
 
   w.refused(r.claim(alice), 'NotSucceeded', 'claiming tokens from a failed raise')
   w.must(r.refund(alice), 'refund')
@@ -212,38 +179,60 @@ test('a raise below its goal fails and gives everyone their whole commitment bac
   w.refused(r.refund(alice), 'AlreadySettled', 'refunding twice')
 })
 
-test('at exactly the goal nothing is refunded, and claims open on their own after the delay', () => {
+test('a raise that met its goal succeeds only through its DAO, and without one by its deadline it fails', () => {
   const w = world()
   const r = openRaise(w, { claimDelay: 600 })
   w.must(r.init(), 'initialize')
-  const alice = w.person(r.usdcMint, USDC(2_000))
+  const alice = w.person(r.usdcMint, USDC(3_000))
   const bob = w.person(r.usdcMint, USDC(3_000))
-  w.must(r.commit(alice, USDC(2_000)), 'alice')
+  w.must(r.commit(alice, USDC(3_000)), 'alice')
   w.must(r.commit(bob, USDC(3_000)), 'bob')
   w.warp(3601)
-  w.must(r.settle(), 'settle')
-
-  w.refused(r.claim(bob), 'ClaimsNotOpen', 'claiming before the delay with no operator confirmation')
-  w.warp(601)
-  w.must(r.claim(bob), 'claim after the delay')
-  assert.equal(w.balance(w.ata(r.baseMint, bob.publicKey)), TOKENS(6_000_000))
-  assert.equal(w.balance(w.ata(r.usdcMint, bob.publicKey)), 0n, 'nothing to refund at exactly the goal')
-  w.refused(r.refund(alice), 'NotFailed', 'refunding from a raise that succeeded')
+  // Success pays the DAO's accounts and opens claims: only the DAO's liquidity authority
+  // may do that, and it signs only inside bootstrap_dao, which opens the pool at once.
+  w.refused(r.settle(), 'NotOperator', 'settling a successful raise without its DAO')
+  w.refused(r.claim(alice), 'NotSucceeded', 'claiming before the DAO exists')
+  // Nobody opened the DAO in time: the raise fails like one that missed its goal.
+  w.warp(600)
+  w.must(r.settle(), 'past the deadline, anyone settles it as failed')
+  assert.equal(w.decode('raise', r.raise).state.failed !== undefined, true, 'the raise is failed')
+  w.must(r.refund(alice), 'alice gets everything back')
+  w.must(r.refund(bob), 'bob too')
+  assert.equal(w.balance(w.ata(r.usdcMint, alice.publicKey)), USDC(3_000))
+  assert.equal(w.balance(w.ata(r.usdcMint, bob.publicKey)), USDC(3_000))
+  assert.equal(w.balance(w.ata(r.usdcMint, r.raise)), 0n, 'nothing is left in the vault')
 })
 
-test("nobody can claim someone else's commitment", () => {
+test('only the new mint opens a raise on itself, and only for the DAO it derives', () => {
   const w = world()
-  const r = openRaise(w, { claimDelay: 0 })
-  w.must(r.init(), 'initialize')
-  const alice = w.person(r.usdcMint, USDC(5_000))
-  const mallory = w.person(r.usdcMint, 0n)
-  w.must(r.commit(alice, USDC(5_000)), 'alice')
-  w.warp(3601)
-  w.must(r.settle(), 'settle')
-  // The commitment address is derived from the signer, so pointing at Alice's fails the seeds.
-  w.refused(r.claim(mallory, alice.publicKey), null, "mallory claiming alice's commitment")
-  assert.equal(w.balance(w.ata(r.baseMint, mallory.publicKey)), 0n)
-  w.must(r.claim(alice), 'alice still claims')
+  // Between the site's two transactions the mint already belongs to the raise's address;
+  // without the mint's signature anyone could open the raise first, on their own terms.
+  const r = openRaise(w, { mintSigns: false })
+  w.refused(r.init(), 'MintMustSign', 'opening a raise on a mint without its signature')
+  const intruder = Keypair.generate().publicKey
+  const s = openRaise(w, { recipients: { treasury: intruder, operator: daoOf(PublicKey.default).operator } })
+  w.refused(s.init(), 'NotTheDao', 'a raise paying someone other than its DAO')
+})
+
+test("a raise's terms are checked: the pool opens at the backers' price, and its windows are bounded", () => {
+  const w = world()
+  const cases = [
+    [{ quoteToPool: new anchor.BN(USDC(3_000).toString()) }, 'PoolPriceMismatch', 'a pool share that opens the pool below the backers’ price'],
+    [{ quoteToPool: new anchor.BN(SPEC.goal.toString()) }, 'InvalidParams', 'a raise that leaves the treasury nothing'],
+    [{ claimDelaySeconds: new anchor.BN(0) }, 'InvalidParams', 'a deadline of zero'],
+    [{ claimDelaySeconds: new anchor.BN(365 * 86_400) }, 'InvalidParams', 'a deadline of a year'],
+    [{ durationSeconds: new anchor.BN(365 * 86_400) }, 'InvalidParams', 'a raise lasting a year'],
+  ]
+  for (const [over, code, what] of cases) w.refused(openRaise(w).init(over), code, what)
+  w.must(openRaise(w).init(), 'the standard terms pass')
+})
+
+test('an escrow account opened ahead of time does not stop the raise', () => {
+  const w = world()
+  const r = openRaise(w)
+  // Anyone can open an associated token account for any owner, the raise included.
+  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(w.payer.publicKey, w.ata(r.baseMint, r.raise), r.raise, r.baseMint)], [w.payer]), 'someone opens the raise’s escrow first')
+  w.must(r.init(), 'the raise still opens')
 })
 
 test('a mint the raise does not control is refused', () => {

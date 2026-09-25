@@ -8,21 +8,24 @@
 // liquidity authority. That is what `lfown_raise::settle` pays. This instruction then, all
 // at once:
 //
-//   1. checks the raise succeeded and paid exactly this DAO's addresses
+//   1. settles the raise, as its pool operator: the raise pays exactly this DAO's addresses
+//      and opens its claims, and cannot succeed any other way
 //   2. opens the DAO
 //   3. moves the mint authority from the liquidity authority to the DAO's mint authority
 //   4. opens the DAMM v2 pool with everything the liquidity authority holds, at the price
 //      those amounts imply — which is the raise's own price — with the position NFT minted
 //      straight to the liquidity authority
-//   5. opens the raise's claims, as the pool operator, now that the pool exists
 //
 // Anyone can call it — LFOwn's keeper does, the minute a raise settles — because there is
 // nothing left to choose: the raise committed, before a single backer joined, to a hash of
 // the DAO's name, withdrawal share and governance rules, and this instruction refuses any
 // others. Backers are never left waiting on the creator to come back.
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::{instruction::Instruction, program::invoke_signed};
+use anchor_lang::InstructionData;
 use anchor_lang::system_program;
-use anchor_spl::token::{self, spl_token::instruction::AuthorityType, Mint, SetAuthority, Token, TokenAccount};
+use anchor_spl::associated_token::{get_associated_token_address, AssociatedToken};
+use anchor_spl::token::{self, spl_token::instruction::AuthorityType, Mint, SetAuthority, Token};
 use anchor_spl::token_2022::Token2022;
 use lfown_raise::program::LfownRaise;
 use lfown_raise::state::{Raise, RaiseState};
@@ -53,18 +56,21 @@ pub struct BootstrapDAO<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
+    // Still live: this instruction settles it. A raise can only succeed by becoming its DAO,
+    // in this one instruction, so there is never a moment when its money sits with an
+    // operator and no pool, or a DAO other than this one could claim it.
     #[account(
         mut,
-        constraint = raise.state == RaiseState::Succeeded @ FutarchyError::RaiseNotSucceeded,
+        constraint = raise.state == RaiseState::Live @ FutarchyError::RaiseNotSucceeded,
         constraint = raise.treasury == treasury.key() @ FutarchyError::RaiseNotForThisDao,
         constraint = raise.pool_operator == liquidity_authority.key() @ FutarchyError::RaiseNotForThisDao,
     )]
     pub raise: Box<Account<'info, Raise>>,
 
-    #[account(init, payer = payer, space = 8 + DAOAccount::INIT_SPACE, seeds = [DAO_SEED, name.as_bytes()], bump)]
+    #[account(init, payer = payer, space = 8 + DAOAccount::INIT_SPACE, seeds = [DAO_SEED, raise.base_mint.as_ref()], bump)]
     pub dao: Box<Account<'info, DAOAccount>>,
 
-    #[account(init, payer = payer, space = 8 + ModeratorAccount::INIT_SPACE, seeds = [MODERATOR_SEED, name.as_bytes()], bump)]
+    #[account(init, payer = payer, space = 8 + ModeratorAccount::INIT_SPACE, seeds = [MODERATOR_SEED, raise.base_mint.as_ref()], bump)]
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     /// CHECK: the DAO's treasury PDA.
@@ -79,20 +85,31 @@ pub struct BootstrapDAO<'info> {
     #[account(mut, seeds = [LIQUIDITY_SEED, dao.key().as_ref()], bump)]
     pub liquidity_authority: UncheckedAccount<'info>,
 
-    #[account(
-        mut,
-        address = raise.base_mint @ FutarchyError::InvalidMint,
-        constraint = base_mint.mint_authority == anchor_lang::solana_program::program_option::COption::Some(liquidity_authority.key()) @ FutarchyError::MintNotControlled,
-    )]
+    #[account(mut, address = raise.base_mint @ FutarchyError::InvalidMint)]
     pub base_mint: Box<Account<'info, Mint>>,
 
     #[account(address = raise.quote_mint @ FutarchyError::InvalidMint)]
     pub quote_mint: Box<Account<'info, Mint>>,
 
-    #[account(mut, token::mint = base_mint, token::authority = liquidity_authority)]
-    pub liquidity_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = quote_mint, token::authority = liquidity_authority)]
-    pub liquidity_quote: Box<Account<'info, TokenAccount>>,
+    /// CHECK: the raise's vaults; the raise program checks them against its own record.
+    #[account(mut, address = raise.base_vault @ FutarchyError::InvalidAccount)]
+    pub base_vault: UncheckedAccount<'info>,
+    /// CHECK: as above.
+    #[account(mut, address = raise.quote_vault @ FutarchyError::InvalidAccount)]
+    pub quote_vault: UncheckedAccount<'info>,
+    /// CHECK: the treasury's associated account for the coin, opened by the settlement.
+    #[account(mut, address = get_associated_token_address(&treasury.key(), &quote_mint.key()) @ FutarchyError::InvalidAccount)]
+    pub treasury_quote: UncheckedAccount<'info>,
+
+    // The liquidity authority's *associated* accounts, and no others: the settlement pays
+    // these, and the pool is opened from them. A token account of the caller's making,
+    // owned by the same PDA but holding one unit, used to set the pool's price.
+    /// CHECK: address fixed; opened by the settlement.
+    #[account(mut, address = get_associated_token_address(&liquidity_authority.key(), &base_mint.key()) @ FutarchyError::InvalidAccount)]
+    pub liquidity_base: UncheckedAccount<'info>,
+    /// CHECK: address fixed; opened by the settlement.
+    #[account(mut, address = get_associated_token_address(&liquidity_authority.key(), &quote_mint.key()) @ FutarchyError::InvalidAccount)]
+    pub liquidity_quote: UncheckedAccount<'info>,
 
     /// CHECK: the position NFT's mint, a PDA of this program that DAMM v2 creates.
     #[account(mut, seeds = [POSITION_NFT_SEED, dao.key().as_ref()], bump)]
@@ -121,6 +138,7 @@ pub struct BootstrapDAO<'info> {
     pub cp_amm_program: Program<'info, cp_amm::program::CpAmm>,
     pub raise_program: Program<'info, LfownRaise>,
     pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_2022_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
@@ -145,6 +163,16 @@ pub fn bootstrap_dao_handler(
     let nft_bump = [ctx.bumps.position_nft_mint];
     let nft_seeds: [&[u8]; 3] = [POSITION_NFT_SEED, dao_key.as_ref(), &nft_bump];
 
+    // First the raise is settled, by the DAO's liquidity authority — the only signature the
+    // raise accepts for a success. It pays the treasury and these two associated accounts,
+    // hands over the mint authority, and opens claims; the pool below exists before the
+    // instruction ends, so nobody can open one of their own first.
+    settle_raise(&ctx.accounts, &liquidity_seeds)?;
+    ctx.accounts.raise.reload()?;
+    ctx.accounts.base_mint.reload()?;
+    // Past its deadline the settlement marks the raise failed instead; then there is no DAO.
+    require!(ctx.accounts.raise.state == RaiseState::Succeeded, FutarchyError::RaiseNotSucceeded);
+
     // The mint goes to the DAO before anything else touches it.
     token::set_authority(
         CpiContext::new_with_signer(
@@ -159,9 +187,12 @@ pub fn bootstrap_dao_handler(
         Some(ctx.accounts.mint_authority.key()),
     )?;
 
-    // The pool opens at the price the raise's pool share implies, with all of it.
-    let base_amount = ctx.accounts.liquidity_base.amount;
-    let quote_amount = ctx.accounts.liquidity_quote.amount;
+    // The pool opens with exactly the raise's pool share, at the price it implies — the
+    // backers' price, which the raise checked when it opened. Taken from the raise, not from
+    // balances: anything someone sent to these accounts stays out of the price, and goes
+    // back into the pool later with the rest of the DAO's liquidity.
+    let base_amount = ctx.accounts.raise.tokens_for_pool;
+    let quote_amount = ctx.accounts.raise.quote_to_pool;
     let sqrt_price = sqrt_price_for_amounts(base_amount, quote_amount, DAMM_MIN_SQRT_PRICE, DAMM_MAX_SQRT_PRICE)
         .ok_or(FutarchyError::InvalidPool)?;
     let liquidity = liquidity_for_amounts(base_amount, quote_amount, sqrt_price, DAMM_MIN_SQRT_PRICE, DAMM_MAX_SQRT_PRICE)
@@ -256,21 +287,11 @@ pub fn bootstrap_dao_handler(
         withdrawal_bps,
         active_proposal: Pubkey::default(),
         governance,
-        // The pool opens at the raise's price, so that is the first checkpoint. It becomes
-        // usable a minute from now, like any other.
+        // The pool opens at the raise's price, so that is the first checkpoint.
         price_checkpoint: sqrt_price,
         price_checkpoint_at: Clock::get()?.unix_timestamp,
+        pending_return: false,
     });
-
-    // Backers can claim now: the pool they would otherwise race to open already exists.
-    lfown_raise::cpi::open_claims(CpiContext::new_with_signer(
-        ctx.accounts.raise_program.to_account_info(),
-        lfown_raise::cpi::accounts::OpenClaims {
-            raise: ctx.accounts.raise.to_account_info(),
-            pool_operator: ctx.accounts.liquidity_authority.to_account_info(),
-        },
-        &[&liquidity_seeds],
-    ))?;
 
     emit!(DAOBootstrapped {
         dao: dao_key,
@@ -290,4 +311,38 @@ pub fn bootstrap_dao_handler(
 pub fn dao_commitment(name: &str, withdrawal_bps: u16, governance: &GovernanceConfig) -> Result<[u8; 32]> {
     let config = governance.try_to_vec()?;
     Ok(solana_sha256_hasher::hashv(&[name.as_bytes(), &withdrawal_bps.to_le_bytes(), &config]).to_bytes())
+}
+
+/// Settles the raise as its pool operator. Anchor's CPI helper would pass the operator as a
+/// plain account, so the instruction is built here with the liquidity authority's PDA
+/// signature; and it is a function of its own to keep the handler's stack frame small.
+#[inline(never)]
+fn settle_raise(a: &BootstrapDAO, liquidity_seeds: &[&[u8]; 3]) -> Result<()> {
+    let settle_accounts = lfown_raise::cpi::accounts::Settle {
+        raise: a.raise.to_account_info(),
+        base_mint: a.base_mint.to_account_info(),
+        quote_mint: a.quote_mint.to_account_info(),
+        base_vault: a.base_vault.to_account_info(),
+        quote_vault: a.quote_vault.to_account_info(),
+        treasury: a.treasury.to_account_info(),
+        treasury_quote: a.treasury_quote.to_account_info(),
+        pool_operator: a.liquidity_authority.to_account_info(),
+        operator_quote: a.liquidity_quote.to_account_info(),
+        operator_base: a.liquidity_base.to_account_info(),
+        cranker: a.payer.to_account_info(),
+        token_program: a.token_program.to_account_info(),
+        associated_token_program: a.associated_token_program.to_account_info(),
+        system_program: a.system_program.to_account_info(),
+    };
+    let operator = a.liquidity_authority.key();
+    let mut metas = settle_accounts.to_account_metas(None);
+    for meta in metas.iter_mut().filter(|m| m.pubkey == operator) {
+        meta.is_signer = true;
+    }
+    invoke_signed(
+        &Instruction { program_id: a.raise_program.key(), accounts: metas, data: lfown_raise::instruction::Settle {}.data() },
+        &settle_accounts.to_account_infos(),
+        &[liquidity_seeds],
+    )?;
+    Ok(())
 }

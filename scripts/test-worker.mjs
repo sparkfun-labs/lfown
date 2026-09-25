@@ -44,6 +44,8 @@ const rpc = http.createServer((req, res) => {
         case 'getMultipleAccounts': result = { context: { slot: 1 }, value: (c.params?.[0] ?? []).map(() => null) }; break
         case 'getSlot': result = 1; break
         case 'getVersion': result = { 'solana-core': '2.0.0', 'feature-set': 1 }; break
+        // Devnet's, unless the URL says it is mainnet: the fair-launch API checks which chain it is on.
+        case 'getGenesisHash': result = req.url.includes('mainnet') ? '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d' : 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'; break
         default: answers.push({ jsonrpc: '2.0', id: c.id, error: { code: -32601, message: `unexpected ${c.method}` } }); continue
       }
       answers.push({ jsonrpc: '2.0', id: c.id, result })
@@ -613,14 +615,23 @@ await test('fair launch: off without FAIR_RPC, and the library agrees with the r
     const r = await worker.fetch(new Request(`https://example.test${path}`, { method: path === '/api/fair/config' ? 'GET' : 'POST', body: path === '/api/fair/config' ? undefined : '{}' }), env, ctx)
     assert.equal(r.status, 404, `${path} must not exist in production`)
   }
-  const on = { ...env, FAIR_RPC: 'http://127.0.0.1:1', FAIR_CLUSTER: 'devnet', FAIR_QUOTES: '[{"mint":"So11111111111111111111111111111111111111112","symbol":"tMETA","usdPrice":5}]' }
-  const cfg = await (await worker.fetch(new Request('https://example.test/api/fair/config'), on, ctx)).json()
+  const on = { ...env, FAIR_RPC: `${RPC_URL}&fair=devnet`, FAIR_CLUSTER: 'devnet', FAIR_QUOTES: '[{"mint":"So11111111111111111111111111111111111111112","symbol":"tMETA","usdPrice":5}]' }
+  const fair = (path, init, e = on) => worker.fetch(new Request(`https://example.test${path}`, init), e, ctx)
+  const cfg = await (await fair('/api/fair/config')).json()
   assert.equal(cfg.cluster, 'devnet')
   assert.equal(cfg.rpc, undefined, 'the RPC URL, which may carry a key, is never sent to the browser')
-  const refused = await worker.fetch(new Request('https://example.test/api/fair/rpc', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'requestAirdrop', params: [] }) }), on, ctx)
-  assert.equal(refused.status, 400, 'methods off the list are refused')
-  const faucet = await worker.fetch(new Request('https://example.test/api/fair/faucet', { method: 'POST', body: '{}' }), on, ctx)
-  assert.equal(faucet.status, 404, 'no faucet outside localnet')
+  // A devnet setting pointed at a mainnet RPC, or no cluster named at all: off.
+  assert.equal((await fair('/api/fair/config', undefined, { ...on, FAIR_RPC: `${RPC_URL}&fair=mainnet` })).status, 404, 'a mainnet RPC is refused')
+  assert.equal((await fair('/api/fair/config', undefined, { ...on, FAIR_CLUSTER: undefined })).status, 404, 'no cluster, no fair launches')
+  const rpcCall = (body, headers = {}) => fair('/api/fair/rpc', { method: 'POST', headers, body: JSON.stringify(body) })
+  const call1 = (method, params = []) => ({ jsonrpc: '2.0', id: 1, method, params })
+  assert.equal((await rpcCall(call1('requestAirdrop'))).status, 400, 'methods off the list are refused')
+  assert.equal((await rpcCall(call1('getSlot'), { origin: 'https://evil.test' })).status, 403, 'other sites cannot use the proxy')
+  assert.equal((await rpcCall(Array.from({ length: 21 }, () => call1('getSlot')))).status, 400, 'batches are bounded')
+  assert.equal((await rpcCall(call1('getProgramAccounts', ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA']))).status, 400, 'no scan of a big program')
+  assert.equal((await rpcCall(call1('getSlot'))).status, 200, 'the page’s own calls go through')
+  const faucet = await fair('/api/fair/faucet', { method: 'POST', body: '{}' })
+  assert.equal(faucet.status, 404, 'no faucet without its key')
 
   const F = await import(new URL('../src/lib/fair-launch.mjs', import.meta.url).href)
   // The same cases as the raise's own tests: 6,000 + 3,000 + 1,000 against a 5,000 goal.

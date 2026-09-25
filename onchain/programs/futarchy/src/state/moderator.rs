@@ -15,7 +15,7 @@ pub struct ModeratorInitialized {
     pub admin: Pubkey,
 }
 
-/// Seeds: [MODERATOR_SEED, &id.to_le_bytes()] 
+/// Seeds: [MODERATOR_SEED, base_mint]
 #[account]
 #[derive(InitSpace)]
 pub struct ModeratorAccount {

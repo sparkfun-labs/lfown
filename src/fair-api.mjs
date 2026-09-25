@@ -3,7 +3,8 @@
 // Fair launches run on a test cluster until their programs are audited, so all of this is
 // off unless the Worker is told which cluster to use:
 //
-//   FAIR_CLUSTER      localnet | devnet
+//   FAIR_CLUSTER      localnet | devnet — required; anything else keeps fair launches off,
+//                     and the RPC's genesis hash must match it
 //   FAIR_RPC          that cluster's RPC URL (never sent to the browser: it may hold a key)
 //   FAIR_QUOTES       JSON: [{ mint, symbol, name, usdPrice }] — the coins a raise may be
 //                     priced in there. Ownership coins do not exist on a test cluster, so
@@ -11,7 +12,7 @@
 //   FAIR_TERMS        optional JSON overriding TERMS (a local run wants a three-minute raise)
 //   FAIR_GOVERNANCE   optional JSON overriding GOVERNANCE (and five-minute proposals)
 //   FAIR_KEEPER_KEY   JSON secret key that cranks raises and DAOs (see lib/fair-keeper.mjs)
-//   FAIR_FAUCET_KEY   JSON secret key holding the stand-in coins' mint authority; localnet only
+//   FAIR_FAUCET_KEY   JSON secret key holding the stand-in coins' mint authority
 //
 // Without FAIR_RPC every route answers 404 and the site shows no trace of fair launches.
 // With it, the pages say which cluster they are on, on every screen.
@@ -35,13 +36,13 @@ const parse = (value, fallback) => {
 
 /** The fair-launch settings, or null when fair launches are off. */
 export function fairConfig(env) {
-  if (!env.FAIR_RPC) return null
+  if (!env.FAIR_RPC || !['localnet', 'devnet'].includes(env.FAIR_CLUSTER)) return null
   const terms = { ...TERMS, ...parse(env.FAIR_TERMS, {}) }
   const governance = { ...GOVERNANCE, ...parse(env.FAIR_GOVERNANCE, {}) }
   for (const k of ['tokensForInvestors', 'tokensForPool']) terms[k] = BigInt(terms[k])
   governance.proposalStake = BigInt(governance.proposalStake)
   return {
-    cluster: env.FAIR_CLUSTER || 'devnet',
+    cluster: env.FAIR_CLUSTER,
     rpc: env.FAIR_RPC,
     quotes: parse(env.FAIR_QUOTES, []),
     terms,
@@ -58,11 +59,42 @@ const RPC_ALLOWED = new Set([
   'sendTransaction', 'simulateTransaction', 'getSlot', 'getBlockTime', 'getEpochInfo', 'getFeeForMessage',
   'isBlockhashValid', 'getBlockHeight', 'getTokenSupply', 'getRecentPrioritizationFees', 'getGenesisHash', 'getVersion',
 ])
+/** A page's biggest batch is a handful of calls; a transaction is 1,232 bytes. */
+const RPC_MAX_CALLS = 20
+const RPC_MAX_BYTES = 32 * 1024
 
-export async function handleFair(url, request, env, { limited }) {
+/** Only this site's pages use the proxy: a request from another origin is refused. */
+const sameOrigin = (request, url) => {
+  const origin = request.headers.get('origin')
+  return !origin || origin === url.origin
+}
+
+/** Cached for a few seconds at the edge: the read API is polled, and every read is a scan. */
+async function cached(request, ctx, build) {
+  const cache = globalThis.caches?.default
+  const hit = cache && await cache.match(request)
+  if (hit) return hit
+  const response = await build()
+  if (cache && response.ok) {
+    const copy = new Response(response.clone().body, response)
+    copy.headers.set('cache-control', 'public, max-age=10')
+    ctx?.waitUntil?.(cache.put(request, copy))
+  }
+  return response
+}
+
+export async function handleFair(url, request, env, { limited, ctx }) {
   const config = fairConfig(env)
   if (!config) return json({ error: 'not found' }, { status: 404 })
   const path = url.pathname
+  const [{ assertCluster, PROGRAM_IDS }, { Connection }] = await Promise.all([import('./lib/fair-launch.mjs'), import('@solana/web3.js')])
+  const connection = new Connection(config.rpc, 'confirmed')
+  try {
+    await assertCluster(connection, config.cluster)
+  } catch (e) {
+    console.error(`fair launches off: ${e.message}`)
+    return json({ error: 'not found' }, { status: 404 })
+  }
 
   if (path === '/api/fair/config') {
     const { rpc, ...open } = config
@@ -70,13 +102,22 @@ export async function handleFair(url, request, env, { limited }) {
   }
 
   if (path === '/api/fair/rpc' && request.method === 'POST') {
+    if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, { status: 403 })
     if (await limited(env.RPC_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
-    const body = await request.json().catch(() => null)
+    const text = await request.text()
+    if (text.length > RPC_MAX_BYTES) return json({ error: 'too large' }, { status: 413 })
+    let body = null
+    try { body = JSON.parse(text) } catch {}
     const calls = Array.isArray(body) ? body : [body]
-    if (!body || !calls.length || calls.some((c) => !RPC_ALLOWED.has(c?.method))) {
+    if (!body || !calls.length || calls.length > RPC_MAX_CALLS || calls.some((c) => !RPC_ALLOWED.has(c?.method))) {
       return json({ error: 'method not allowed' }, { status: 400 })
     }
-    const upstream = await fetch(config.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+    // Scanning a whole program, only over the fair-launch programs, which are small.
+    const scannable = new Set(Object.values(PROGRAM_IDS).map((id) => id.toBase58()))
+    if (calls.some((c) => c.method === 'getProgramAccounts' && !scannable.has(c.params?.[0]))) {
+      return json({ error: 'method not allowed' }, { status: 400 })
+    }
+    const upstream = await fetch(config.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: text })
     return new Response(upstream.body, { status: upstream.status, headers: { 'content-type': 'application/json' } })
   }
 
@@ -84,45 +125,50 @@ export async function handleFair(url, request, env, { limited }) {
   // raise, or one raise with its DAO and proposals. Opening a raise or backing one stays in
   // the page (and a wallet) until the programs are audited: an agent that moves backers'
   // money should come after that, not before.
-  if (path === '/api/fair/raises' && request.method === 'GET') {
-    const F = await import('./lib/fair-launch.mjs')
-    const { Connection } = await import('@solana/web3.js')
-    return json({ cluster: config.cluster, raises: await F.listRaises(new Connection(config.rpc, 'confirmed')) })
-  }
   const one = path.match(/^\/api\/fair\/raise\/([1-9A-HJ-NP-Za-km-z]{32,44})$/)
-  if (one && request.method === 'GET') {
-    const F = await import('./lib/fair-launch.mjs')
-    const { Connection } = await import('@solana/web3.js')
-    const connection = new Connection(config.rpc, 'confirmed')
-    const raise = await F.readRaise(connection, one[1])
-    if (!raise) return json({ error: 'no raise for that mint' }, { status: 404 })
-    const dao = raise.state === 'succeeded' ? await F.readDao(connection, raise.baseMint, raise.quoteMint) : null
-    const proposals = dao ? await F.readProposals(connection, dao, dao.proposalCount) : []
-    return json({
-      cluster: config.cluster,
-      raise,
-      dao: dao && {
-        address: dao.dao.toBase58(), name: dao.name, pool: dao.pool.toBase58(), treasury: dao.treasury.toBase58(),
-        activeProposal: dao.activeProposal, proposalCount: dao.proposalCount,
-        governance: { ...dao.governance, proposalStake: dao.governance.proposalStake.toString() },
-      },
-      proposals: proposals.map(({ actions, ...p }) => ({ ...p, actions: actions.map((list) => list.map(plainAction)) })),
-    })
+  if ((path === '/api/fair/raises' || one) && request.method === 'GET') {
+    if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
+    return cached(request, ctx, () => readApi(config, connection, one?.[1]))
   }
 
   // Test coins for a wallet — and test SOL on localnet. Devnet's SOL comes from Solana's
   // own faucet (faucet.solana.com): its airdrops are rationed, and not ours to hand out.
   if (path === '/api/fair/faucet' && request.method === 'POST') {
-    if (!['localnet', 'devnet'].includes(config.cluster) || !env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
+    if (!env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
+    if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, { status: 403 })
     if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
     const { address } = await request.json().catch(() => ({}))
     const { faucet } = await import('./lib/fair-keeper.mjs')
     try {
       return json(await faucet(config, env.FAIR_FAUCET_KEY, address))
     } catch (e) {
-      return json({ error: e.message }, { status: 400 })
+      // Ours are safe to show; anything else (the RPC's, a key setting's) is logged only.
+      const known = ['not a wallet address', 'this wallet already has test coins']
+      if (known.includes(e.message)) return json({ error: e.message }, { status: 400 })
+      console.error(`faucet failed: ${e.message}`)
+      return json({ error: 'the faucet failed; try again later' }, { status: 502 })
     }
   }
 
   return json({ error: 'not found' }, { status: 404 })
+}
+
+/** The read API: every raise, or one raise with its DAO and proposals. */
+async function readApi(config, connection, mint) {
+  const F = await import('./lib/fair-launch.mjs')
+  if (!mint) return json({ cluster: config.cluster, raises: await F.listRaises(connection) })
+  const raise = await F.readRaise(connection, mint)
+  if (!raise) return json({ error: 'no raise for that mint' }, { status: 404 })
+  const dao = raise.state === 'succeeded' ? await F.readDao(connection, raise.baseMint, raise.quoteMint) : null
+  const proposals = dao ? await F.readProposals(connection, dao, dao.proposalCount) : []
+  return json({
+    cluster: config.cluster,
+    raise,
+    dao: dao && {
+      address: dao.dao.toBase58(), name: dao.name, pool: dao.pool.toBase58(), treasury: dao.treasury.toBase58(),
+      activeProposal: dao.activeProposal, proposalCount: dao.proposalCount, pendingReturn: dao.pendingReturn,
+      governance: { ...dao.governance, proposalStake: dao.governance.proposalStake.toString() },
+    },
+    proposals: proposals.map(({ actions, ...p }) => ({ ...p, actions: actions.map((list) => list.map(plainAction)) })),
+  })
 }

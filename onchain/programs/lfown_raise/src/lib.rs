@@ -11,22 +11,27 @@
 //!    minted into the raise's vault. The raise keeps the mint authority but has no
 //!    instruction that mints again.
 //! 2. `commit` — anyone commits USDC until `ends_at`.
-//! 3. `settle` — anyone, once `ends_at` has passed. Below the goal the raise fails. At or
-//!    above it, `goal - quote_to_pool` goes to the treasury, and `quote_to_pool` USDC with
-//!    `tokens_for_pool` tokens goes to the pool operator, who opens the liquidity pool.
-//!    The mint authority goes to the pool operator too, to be handed to the DAO once it
-//!    exists: the token stays mintable, so a proposal can issue more. A raise that fails
-//!    keeps the authority, and with it nobody can ever mint that token again.
-//! 4. `open_claims` — the pool operator confirms the pool exists. Until then nobody but
-//!    the operator holds tokens, so nobody can open a pool of their own first at another
-//!    price. Claims also open on their own after `claim_delay_seconds`.
-//! 5. `claim` — tokens pro rata, plus the refund of any oversubscription.
+//! 3. `settle` — once `ends_at` has passed. Below the goal the raise fails, and anyone may
+//!    say so. At or above it, the raise succeeds only through its DAO: the pool operator
+//!    is the DAO's liquidity authority, a PDA of the futarchy program, and it must sign —
+//!    which it does only inside `futarchy::bootstrap_dao`, the instruction that opens the
+//!    DAO and its pool in the same breath. `goal - quote_to_pool` goes to the treasury,
+//!    `quote_to_pool` and `tokens_for_pool` to the operator, the mint authority too, and
+//!    claims open: the pool exists by the end of that same instruction, so nobody can open
+//!    one of their own first at another price.
+//! 4. `claim` — tokens pro rata, plus the refund of any oversubscription.
 //!    `refund` — the whole commitment back, for a raise that failed.
 //!
-//! The pool is opened off-chain by the operator rather than by CPI here. The operator
-//! already holds the pool's withdrawable liquidity by design — futarchy governance pulls
-//! it out to seed each proposal's markets — so a CPI would not remove any trust, and it
-//! keeps this program to the one thing that must be trustless: backers' USDC.
+//! A raise that met its goal but was never turned into a DAO by its deadline
+//! (`ends_at + claim_delay_seconds`) fails like one that missed it: `settle` then marks it
+//! failed, for anyone, and everyone takes their whole commitment back. Nothing is ever
+//! left in the vault with no way out.
+//!
+//! What a raise may be is checked when it opens, not trusted: its mint must sign (so
+//! nobody can open a raise on a creator's freshly made mint in between their two
+//! transactions), its treasury and pool operator must be the addresses of the DAO its own
+//! mint derives, the pool's share must open the pool at the backers' price, and its
+//! windows are bounded.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
@@ -45,6 +50,24 @@ declare_id!("FpYo9n8JojtoCL3JKpQfR7oWAJmJhFmnDWjk4p4tFcSM");
 pub const RAISE_SEED: &[u8] = b"raise";
 pub const COMMITMENT_SEED: &[u8] = b"commitment";
 
+/// LFOwn's futarchy program: a raise pays only the DAO its mint derives there.
+pub const FUTARCHY_PROGRAM: Pubkey = pubkey!("5cviD5QQ1WKi8aaqh9wCbirJVp1tFkZyoCYZNmdPNoAK");
+/// Bounds on a raise's windows. The deadline is how long a successful raise may wait for
+/// its DAO before it counts as failed; never forever, never too short to be met.
+pub const MIN_DURATION_SECONDS: i64 = 10;
+pub const MAX_DURATION_SECONDS: i64 = 30 * 24 * 60 * 60;
+pub const MIN_DEADLINE_SECONDS: i64 = 60;
+pub const MAX_DEADLINE_SECONDS: i64 = 30 * 24 * 60 * 60;
+
+/// The DAO a raise's mint derives in the futarchy program, and its two accounts that a
+/// raise pays: (treasury, liquidity authority).
+pub fn dao_recipients(base_mint: &Pubkey) -> (Pubkey, Pubkey) {
+    let (dao, _) = Pubkey::find_program_address(&[b"dao", base_mint.as_ref()], &FUTARCHY_PROGRAM);
+    let (treasury, _) = Pubkey::find_program_address(&[b"treasury", dao.as_ref()], &FUTARCHY_PROGRAM);
+    let (liquidity, _) = Pubkey::find_program_address(&[b"liquidity", dao.as_ref()], &FUTARCHY_PROGRAM);
+    (treasury, liquidity)
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
 pub struct InitializeRaiseArgs {
     pub goal: u64,
@@ -52,6 +75,8 @@ pub struct InitializeRaiseArgs {
     pub tokens_for_pool: u64,
     pub quote_to_pool: u64,
     pub duration_seconds: i64,
+    /// How long after `ends_at` a raise that met its goal may wait to become a DAO; past
+    /// it, the raise fails and everyone is refunded.
     pub claim_delay_seconds: i64,
     /// A hash of the DAO this raise will open if it succeeds — its name, withdrawal share
     /// and governance rules (see futarchy's `bootstrap_dao`). Fixed before anyone commits,
@@ -66,9 +91,23 @@ pub mod lfown_raise {
 
     pub fn initialize_raise(ctx: Context<InitializeRaise>, args: InitializeRaiseArgs) -> Result<()> {
         require!(args.goal > 0, RaiseError::InvalidParams);
-        require!(args.quote_to_pool <= args.goal, RaiseError::InvalidParams);
+        // Both shares are paid: some to the pool, some to the treasury.
+        require!(args.quote_to_pool > 0 && args.quote_to_pool < args.goal, RaiseError::InvalidParams);
         require!(args.tokens_for_investors > 0 && args.tokens_for_pool > 0, RaiseError::InvalidParams);
-        require!(args.duration_seconds > 0 && args.claim_delay_seconds >= 0, RaiseError::InvalidParams);
+        require!(
+            (MIN_DURATION_SECONDS..=MAX_DURATION_SECONDS).contains(&args.duration_seconds)
+                && (MIN_DEADLINE_SECONDS..=MAX_DEADLINE_SECONDS).contains(&args.claim_delay_seconds),
+            RaiseError::InvalidParams
+        );
+        // The pool opens at the backers' price: quote_to_pool / tokens_for_pool equals
+        // goal / tokens_for_investors, within one unit of rounding. Otherwise whoever sets
+        // the raise up could open the pool far below what backers paid, and buy from it.
+        let pool_side = args.quote_to_pool as u128 * args.tokens_for_investors as u128;
+        let backer_side = args.goal as u128 * args.tokens_for_pool as u128;
+        require!(pool_side.abs_diff(backer_side) <= args.tokens_for_investors as u128, RaiseError::PoolPriceMismatch);
+        let (treasury, liquidity) = dao_recipients(&ctx.accounts.base_mint.key());
+        require_keys_eq!(ctx.accounts.treasury.key(), treasury, RaiseError::NotTheDao);
+        require_keys_eq!(ctx.accounts.pool_operator.key(), liquidity, RaiseError::NotTheDao);
         require!(
             ctx.accounts.base_mint.mint_authority == COption::Some(ctx.accounts.raise.key()),
             RaiseError::InvalidMint
@@ -160,13 +199,19 @@ pub mod lfown_raise {
         let now = Clock::get()?.unix_timestamp;
         require!(now >= raise.ends_at, RaiseError::NotEnded);
 
-        if raise.total_committed < raise.goal {
+        // Below the goal, or past the deadline without a DAO: failed, and anyone may say so.
+        let deadline = raise.ends_at.saturating_add(raise.claim_delay_seconds);
+        if raise.total_committed < raise.goal || now >= deadline {
             let raise = &mut ctx.accounts.raise;
             raise.state = RaiseState::Failed;
             raise.settled_at = now;
             emit!(RaiseSettled { raise: raise.key(), succeeded: false, total_committed: raise.total_committed });
             return Ok(());
         }
+
+        // Success is paid out only to a DAO that is being opened right now: the operator is
+        // the DAO's liquidity authority, which signs only inside `bootstrap_dao`.
+        require!(ctx.accounts.pool_operator.is_signer, RaiseError::NotOperator);
 
         let mint_key = raise.base_mint;
         let seeds: &[&[u8]] = &[RAISE_SEED, mint_key.as_ref(), &[raise.bump]];
@@ -196,23 +241,15 @@ pub mod lfown_raise {
         let raise = &mut ctx.accounts.raise;
         raise.state = RaiseState::Succeeded;
         raise.settled_at = now;
-        emit!(RaiseSettled { raise: raise.key(), succeeded: true, total_committed: raise.total_committed });
-        Ok(())
-    }
-
-    pub fn open_claims(ctx: Context<OpenClaims>) -> Result<()> {
-        let raise = &mut ctx.accounts.raise;
-        require!(raise.state == RaiseState::Succeeded, RaiseError::NotSucceeded);
         raise.claims_open = true;
+        emit!(RaiseSettled { raise: raise.key(), succeeded: true, total_committed: raise.total_committed });
         Ok(())
     }
 
     pub fn claim(ctx: Context<Claim>) -> Result<()> {
         let raise = &ctx.accounts.raise;
         require!(raise.state == RaiseState::Succeeded, RaiseError::NotSucceeded);
-        let now = Clock::get()?.unix_timestamp;
-        let delay_passed = now >= raise.settled_at.saturating_add(raise.claim_delay_seconds);
-        require!(raise.claims_open || delay_passed, RaiseError::ClaimsNotOpen);
+        require!(raise.claims_open, RaiseError::ClaimsNotOpen);
         require!(!ctx.accounts.commitment.settled, RaiseError::AlreadySettled);
 
         let amount = ctx.accounts.commitment.amount;
@@ -268,8 +305,11 @@ fn transfer_signed<'info>(
 
 #[derive(Accounts)]
 pub struct InitializeRaise<'info> {
+    // Only the mint's own keypair opens a raise on it: the site creates the mint in one
+    // transaction and the raise in the next, and nobody may slip theirs in between.
     #[account(
         mut,
+        signer @ RaiseError::MintMustSign,
         constraint = base_mint.decimals == 6 @ RaiseError::InvalidMint,
         constraint = base_mint.supply == 0 @ RaiseError::InvalidMint,
         constraint = base_mint.freeze_authority.is_none() @ RaiseError::InvalidMint,
@@ -285,13 +325,15 @@ pub struct InitializeRaise<'info> {
         bump,
     )]
     pub raise: Box<Account<'info, Raise>>,
-    #[account(init, payer = authority, associated_token::mint = base_mint, associated_token::authority = raise)]
+    // If needed: anyone can open an associated token account for any owner, and one opened
+    // ahead of time must not stop the raise.
+    #[account(init_if_needed, payer = authority, associated_token::mint = base_mint, associated_token::authority = raise)]
     pub base_vault: Box<Account<'info, TokenAccount>>,
-    #[account(init, payer = authority, associated_token::mint = quote_mint, associated_token::authority = raise)]
+    #[account(init_if_needed, payer = authority, associated_token::mint = quote_mint, associated_token::authority = raise)]
     pub quote_vault: Box<Account<'info, TokenAccount>>,
-    /// CHECK: only its address is recorded; it receives the treasury's share.
+    /// CHECK: must be the treasury of the DAO this mint derives (checked in the handler).
     pub treasury: UncheckedAccount<'info>,
-    /// CHECK: only its address is recorded; it receives the pool's share and opens claims.
+    /// CHECK: must be the liquidity authority of that DAO (checked in the handler).
     pub pool_operator: UncheckedAccount<'info>,
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -351,13 +393,6 @@ pub struct Settle<'info> {
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct OpenClaims<'info> {
-    #[account(mut, seeds = [RAISE_SEED, raise.base_mint.as_ref()], bump = raise.bump, has_one = pool_operator @ RaiseError::NotOperator)]
-    pub raise: Box<Account<'info, Raise>>,
-    pub pool_operator: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -475,4 +510,10 @@ pub enum RaiseError {
     InvalidAmount,
     #[msg("Arithmetic overflow")]
     Overflow,
+    #[msg("The pool's share does not open the pool at the backers' price")]
+    PoolPriceMismatch,
+    #[msg("The new mint must sign the raise that sells it")]
+    MintMustSign,
+    #[msg("The treasury and pool operator must be the DAO this mint derives")]
+    NotTheDao,
 }

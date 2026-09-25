@@ -56,7 +56,10 @@ export const TERMS = {
   /** Share of the raise that opens the pool; the rest is the DAO's treasury. */
   poolShareBps: 8_000,
   durationSeconds: 24 * 60 * 60,
-  /** Claims open on their own this long after settlement, even with no pool. */
+  /**
+   * How long after the raise ends its DAO may still be opened. Past it, a raise that met
+   * its goal is refunded like one that did not: nobody's money waits on a DAO forever.
+   */
   claimDelaySeconds: 3 * 24 * 60 * 60,
   /** Share of the pool's liquidity each proposal's markets are seeded with. */
   withdrawalBps: 5_000,
@@ -75,6 +78,16 @@ export const GOVERNANCE = {
   marketFeeBps: 30,
   /** 100,000 of the 18M tokens: proposing costs something while the liquidity is away. */
   proposalStake: 100_000n * UNIT,
+  /** A winning transfer moves at most 20% of what the treasury holds of that coin… */
+  maxTransferBps: 2_000,
+  /** …and a winning mint adds at most 5% to the supply. */
+  maxMintBps: 500,
+  /** A winner runs a day after the decision, so holders can leave first if they want to… */
+  executionDelaySeconds: 24 * 60 * 60,
+  /** …and within a week of it, or never. */
+  executionWindowSeconds: 7 * 24 * 60 * 60,
+  /** Share of the stake the treasury keeps when the market turns a proposal down. */
+  failedStakeSlashBps: 2_000,
 }
 
 // ── programs ─────────────────────────────────────────────────────────────────
@@ -112,7 +125,10 @@ const pda = (programId, seeds) => PublicKey.findProgramAddressSync(seeds.map(see
 const u16le = (n) => new Uint8Array([n & 0xff, (n >> 8) & 0xff])
 export const ata = (mint, owner, program = TOKEN_PROGRAM_ID) => getAssociatedTokenAddressSync(new PublicKey(mint), new PublicKey(owner), true, program)
 
-/** A DAO's name is its token's mint, cut to the 32 bytes a name may hold. */
+/**
+ * A DAO's name is its token's mint, cut to the 32 bytes a name may hold. Its address is
+ * the mint's, not the name's, so nobody can take a name ahead of the raise that owns it.
+ */
 export const daoNameFor = (mint) => new PublicKey(mint).toBase58().slice(0, 32)
 
 export function raiseAddresses(mint, quoteMint) {
@@ -131,13 +147,13 @@ export function daoAddresses(mint, quoteMint) {
   const quote = new PublicKey(quoteMint)
   const name = daoNameFor(baseMint)
   const f = PROGRAM_IDS.futarchy
-  const dao = pda(f, ['dao', name])
+  const dao = pda(f, ['dao', baseMint])
   const liquidityAuthority = pda(f, ['liquidity', dao])
   const positionNftMint = pda(f, ['position_nft', dao])
   const pool = deriveCustomizablePoolAddress(baseMint, quote)
   return {
     name, baseMint, quoteMint: quote, dao,
-    moderator: pda(f, ['moderator', name]),
+    moderator: pda(f, ['moderator', baseMint]),
     treasury: pda(f, ['treasury', dao]),
     mintAuthority: pda(f, ['mint_authority', dao]),
     liquidityAuthority,
@@ -175,6 +191,33 @@ export function proposalAddresses(d, id) {
     stakeEscrow: pda(f, ['stake', proposal]),
     actions: (i) => pda(f, ['actions', proposal, new Uint8Array([i])]),
   }
+}
+
+// ── which chain ──────────────────────────────────────────────────────────────
+
+const GENESIS = {
+  mainnet: '5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d',
+  devnet: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG',
+  testnet: '4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY',
+}
+const checkedClusters = new Map()
+
+/**
+ * Refuses to work on any chain but the one named: a devnet setting pointed at a mainnet
+ * RPC would otherwise sign real transactions with test keys. Checked once per RPC.
+ */
+export async function assertCluster(connection, cluster) {
+  const key = `${connection.rpcEndpoint} ${cluster}`
+  if (!checkedClusters.has(key)) {
+    checkedClusters.set(key, connection.getGenesisHash().then((genesis) => {
+      const ok = cluster === 'devnet' ? genesis === GENESIS.devnet
+        : cluster === 'localnet' ? !Object.values(GENESIS).includes(genesis)
+        : false
+      if (!ok) throw new Error(`the fair-launch RPC is not on ${cluster}`)
+    }))
+    checkedClusters.get(key).catch(() => checkedClusters.delete(key))
+  }
+  return checkedClusters.get(key)
 }
 
 // ── the DAO a raise commits to ──────────────────────────────────────────────
@@ -234,8 +277,9 @@ function createMetadataIx({ mint, mintAuthority, payer, updateAuthority, name, s
  * The two transactions that open a fair launch, in order: the token (mint, name and
  * picture, then its mint authority handed to the raise), then the raise itself.
  *
- * `mint` is a Keypair the caller keeps until both land; it signs the first. The creator
- * signs both. The goal, supply split and DAO rules are this file's TERMS and GOVERNANCE,
+ * `mint` is a Keypair the caller keeps until both land; it signs both, so only whoever
+ * created the token can open its raise, and on nothing but this DAO's addresses. The
+ * creator signs both too. The goal, supply split and DAO rules are this file's TERMS and GOVERNANCE,
  * so every fair launch is the same deal.
  */
 export async function buildOpenRaise(connection, { creator, mint, quoteMint, usdPrice, name, symbol, uri, terms = TERMS, governance = GOVERNANCE }) {
@@ -300,7 +344,10 @@ export async function refundIx(connection, raise, user) {
   }).instruction()
 }
 
-/** Anyone, once the raise has ended. */
+/**
+ * Anyone, once a raise has failed: below its goal at the end, or past its deadline without
+ * a DAO. A raise that met its goal settles only inside `bootstrapIx`.
+ */
 export async function settleIx(connection, raise, cranker) {
   const p = programs(connection)
   const r = raiseAddresses(raise.baseMint, raise.quoteMint)
@@ -313,18 +360,24 @@ export async function settleIx(connection, raise, cranker) {
   }).instruction()
 }
 
-/** Anyone, once the raise has succeeded: opens exactly the DAO the raise committed to. */
+/**
+ * Anyone, once a raise has ended above its goal and before its deadline: settles it and
+ * opens exactly the DAO and the pool it committed to, in one instruction.
+ */
 export async function bootstrapIx(connection, raise, payer, { terms = TERMS, governance = GOVERNANCE } = {}) {
   const p = programs(connection)
+  const r = raiseAddresses(raise.baseMint, raise.quoteMint)
   const d = daoAddresses(raise.baseMint, raise.quoteMint)
   return p.futarchy.methods.bootstrapDao(d.name, terms.withdrawalBps, bnOf(governance)).accountsStrict({
-    payer: new PublicKey(payer), raise: raiseAddresses(raise.baseMint, raise.quoteMint).raise,
+    payer: new PublicKey(payer), raise: r.raise,
     dao: d.dao, moderator: d.moderator, treasury: d.treasury, mintAuthority: d.mintAuthority, liquidityAuthority: d.liquidityAuthority,
-    baseMint: d.baseMint, quoteMint: d.quoteMint, liquidityBase: d.liquidityBase, liquidityQuote: d.liquidityQuote,
+    baseMint: d.baseMint, quoteMint: d.quoteMint, baseVault: r.baseVault, quoteVault: r.quoteVault, treasuryQuote: ata(d.quoteMint, d.treasury),
+    liquidityBase: d.liquidityBase, liquidityQuote: d.liquidityQuote,
     positionNftMint: d.positionNftMint, positionNftAccount: d.positionNftAccount, poolAuthority: DAMM_POOL_AUTHORITY, pool: d.pool,
     position: d.position, tokenAVault: d.tokenAVault, tokenBVault: d.tokenBVault,
     eventAuthority: DAMM_EVENT_AUTHORITY, cpAmmProgram: PROGRAM_IDS.cpAmm, raiseProgram: PROGRAM_IDS.raise,
-    tokenProgram: TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, token2022Program: TOKEN_2022_PROGRAM_ID,
+    systemProgram: SystemProgram.programId,
   }).instruction()
 }
 
@@ -454,7 +507,8 @@ export async function returnLiquidityIx(connection, d, payer) {
 export async function returnStakeIx(connection, d, id, payer, creator) {
   const q = proposalAddresses(d, id)
   return programs(connection).futarchy.methods.returnStake().accountsStrict({
-    payer: new PublicKey(payer), proposal: q.proposal, stakeEscrow: q.stakeEscrow, creator: new PublicKey(creator),
+    payer: new PublicKey(payer), proposal: q.proposal, stakeEscrow: q.stakeEscrow,
+    dao: d.dao, treasury: d.treasury, treasuryToken: ata(d.baseMint, d.treasury), creator: new PublicKey(creator),
     tokenMint: d.baseMint, creatorToken: ata(d.baseMint, creator),
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).instruction()
@@ -490,16 +544,32 @@ export async function executeIx(connection, d, id, optionIndex, actionIndex, act
 
 // ── trading a proposal's markets ─────────────────────────────────────────────
 
+/** What a swap of `amountIn` coin into the market's token yields, as the amm computes it. */
+export function swapOutput(amountIn, reserveIn, reserveOut, feeBps) {
+  let fee = (amountIn * BigInt(feeBps)) / 10_000n
+  if (feeBps > 0 && fee === 0n) fee = 1n
+  const taxed = amountIn - fee
+  return (taxed * reserveOut) / (reserveIn + taxed)
+}
+
 /**
  * Backing an option: `amount` of the coin is split into one conditional coin per option
  * (a claim on the coin if that option wins), and this option's is swapped into its
- * conditional token. Whatever option wins, the trader keeps that option's side.
+ * conditional token. Whatever option wins, the trader keeps that option's side. The swap
+ * refuses to fill more than `slippageBps` below the market as it is read here.
  */
-export async function backOptionIxs(connection, d, id, trader, optionIndex, amount) {
+export async function backOptionIxs(connection, d, id, trader, optionIndex, amount, { slippageBps = 200 } = {}) {
   const p = programs(connection)
   const q = proposalAddresses(d, id)
   const who = new PublicKey(trader)
   const o = q.options[optionIndex]
+  const [market, reserveIn, reserveOut] = await Promise.all([
+    p.amm.account.poolAccount.fetch(o.pool),
+    connection.getTokenAccountBalance(o.reserveA).then((b) => BigInt(b.value.amount)),
+    connection.getTokenAccountBalance(o.reserveB).then((b) => BigInt(b.value.amount)),
+  ])
+  const expected = swapOutput(BigInt(amount), reserveIn, reserveOut, market.fee)
+  const minOut = (expected * BigInt(10_000 - slippageBps)) / 10_000n
   const opens = q.options.flatMap((x) => [
     createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condQuote, who), who, x.condQuote),
     createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condBase, who), who, x.condBase),
@@ -508,7 +578,7 @@ export async function backOptionIxs(connection, d, id, trader, optionIndex, amou
     signer: who, vault: q.vault, mint: d.quoteMint, vaultAta: ata(d.quoteMint, q.vault), userAta: ata(d.quoteMint, who),
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).remainingAccounts(q.options.flatMap((x) => [meta(x.condQuote), meta(ata(x.condQuote, who))])).instruction()
-  const buy = await p.amm.methods.swap(true, new BN(amount.toString()), new BN(0)).accountsStrict({
+  const buy = await p.amm.methods.swap(true, new BN(amount.toString()), new BN(minOut.toString())).accountsStrict({
     trader: who, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
     traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
   }).instruction()
@@ -537,6 +607,7 @@ export async function redeemWinningsIxs(connection, d, id, trader) {
 const RAISE_STATES = ['live', 'succeeded', 'failed']
 const stateName = (s) => Object.keys(s ?? {})[0] ?? 'unknown'
 const num = (b) => BigInt(b?.toString?.() ?? 0)
+const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
 
 /** A raise account as plain values. */
 const toRaise = (publicKey, a) => ({
@@ -545,6 +616,7 @@ const toRaise = (publicKey, a) => ({
   tokensForInvestors: num(a.tokensForInvestors), tokensForPool: num(a.tokensForPool),
   startsAt: Number(a.startsAt), endsAt: Number(a.endsAt), settledAt: Number(a.settledAt),
   claimDelaySeconds: Number(a.claimDelaySeconds), state: stateName(a.state), claimsOpen: a.claimsOpen,
+  daoCommitment: hex(a.daoCommitment),
 })
 
 /** Every raise the program holds, newest first. */
@@ -594,6 +666,8 @@ export async function readDao(connection, mint, quoteMint) {
     proposalCount: moderator.proposalIdCounter,
     activeProposal: a.activeProposal.equals(PublicKey.default) ? null : a.activeProposal.toBase58(),
     checkpoint: { sqrtPrice: num(a.priceCheckpoint), at: Number(a.priceCheckpointAt) },
+    /** Liquidity redeemed from a proposal's market and not yet back in the pool. */
+    pendingReturn: a.pendingReturn,
     governance: a.governance,
   }
 }
@@ -611,7 +685,7 @@ export async function readProposals(connection, d, count) {
     out.push({
       id, address: q.proposal.toBase58(), creator: a.creator.toBase58(), state,
       winner: state === 'resolved' ? Number(Object.values(a.state.resolved)[0]) : null,
-      createdAt: Number(a.createdAt), lengthMinutes: a.config.length, warmupSeconds: a.config.warmupDuration,
+      createdAt: Number(a.createdAt), resolvedAt: Number(a.resolvedAt), lengthMinutes: a.config.length, warmupSeconds: a.config.warmupDuration,
       marketBiasBps: a.config.marketBias, startingObservation: num(a.config.startingObservation),
       prepared: num(a.baseLiquidity) > 0n, stake: num(a.stake),
       metadata: a.metadata,

@@ -37,8 +37,8 @@ pub struct Raise {
     pub starts_at: i64,
     pub ends_at: i64,
     pub settled_at: i64,
-    /// Claims open on their own this long after settlement even if the operator never
-    /// confirms the pool, so backers can never be locked out by an operator who vanished.
+    /// How long after `ends_at` a raise that met its goal may wait to become a DAO. Past
+    /// it, `settle` marks it failed and everyone takes their commitment back.
     pub claim_delay_seconds: i64,
     /// The DAO it opens on success, committed to at creation: see `InitializeRaiseArgs`.
     pub dao_commitment: [u8; 32],

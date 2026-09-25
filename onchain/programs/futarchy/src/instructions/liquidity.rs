@@ -16,7 +16,7 @@
 // Meteora's program is called through its IDL (`declare_program!(cp_amm)`); none of its
 // source is used.
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::associated_token::{get_associated_token_address, AssociatedToken};
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 use anchor_spl::token_interface::TokenAccount as InterfaceTokenAccount;
 
@@ -73,7 +73,7 @@ pub struct AttachPosition<'info> {
     #[account(address = dao.admin @ FutarchyError::Unauthorized)]
     pub admin: Signer<'info>,
 
-    #[account(mut, seeds = [DAO_SEED, dao.name.as_bytes()], bump = dao.bump)]
+    #[account(mut, seeds = [DAO_SEED, dao.token_mint.as_ref()], bump = dao.bump)]
     pub dao: Box<Account<'info, DAOAccount>>,
 
     /// CHECK: the DAO's liquidity authority, checked by seeds.
@@ -133,7 +133,7 @@ pub struct PrepareProposalLiquidity<'info> {
 
     #[account(
         mut,
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
     )]
@@ -143,9 +143,11 @@ pub struct PrepareProposalLiquidity<'info> {
     #[account(seeds = [LIQUIDITY_SEED, dao.key().as_ref()], bump = dao.liquidity_authority_bump)]
     pub liquidity_authority: UncheckedAccount<'info>,
 
-    #[account(mut, token::mint = dao.token_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = dao.token_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &dao.token_mint) @ FutarchyError::InvalidAccount)]
     pub liquidity_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = dao.quote_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = dao.quote_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &dao.quote_mint) @ FutarchyError::InvalidAccount)]
     pub liquidity_quote: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Meteora's pool authority, fixed.
@@ -179,6 +181,7 @@ pub fn prepare_proposal_liquidity_handler(ctx: Context<PrepareProposalLiquidity>
     let dao = &ctx.accounts.dao;
     require_keys_neq!(dao.position, Pubkey::default(), FutarchyError::PositionNotAttached);
     require_keys_eq!(dao.active_proposal, Pubkey::default(), FutarchyError::ProposalAlreadyActive);
+    require!(!dao.pending_return, FutarchyError::LiquidityNotReturned);
     // Withdrawn at a price the guard accepts, not at whatever a sandwich made it.
     check_fair_price(dao, spot_sqrt_price(&ctx.accounts.pool)?, Clock::get()?.unix_timestamp)?;
 
@@ -248,16 +251,18 @@ pub fn prepare_proposal_liquidity_handler(ctx: Context<PrepareProposalLiquidity>
 pub struct ReturnLiquidity<'info> {
     pub payer: Signer<'info>,
 
-    #[account(seeds = [DAO_SEED, dao.name.as_bytes()], bump = dao.bump)]
+    #[account(mut, seeds = [DAO_SEED, dao.token_mint.as_ref()], bump = dao.bump)]
     pub dao: Box<Account<'info, DAOAccount>>,
 
     /// CHECK: the DAO's liquidity authority, checked by seeds; it signs the deposit.
     #[account(seeds = [LIQUIDITY_SEED, dao.key().as_ref()], bump = dao.liquidity_authority_bump)]
     pub liquidity_authority: UncheckedAccount<'info>,
 
-    #[account(mut, token::mint = dao.token_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = dao.token_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &dao.token_mint) @ FutarchyError::InvalidAccount)]
     pub liquidity_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = dao.quote_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = dao.quote_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &dao.quote_mint) @ FutarchyError::InvalidAccount)]
     pub liquidity_quote: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, address = dao.pool @ FutarchyError::InvalidPool)]
@@ -299,8 +304,12 @@ pub fn return_liquidity_handler(ctx: Context<ReturnLiquidity>) -> Result<()> {
     check_fair_price(dao, sqrt_price, Clock::get()?.unix_timestamp)?;
     let base = ctx.accounts.liquidity_base.amount;
     let quote = ctx.accounts.liquidity_quote.amount;
-    let liquidity_delta = liquidity_for_amounts(base, quote, sqrt_price, sqrt_min, sqrt_max)
-        .ok_or(FutarchyError::NothingToReturn)?;
+    // Nothing that can go back (one side empty, or dust): the return is done all the same,
+    // so the next proposal is not held up by a remainder that can never be deposited.
+    let Some(liquidity_delta) = liquidity_for_amounts(base, quote, sqrt_price, sqrt_min, sqrt_max) else {
+        ctx.accounts.dao.pending_return = false;
+        return Ok(());
+    };
 
     let dao_key = dao.key();
     let bump = [dao.liquidity_authority_bump];
@@ -334,6 +343,7 @@ pub fn return_liquidity_handler(ctx: Context<ReturnLiquidity>) -> Result<()> {
         },
     )?;
 
+    ctx.accounts.dao.pending_return = false;
     emit!(LiquidityReturned { dao: dao_key, liquidity_delta, base_available: base, quote_available: quote });
     Ok(())
 }
@@ -345,7 +355,7 @@ pub struct ClaimPoolFees<'info> {
     #[account(mut)]
     pub payer: Signer<'info>,
 
-    #[account(seeds = [DAO_SEED, dao.name.as_bytes()], bump = dao.bump)]
+    #[account(seeds = [DAO_SEED, dao.token_mint.as_ref()], bump = dao.bump)]
     pub dao: Box<Account<'info, DAOAccount>>,
 
     /// CHECK: the DAO's liquidity authority, checked by seeds; it signs the claim and the split.
@@ -363,9 +373,11 @@ pub struct ClaimPoolFees<'info> {
     #[account(address = dao.quote_mint @ FutarchyError::InvalidMint)]
     pub quote_mint: Box<Account<'info, Mint>>,
 
-    #[account(mut, token::mint = base_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = base_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &base_mint.key()) @ FutarchyError::InvalidAccount)]
     pub liquidity_base: Box<Account<'info, TokenAccount>>,
-    #[account(mut, token::mint = quote_mint, token::authority = liquidity_authority)]
+    #[account(mut, token::mint = quote_mint, token::authority = liquidity_authority,
+        address = get_associated_token_address(&liquidity_authority.key(), &quote_mint.key()) @ FutarchyError::InvalidAccount)]
     pub liquidity_quote: Box<Account<'info, TokenAccount>>,
     #[account(init_if_needed, payer = payer, associated_token::mint = base_mint, associated_token::authority = treasury)]
     pub treasury_base: Box<Account<'info, TokenAccount>>,

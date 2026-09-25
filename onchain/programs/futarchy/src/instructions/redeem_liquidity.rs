@@ -1,7 +1,7 @@
 use amm::cpi::accounts::RemoveLiquidity;
 use amm::program::Amm;
 use anchor_lang::prelude::*;
-use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::associated_token::{get_associated_token_address, AssociatedToken};
 use anchor_spl::token::{Token, TokenAccount};
 use vault::cpi::accounts::UserVaultAction;
 use vault::program::Vault;
@@ -47,7 +47,7 @@ pub struct RedeemLiquidity<'info> {
     pub moderator: Box<Account<'info, ModeratorAccount>>,
     #[account(
         mut,
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
         constraint = dao.active_proposal == proposal.key() @ FutarchyError::LiquidityNotPrepared,
@@ -114,6 +114,35 @@ pub fn redeem_liquidity_handler<'info>(
         ctx.remaining_accounts.len() >= expected_remaining,
         FutarchyError::InvalidRemainingAccounts
     );
+
+    // LFOwn fork: every account the liquidity comes home through is the liquidity
+    // authority's own associated account, and every conditional mint is this proposal's.
+    // Anyone may call this, and it clears the DAO's active proposal: with stand-ins passed
+    // here, nothing would be redeemed and the liquidity would be stranded for good.
+    let la = ctx.accounts.liquidity_authority.key();
+    let vault_key = ctx.accounts.vault.key();
+    let ra = &ctx.remaining_accounts;
+    let cmint = |kind: u8, i: usize| {
+        Pubkey::find_program_address(&[b"cmint", vault_key.as_ref(), &[kind], &[i as u8]], &vault::ID).0
+    };
+    let w = winning_idx as usize;
+    require_keys_eq!(ra[2].key(), get_associated_token_address(&la, &cmint(1, w)), FutarchyError::InvalidAccount);
+    require_keys_eq!(ra[3].key(), get_associated_token_address(&la, &cmint(0, w)), FutarchyError::InvalidAccount);
+    let base_mint = ctx.accounts.dao.token_mint;
+    let quote_mint = ctx.accounts.dao.quote_mint;
+    require_keys_eq!(ra[4].key(), base_mint, FutarchyError::InvalidMint);
+    require_keys_eq!(ra[5].key(), get_associated_token_address(&vault_key, &base_mint), FutarchyError::InvalidAccount);
+    require_keys_eq!(ra[6].key(), get_associated_token_address(&la, &base_mint), FutarchyError::InvalidAccount);
+    let q = 7 + 2 * num_options;
+    require_keys_eq!(ra[q].key(), quote_mint, FutarchyError::InvalidMint);
+    require_keys_eq!(ra[q + 1].key(), get_associated_token_address(&vault_key, &quote_mint), FutarchyError::InvalidAccount);
+    require_keys_eq!(ra[q + 2].key(), get_associated_token_address(&la, &quote_mint), FutarchyError::InvalidAccount);
+    for i in 0..num_options {
+        require_keys_eq!(ra[7 + 2 * i].key(), cmint(0, i), FutarchyError::InvalidAccount);
+        require_keys_eq!(ra[8 + 2 * i].key(), get_associated_token_address(&la, &cmint(0, i)), FutarchyError::InvalidAccount);
+        require_keys_eq!(ra[q + 3 + 2 * i].key(), cmint(1, i), FutarchyError::InvalidAccount);
+        require_keys_eq!(ra[q + 4 + 2 * i].key(), get_associated_token_address(&la, &cmint(1, i)), FutarchyError::InvalidAccount);
+    }
 
     // Read reserve amounts to determine how much to withdraw
     let reserve_a_data = ctx.remaining_accounts[0].try_borrow_data()?;
@@ -208,7 +237,9 @@ pub fn redeem_liquidity_handler<'info>(
         winning_idx,
     });
 
-    // The DAO's liquidity is home again, with its authority: ready to go back into the pool.
+    // The DAO's liquidity is home again, with its authority: ready to go back into the pool,
+    // and it must, before another proposal takes a share out of what is left there.
     ctx.accounts.dao.active_proposal = Pubkey::default();
+    ctx.accounts.dao.pending_return = true;
     Ok(())
 }

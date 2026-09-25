@@ -37,6 +37,7 @@ pub struct AddLiquidity<'info> {
     pub depositor: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [
             POOL_SEED,
             pool.admin.as_ref(),
@@ -100,6 +101,20 @@ pub fn add_liquidity_handler(
     // Validate amounts are non-zero
     require!(amount_a > 0, AmmError::InvalidAmount);
     require!(amount_b > 0, AmmError::InvalidAmount);
+
+    // LFOwn fork: the market's clock starts when it is funded, not when it was created. A
+    // proposal's pools are made at `initialize_proposal` and funded at `launch_proposal`,
+    // possibly much later; upstream credited all that waiting to the first observation —
+    // an observation anyone could skew — and diluted every proposal that waited toward
+    // its starting price.
+    if ctx.accounts.reserve_a.amount == 0 && ctx.accounts.reserve_b.amount == 0 {
+        let now = Clock::get()?.unix_timestamp;
+        let oracle = &mut ctx.accounts.pool.oracle;
+        oracle.created_at_unix_time = now;
+        oracle.last_update_unix_time = now;
+        oracle.cumulative_observations = 0;
+        oracle.last_observation = oracle.starting_observation;
+    }
 
     // Transfer tokens from depositor -> reserves
     transfer_tokens(

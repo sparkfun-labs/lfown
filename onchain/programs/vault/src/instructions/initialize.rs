@@ -60,8 +60,11 @@ pub struct InitializeVault<'info> {
     pub quote_mint: Account<'info, Mint>,
 
     // Escrow ATA for base mint
+    // LFOwn fork: if needed. The vault's address is predictable, so anyone could open this
+    // account ahead of time for a few thousandths of a SOL, and with `init` the proposal
+    // that needs it — every proposal after — would fail for good.
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = base_mint,
         associated_token::authority = vault,
@@ -70,8 +73,11 @@ pub struct InitializeVault<'info> {
     pub base_token_acc: Account<'info, TokenAccount>,
 
     // Escrow ATA for quote mint
+    // LFOwn fork: if needed. The vault's address is predictable, so anyone could open this
+    // account ahead of time for a few thousandths of a SOL, and with `init` the proposal
+    // that needs it — every proposal after — would fail for good.
     #[account(
-        init,
+        init_if_needed,
         payer = payer,
         associated_token::mint = quote_mint,
         associated_token::authority = vault,

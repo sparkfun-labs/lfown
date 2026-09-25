@@ -76,6 +76,9 @@ pub struct ProposalAccount {
     // LFOwn fork: DAO tokens the creator locked to propose, held by the proposal until
     // it is decided. Zero once returned.
     pub stake: u64,
+    // LFOwn fork: when the market decided. The winner's actions run from
+    // `resolved_at + execution_delay_seconds`, for `execution_window_seconds`.
+    pub resolved_at: i64,
 
     #[max_len(64)] // Should cover v0 & most of v1
     pub metadata: Option<String>, // IPFS CID

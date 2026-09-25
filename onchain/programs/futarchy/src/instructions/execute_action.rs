@@ -14,8 +14,10 @@ use crate::state::dao::*;
 use crate::state::moderator::*;
 use crate::state::proposal::*;
 
-/// The action at `action_index`, if its option won and it has not run. Marks it as run.
+/// The action at `action_index`, if its option won, it has not run, and its execution
+/// window is open. Marks it as run.
 fn take_winning_action(
+    dao: &DAOAccount,
     proposal: &ProposalAccount,
     option_actions: &mut OptionActions,
     action_index: u8,
@@ -24,6 +26,12 @@ fn take_winning_action(
         ProposalState::Resolved(index) => index,
         _ => return err!(FutarchyError::ProposalNotResolved),
     };
+    // LFOwn fork: not at once, and not forever. The delay gives holders who disagree time
+    // to leave; the window stops a decision from running long after the treasury moved on.
+    let now = Clock::get()?.unix_timestamp;
+    let opens = proposal.resolved_at.saturating_add(dao.governance.execution_delay_seconds as i64);
+    require!(now >= opens, FutarchyError::ExecutionDelay);
+    require!(now < opens.saturating_add(dao.governance.execution_window_seconds as i64), FutarchyError::ExecutionExpired);
     require!(option_actions.option_index == winning, FutarchyError::OptionDidNotWin);
     let i = action_index as usize;
     require!(i < option_actions.actions.len(), FutarchyError::InvalidAction);
@@ -48,7 +56,7 @@ pub struct ExecuteTransfer<'info> {
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     #[account(
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
     )]
@@ -83,12 +91,15 @@ pub struct ExecuteTransfer<'info> {
 }
 
 pub fn execute_transfer_handler(ctx: Context<ExecuteTransfer>, action_index: u8) -> Result<()> {
-    let action = take_winning_action(&ctx.accounts.proposal, &mut ctx.accounts.option_actions, action_index)?;
+    let action = take_winning_action(&ctx.accounts.dao, &ctx.accounts.proposal, &mut ctx.accounts.option_actions, action_index)?;
     let Action::Transfer { mint, amount, recipient } = action else {
         return err!(FutarchyError::InvalidAction);
     };
     require_keys_eq!(mint, ctx.accounts.mint.key(), FutarchyError::InvalidAction);
     require_keys_eq!(recipient, ctx.accounts.recipient.key(), FutarchyError::InvalidAction);
+    // No more than the DAO allows one action to take of what the treasury holds now.
+    let cap = (ctx.accounts.treasury_token.amount as u128) * (ctx.accounts.dao.governance.max_transfer_bps as u128) / 10_000;
+    require!((amount as u128) <= cap, FutarchyError::ActionOverLimit);
 
     let dao_key = ctx.accounts.dao.key();
     let seeds: &[&[u8]] = &[TREASURY_SEED, dao_key.as_ref(), &[ctx.accounts.dao.treasury_bump]];
@@ -129,7 +140,7 @@ pub struct ExecuteMint<'info> {
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     #[account(
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
     )]
@@ -162,11 +173,14 @@ pub struct ExecuteMint<'info> {
 }
 
 pub fn execute_mint_handler(ctx: Context<ExecuteMint>, action_index: u8) -> Result<()> {
-    let action = take_winning_action(&ctx.accounts.proposal, &mut ctx.accounts.option_actions, action_index)?;
+    let action = take_winning_action(&ctx.accounts.dao, &ctx.accounts.proposal, &mut ctx.accounts.option_actions, action_index)?;
     let Action::MintTo { amount, recipient } = action else {
         return err!(FutarchyError::InvalidAction);
     };
     require_keys_eq!(recipient, ctx.accounts.recipient.key(), FutarchyError::InvalidAction);
+    // No more than the DAO allows one action to issue, against the supply now.
+    let cap = (ctx.accounts.mint.supply as u128) * (ctx.accounts.dao.governance.max_mint_bps as u128) / 10_000;
+    require!((amount as u128) <= cap, FutarchyError::ActionOverLimit);
 
     let dao_key = ctx.accounts.dao.key();
     let seeds: &[&[u8]] = &[MINT_AUTHORITY_SEED, dao_key.as_ref(), &[ctx.accounts.dao.mint_authority_bump]];

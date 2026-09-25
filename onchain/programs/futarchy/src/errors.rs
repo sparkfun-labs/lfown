@@ -141,4 +141,19 @@ pub enum FutarchyError {
 
     #[msg("This is not the DAO the raise committed to")]
     DaoCommitmentMismatch,
+
+    #[msg("An account is not the one this instruction requires")]
+    InvalidAccount,
+
+    #[msg("The last proposal's liquidity must go back into the pool first")]
+    LiquidityNotReturned,
+
+    #[msg("This action exceeds the DAO's limit for one proposal")]
+    ActionOverLimit,
+
+    #[msg("The winning actions cannot run yet: the execution delay has not passed")]
+    ExecutionDelay,
+
+    #[msg("The winning actions can no longer run: their window has closed")]
+    ExecutionExpired,
 }

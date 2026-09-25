@@ -15,11 +15,22 @@ pub struct InitializeDAO<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
+    /// The DAO must already hold its token's mint authority. A DAO that governs a token
+    /// someone else can still mint governs nothing, so the handover comes first.
+    #[account(
+        constraint = base_mint.mint_authority == COption::Some(mint_authority.key()) @ FutarchyError::MintNotControlled,
+    )]
+    pub base_mint: Box<Account<'info, Mint>>,
+
+    pub quote_mint: Box<Account<'info, Mint>>,
+
+    // LFOwn fork: a DAO is found by its token, not by a name. A name is anyone's to type,
+    // and a DAO opened under a raise's name before the raise settled took its money.
     #[account(
         init,
         payer = admin,
         space = 8 + DAOAccount::INIT_SPACE,
-        seeds = [DAO_SEED, name.as_bytes()],
+        seeds = [DAO_SEED, base_mint.key().as_ref()],
         bump
     )]
     pub dao: Box<Account<'info, DAOAccount>>,
@@ -28,7 +39,7 @@ pub struct InitializeDAO<'info> {
         init,
         payer = admin,
         space = 8 + ModeratorAccount::INIT_SPACE,
-        seeds = [MODERATOR_SEED, name.as_bytes()],
+        seeds = [MODERATOR_SEED, base_mint.key().as_ref()],
         bump
     )]
     pub moderator: Box<Account<'info, ModeratorAccount>>,
@@ -45,14 +56,6 @@ pub struct InitializeDAO<'info> {
     #[account(seeds = [LIQUIDITY_SEED, dao.key().as_ref()], bump)]
     pub liquidity_authority: UncheckedAccount<'info>,
 
-    /// The DAO must already hold its token's mint authority. A DAO that governs a token
-    /// someone else can still mint governs nothing, so the handover comes first.
-    #[account(
-        constraint = base_mint.mint_authority == COption::Some(mint_authority.key()) @ FutarchyError::MintNotControlled,
-    )]
-    pub base_mint: Box<Account<'info, Mint>>,
-
-    pub quote_mint: Box<Account<'info, Mint>>,
 
     pub system_program: Program<'info, System>,
 }
@@ -107,6 +110,7 @@ pub fn initialize_dao_handler(
         // No checkpoint until the position is attached and someone records the price.
         price_checkpoint: 0,
         price_checkpoint_at: 0,
+        pending_return: false,
     });
 
     emit!(ModeratorInitialized {

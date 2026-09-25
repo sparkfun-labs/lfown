@@ -191,7 +191,9 @@ function wire(button, status, action, done = 'Done.') {
 async function names(mints) {
   const pdas = mints.map((m) => PublicKey.findProgramAddressSync(
     [new TextEncoder().encode('metadata'), F.METADATA_PROGRAM.toBytes(), new PublicKey(m).toBytes()], F.METADATA_PROGRAM)[0])
-  const infos = await connection.getMultipleAccountsInfo(pdas)
+  // An RPC reads 100 accounts per call at most.
+  const infos = []
+  for (let i = 0; i < pdas.length; i += 100) infos.push(...await connection.getMultipleAccountsInfo(pdas.slice(i, i + 100)))
   return infos.map((info) => {
     if (!info) return { name: '', symbol: '' }
     const data = new Uint8Array(info.data)
@@ -205,6 +207,18 @@ async function names(mints) {
     }
     return { name: str(), symbol: str() }
   })
+}
+
+/**
+ * Whether a raise is on LFOwn's terms: one of this page's coins, the standard supply, and
+ * committed to the standard DAO. The programs let anyone open a raise on other terms; this
+ * page shows those, but does not ask anyone to back one.
+ */
+async function standardRaise(raise) {
+  if (!config.quotes.some((q) => q.mint === raise.quoteMint)) return false
+  if (raise.tokensForInvestors !== config.terms.tokensForInvestors || raise.tokensForPool !== config.terms.tokensForPool) return false
+  const expected = await F.daoCommitment(F.programs(connection), F.daoNameFor(raise.baseMint), config.terms.withdrawalBps, config.governance)
+  return raise.daoCommitment === expected.map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 const quoteOf = (mint) => config.quotes.find((q) => q.mint === String(mint)) ?? { symbol: 'coin', usdPrice: 0 }
@@ -244,7 +258,8 @@ function termsList(quote, t = config.terms, g = config.governance) {
     <li><span>Pool</span><span>${tokensM(t.tokensForPool)} tokens + ${t.poolShareBps / 100}% of the raise, owned by the DAO</span></li>
     <li><span>Treasury</span><span>${(10_000 - t.poolShareBps) / 100}% of the raise</span></li>
     <li><span>Raise lasts</span><span>${minutes(t.durationSeconds / 60)}</span></li>
-    <li><span>Proposals</span><span>${minutes(g.proposalLengthMinutes)}, pass by ${g.marketBiasBps / 100}%, stake ${tokensM(BigInt(g.proposalStake))} tokens</span></li>
+    <li><span>Proposals</span><span>${minutes(g.proposalLengthMinutes)}, pass by ${g.marketBiasBps / 100}%, stake ${tokensM(BigInt(g.proposalStake))} tokens (${g.failedStakeSlashBps / 100}% kept if turned down)</span></li>
+    <li><span>Winners</span><span>run ${minutes(g.executionDelaySeconds / 60)} after the decision; move at most ${g.maxTransferBps / 100}% of the treasury or mint ${g.maxMintBps / 100}% of the supply</span></li>
     <li><span>Pool fees</span><span>1%, half to the DAO, half to LFOwn</span></li>
   </ul>`
 }
@@ -288,7 +303,7 @@ async function renderIndex() {
       creator: wallet.address, mint, quoteMint: quote.mint, usdPrice: quote.usdPrice,
       name, symbol, uri: '', terms: config.terms, governance: config.governance,
     })
-    await sendAll(built.transactions.map((t) => t.instructions), { extra: [[mint], []], say })
+    await sendAll(built.transactions.map((t) => t.instructions), { extra: [[mint], [mint]], say })
     history.pushState(null, '', `/raise/${mint.publicKey.toBase58()}`)
   }, 'Raise open.')
 }
@@ -319,6 +334,7 @@ async function renderRaise(mint) {
   const ended = raise.endsAt <= nowS()
   const state = raise.state === 'live' ? (ended ? 'ended' : 'live') : raise.state
   const price = (raise.goal * 1_000_000n) / raise.tokensForInvestors
+  const standard = await standardRaise(raise)
 
   view.innerHTML = `${banner()}
     <a class="back" href="/raise">← Fair launches</a>
@@ -332,7 +348,9 @@ async function renderRaise(mint) {
     </div>
     <div class="progress" style="margin:-18px 0 28px"><i style="width:${Math.min(100, pct)}%"></i></div>
     <div class="cols">
-      <div class="card hot" id="position">${positionCard(raise, mine, q, ended)}</div>
+      <div class="card hot" id="position">${standard ? positionCard(raise, mine, q, ended) : `<h2>Not on LFOwn's terms</h2>
+        <p>This raise was opened directly on the program, with another supply, coin or DAO than LFOwn's. Nothing here checks what it
+        commits to, so this page does not take commitments for it.</p>${raise.state !== 'live' || ended ? positionCard(raise, mine, q, ended) : ''}`}</div>
       <div class="card"><h2>The deal</h2>${termsList(q)}</div>
     </div>
     <div id="dao"></div>`
@@ -356,8 +374,15 @@ function positionCard(raise, mine, q, ended) {
       <button class="btn" type="button" id="p-commit">Commit</button><p class="status" id="p-status"></p>`
   }
   if (raise.state === 'live') {
-    return `<h2>The raise has ended</h2><p>Settling it pays the pool and the treasury, or opens refunds if it missed its goal.
-      LFOwn's keeper does it within a minute; anyone can.</p>
+    const deadline = raise.endsAt + raise.claimDelaySeconds
+    if (raise.totalCommitted >= raise.goal && nowS() < deadline) {
+      return `<h2>The raise met its goal</h2><p>Opening its DAO settles it: the pool and the treasury are paid, the pool opens at the
+        raise's price, and claims open, all in one transaction. LFOwn's keeper does it within a minute; anyone can, until
+        ${until(deadline)} from now — past that, everyone is refunded instead.</p>
+        <button class="btn" type="button" id="p-bootstrap">Open the DAO now</button><p class="status" id="p-status"></p>`
+    }
+    return `<h2>The raise has ended</h2><p>It ${raise.totalCommitted >= raise.goal ? 'got no DAO in time' : 'missed its goal'}: settling it
+      opens refunds. LFOwn's keeper does it within a minute; anyone can.</p>
       <button class="btn" type="button" id="p-settle">Settle now</button><p class="status" id="p-status"></p>`
   }
   if (raise.state === 'failed') {
@@ -369,12 +394,10 @@ function positionCard(raise, mine, q, ended) {
   if (!committed) return '<h2>The raise succeeded</h2><p>You did not back it. Its token trades in the DAO\'s pool below.</p>'
   const a = F.allocation(raise, committed)
   if (mine.settled) return `<h2>Claimed</h2><p>You received ${tokensM(a.tokens)} tokens${a.refund ? ` and ${coins(a.refund)} ${esc(q.symbol)} back` : ''}.</p>`
-  const opensAt = raise.settledAt + raise.claimDelaySeconds
+  // A raise succeeds only by opening its DAO and pool, which opens claims at once.
   return `<h2>Your allocation</h2>
     <p><b>${tokensM(a.tokens)} tokens</b>${a.refund ? ` and <b>${coins(a.refund)} ${esc(q.symbol)}</b> back, the part over the goal` : ''}.</p>
-    ${raise.claimsOpen || nowS() >= opensAt
-      ? '<button class="btn" type="button" id="p-claim">Claim</button>'
-      : `<p class="hint">Claims open as soon as the DAO's pool exists (the keeper opens it within a minute), and on their own after ${until(opensAt)} whatever happens.</p>`}
+    <button class="btn" type="button" id="p-claim">Claim</button>
     <p class="status" id="p-status"></p>`
 }
 
@@ -387,6 +410,7 @@ function wirePosition(raise, q) {
     await sendAll([[await F.commitIx(connection, raise, session.address, BigInt(amount))]], { say })
   }, 'Committed.')
   wire($('#p-settle'), status, async (say) => sendAll([[await F.settleIx(connection, raise, session.address)]], { say }), 'Settled.')
+  wire($('#p-bootstrap'), status, async (say) => sendAll([[await F.bootstrapIx(connection, raise, session.address, { terms: config.terms, governance: config.governance })]], { say }), 'The DAO is open.')
   wire($('#p-claim'), status, async (say) => sendAll([[await F.claimIx(connection, raise, session.address)]], { say }), 'Claimed.')
   wire($('#p-refund'), status, async (say) => sendAll([[await F.refundIx(connection, raise, session.address)]], { say }), 'Refunded.')
 }
@@ -406,6 +430,7 @@ async function renderDao(d, q, meta) {
   ])
   const g = d.governance
   const stake = BigInt(g.proposalStake.toString())
+  const busyDao = Boolean(d.activeProposal) || d.pendingReturn
   box.innerHTML = `
     <div class="sec-head"><h2>The DAO</h2><span class="skel">${esc(short(d.dao))} · governed by futarchy</span></div>
     <div class="totals">
@@ -426,8 +451,11 @@ async function renderDao(d, q, meta) {
           <label><span class="lab">Amount</span><input id="n-amount" inputmode="decimal" placeholder="50"></label>
         </div>
         <label><span class="lab">To</span><input id="n-to" placeholder="${session ? esc(session.address) : 'a wallet address'}"></label>
-        <button class="btn" type="button" id="n-go" ${session && mineTokens < stake ? 'disabled' : ''}>Propose</button>
-        <p class="status" id="n-status">${session && mineTokens < stake ? `You need ${tokensM(stake)} ${esc(meta.symbol)} to propose.` : ''}</p>
+        <p class="hint">A winner runs ${minutes(g.executionDelaySeconds / 60)} after the decision, and at most
+          ${g.maxTransferBps / 100}% of the treasury or ${g.maxMintBps / 100}% of the supply at once.</p>
+        <button class="btn" type="button" id="n-go" ${session && (mineTokens < stake || busyDao) ? 'disabled' : ''}>Propose</button>
+        <p class="status" id="n-status">${!session ? '' : busyDao ? 'One proposal at a time: this one opens once the last one\'s liquidity is back in the pool.'
+          : mineTokens < stake ? `You need ${tokensM(stake)} ${esc(meta.symbol)} to propose.` : ''}</p>
       </div>
     </div>`
   wireDao(d, q, proposals)
@@ -436,9 +464,10 @@ async function renderDao(d, q, meta) {
 function describe(action, q, meta) {
   if (action.transfer) {
     const symbol = action.transfer.mint.toBase58() === q.mint ? q.symbol : meta.symbol
-    return `pay ${coins(action.transfer.amount)} ${esc(symbol)} from the treasury to ${esc(short(action.transfer.recipient.toBase58()))}`
+    return `pay ${coins(action.transfer.amount)} ${esc(symbol)} from the treasury to <span class="addr">${esc(action.transfer.recipient.toBase58())}</span>`
   }
-  return `mint ${tokensM(action.mintTo.amount)} ${esc(meta.symbol)} to ${esc(short(action.mintTo.recipient.toBase58()))}`
+  // The whole address: two that share their ends are two different people.
+  return `mint ${tokensM(action.mintTo.amount)} ${esc(meta.symbol)} to <span class="addr">${esc(action.mintTo.recipient.toBase58())}</span>`
 }
 
 function proposalCard(x, d, q, meta) {
@@ -491,6 +520,14 @@ function wireDao(d, q, proposals) {
     let to
     try { to = new PublicKey($('#n-to').value.trim() || wallet.address) } catch { throw new Error('That is not a wallet address.') }
     const units = BigInt(Math.round(amount * 1e6))
+    // The program refuses a winner over the DAO's limits; better to say so before the vote.
+    const g = d.governance
+    if ($('#n-kind').value === 'mint') {
+      const supply = BigInt((await connection.getTokenSupply(d.baseMint)).value.amount)
+      if (units * 10_000n > supply * BigInt(g.maxMintBps)) throw new Error(`A proposal mints at most ${g.maxMintBps / 100}% of the supply.`)
+    } else if (units * 10_000n > (await tokenBalance(d.quoteMint, d.treasury)) * BigInt(g.maxTransferBps)) {
+      throw new Error(`A proposal pays at most ${g.maxTransferBps / 100}% of the treasury.`)
+    }
     const action = $('#n-kind').value === 'mint'
       ? { mintTo: { amount: units, recipient: to } }
       : { transfer: { mint: d.quoteMint, amount: units, recipient: to } }

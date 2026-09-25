@@ -45,7 +45,7 @@ pub struct AddOption<'info> {
     #[account(address = proposal.moderator @ FutarchyError::InvalidDAO)]
     pub moderator: Box<Account<'info, ModeratorAccount>>,
     #[account(
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
     )]
@@ -81,7 +81,7 @@ pub fn add_option_handler<'info>(
 
     let curr_options = proposal.num_options;
 
-    require!(curr_options < MAX_OPTIONS, FutarchyError::TooManyOptions);
+    require!(curr_options < MAX_OPTIONS && curr_options < LFOWN_MAX_OPTIONS, FutarchyError::TooManyOptions);
 
     // Update state
     proposal.pools[curr_options as usize] = ctx.remaining_accounts[3].key(); // pool

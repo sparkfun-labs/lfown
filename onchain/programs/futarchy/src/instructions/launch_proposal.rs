@@ -53,7 +53,7 @@ pub struct LaunchProposal<'info> {
     #[account(address = proposal.moderator @ FutarchyError::InvalidDAO)]
     pub moderator: Box<Account<'info, ModeratorAccount>>,
     #[account(
-        seeds = [DAO_SEED, moderator.name.as_bytes()],
+        seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
         constraint = dao.active_proposal == proposal.key() @ FutarchyError::LiquidityNotPrepared,

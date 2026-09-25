@@ -23,7 +23,7 @@ pub struct TransferAdmin<'info> {
         mut,
         seeds = [
             DAO_SEED,
-            dao.name.as_bytes()
+            dao.token_mint.as_ref()
         ],
         bump = dao.bump
     )]
@@ -33,9 +33,9 @@ pub struct TransferAdmin<'info> {
         mut,
         seeds = [
             MODERATOR_SEED,
-            moderator.name.as_bytes()
+            moderator.base_mint.as_ref()
         ],
-        constraint = dao.name == moderator.name @ FutarchyError::InvalidDAO,
+        constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
         bump = moderator.bump
     )]
     pub moderator: Box<Account<'info, ModeratorAccount>>,

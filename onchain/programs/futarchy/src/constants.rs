@@ -9,6 +9,12 @@ use anchor_lang::prelude::*;
 #[constant]
 pub const MAX_OPTIONS: u8 = 6;
 
+/// LFOwn fork: a proposal is a yes or a no. The program could hold six options, but every
+/// screen that shows a proposal, and every trader reading one, deals in two: a third
+/// option nobody looks at is where a hostile action would hide.
+#[constant]
+pub const LFOWN_MAX_OPTIONS: u8 = 2;
+
 // Minimum number of conditional options required
 #[constant]
 pub const MIN_OPTIONS: u8 = 2;
@@ -52,18 +58,16 @@ pub const MIN_PROPOSAL_MINUTES: u16 = 5;
 #[constant]
 pub const MAX_PROPOSAL_MINUTES: u16 = 14 * 24 * 60;
 
-/// The pool price a DAO's liquidity moves at must be close to one recorded earlier:
-/// recorded at least `CHECKPOINT_MIN_AGE` seconds ago, at most `CHECKPOINT_MAX_AGE`, and
-/// within `MAX_PRICE_MOVE_BPS` of it. A price pushed and pulled back within one block
-/// cannot pass; one held for a minute costs whoever holds it against every arbitrageur.
-#[constant]
-pub const CHECKPOINT_MIN_AGE: i64 = 60;
+/// The pool price a DAO's liquidity moves at must be within `MAX_PRICE_MOVE_BPS` of a
+/// checkpoint updated in the last `CHECKPOINT_MAX_AGE` seconds. The checkpoint itself
+/// follows the pool slowly: at most once per `CHECKPOINT_INTERVAL`, and by at most
+/// `MAX_CHECKPOINT_STEP_BPS` each time (see price_guard.rs).
 #[constant]
 pub const CHECKPOINT_MAX_AGE: i64 = 30 * 60;
-/// A checkpoint cannot be replaced before this age, so there is always a window in which
-/// the one in place is usable and nobody can refresh it away.
 #[constant]
-pub const CHECKPOINT_REFRESH: i64 = 5 * 60;
+pub const CHECKPOINT_INTERVAL: i64 = 60;
+#[constant]
+pub const MAX_CHECKPOINT_STEP_BPS: u16 = 100;
 #[constant]
 pub const MAX_PRICE_MOVE_BPS: u16 = 500;
 
