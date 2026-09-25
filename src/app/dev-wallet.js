@@ -5,8 +5,8 @@
 // kept in this browser's localStorage, so the pages can be used end to end against
 // `npm run localnet` exactly as they will be with a real wallet.
 //
-// fair.js loads it only when the fair-launch cluster is localnet and the page is served
-// from this machine. `?as=alice` picks a named key, so one browser can play the creator,
+// fair.js loads it only for a test cluster (localnet, devnet) and only when the page is
+// served from this machine. `?as=alice` picks a named key, so one browser can play the creator,
 // a backer and a trader in turn.
 
 import { Keypair, Transaction } from '@solana/web3.js'

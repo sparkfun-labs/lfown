@@ -1,8 +1,11 @@
-// LFOwn fair launch — one whole launch against the local chain, through the site's own
-// library and keeper. No browser: this proves the instructions the pages will send.
+// LFOwn fair launch — one whole launch against the fair-launch cluster, through the site's
+// own library and keeper. No browser: this proves the instructions the pages will send.
 //
-//   (in onchain/) npm run localnet          then, at the root:
-//   node scripts/test-fair-local.mjs
+//   (in onchain/) npm run localnet             then: npm run test:fair-local
+//   (in onchain/) node scripts/devnet-setup.mjs then: npm run test:fair-devnet
+//
+// Whichever cluster .dev.vars names. On devnet the three test wallets are funded from
+// ~/.config/solana/id.json, a quarter of a SOL each.
 //
 // A raise opened for 20 seconds and oversubscribed, settled and turned into a DAO by the
 // keeper, claimed; a proposal staked and prepared by a backer, launched by the keeper,
@@ -11,7 +14,8 @@
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
-import { ComputeBudgetProgram, Connection, Keypair, PublicKey, Transaction } from '@solana/web3.js'
+import { homedir } from 'node:os'
+import { ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js'
 import { fairConfig } from '../src/fair-api.mjs'
 import { faucet, runFairKeeper } from '../src/lib/fair-keeper.mjs'
 import * as F from '../src/lib/fair-launch.mjs'
@@ -19,7 +23,7 @@ import * as F from '../src/lib/fair-launch.mjs'
 const env = Object.fromEntries(readFileSync(new URL('../.dev.vars', import.meta.url), 'utf8')
   .split('\n').map((l) => l.match(/^([A-Z_]+)=(.*)$/)).filter(Boolean).map((m) => [m[1], m[2]]))
 const config = fairConfig(env)
-if (config?.cluster !== 'localnet') throw new Error('Run `npm run localnet` in onchain/ first: this test only runs on a local chain.')
+if (!['localnet', 'devnet'].includes(config?.cluster)) throw new Error('No fair-launch cluster in .dev.vars: run `npm run localnet` or `node scripts/devnet-setup.mjs` in onchain/ first.')
 const connection = new Connection(config.rpc, 'confirmed')
 const coin = config.quotes[0]
 const quoteMint = new PublicKey(coin.mint)
@@ -47,8 +51,12 @@ const keeperPass = () => runFairKeeper({ config, keeperSecret: env.FAIR_KEEPER_K
 
 // ── people ──
 const [creator, alice, bob] = [Keypair.generate(), Keypair.generate(), Keypair.generate()]
+if (config.cluster === 'devnet') {
+  const funder = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(`${homedir()}/.config/solana/id.json`, 'utf8'))))
+  await send([creator, alice, bob].map((who) => SystemProgram.transfer({ fromPubkey: funder.publicKey, toPubkey: who.publicKey, lamports: LAMPORTS_PER_SOL / 4 })), [funder], 'fund')
+}
 for (const who of [creator, alice, bob]) await faucet(config, env.FAIR_FAUCET_KEY, who.publicKey.toBase58())
-say(`three wallets with 2 SOL and 5,000 ${coin.symbol} each`)
+say(`on ${config.cluster}: three wallets with SOL and 5,000 ${coin.symbol} each`)
 
 // ── the raise ──
 const mint = Keypair.generate()

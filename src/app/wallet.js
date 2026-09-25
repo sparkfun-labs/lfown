@@ -103,21 +103,25 @@ export function forget() {
  * not, it declines rather than opening a popup nobody asked for. Reloading a page
  * should not cost a click, and it should not steal focus either.
  */
-export async function reconnect() {
+export async function reconnect({ chain } = {}) {
   const name = remembered()
   if (!name) return null
   const wallet = available().find((w) => w.name === name)
   if (!wallet) return null
   try {
-    return await connect(wallet, { silent: true })
+    return await connect(wallet, { silent: true, chain })
   } catch {
     forget() // the wallet no longer trusts us, or was removed
     return null
   }
 }
 
-/** Connects and returns { address, signAndSend(tx, connection) }. */
-export async function connect(wallet, { silent = false } = {}) {
+/**
+ * Connects and returns { address, signAndSend(tx, connection) }. `chain` is the network
+ * the wallet is told it signs for: mainnet everywhere but fair launches, which run on a
+ * test cluster and say so, or Phantom refuses a devnet transaction as a mainnet one.
+ */
+export async function connect(wallet, { silent = false, chain = 'solana:mainnet' } = {}) {
   if (wallet.__legacy) {
     const legacy = wallet.__legacy
     const { publicKey } = await legacy.connect(silent ? { onlyIfTrusted: true } : undefined)
@@ -161,7 +165,7 @@ export async function connect(wallet, { silent = false } = {}) {
       if (signAndSendFeature) {
         const [{ signature }] = await signAndSendFeature.signAndSendTransaction({
           account,
-          chain: 'solana:mainnet',
+          chain,
           transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
         })
         return bs58(signature)
@@ -169,7 +173,7 @@ export async function connect(wallet, { silent = false } = {}) {
       if (!signFeature) throw new Error(`${wallet.name} cannot sign transactions`)
       const [{ signedTransaction }] = await signFeature.signTransaction({
         account,
-        chain: 'solana:mainnet',
+        chain,
         transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
       })
       return connection.sendRawTransaction(signedTransaction)
@@ -190,7 +194,7 @@ export async function connect(wallet, { silent = false } = {}) {
       if (!signFeature) return null
       const [{ signedTransaction }] = await signFeature.signTransaction({
         account,
-        chain: 'solana:mainnet',
+        chain,
         transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
       })
       return signedTransaction
@@ -211,7 +215,7 @@ export async function connect(wallet, { silent = false } = {}) {
       if (!signFeature) return null
       const signed = await signFeature.signTransaction(...txs.map((tx) => ({
         account,
-        chain: 'solana:mainnet',
+        chain,
         transaction: tx.serialize({ requireAllSignatures: false, verifySignatures: false }),
       })))
       if (signed.length !== txs.length) throw new Error(`${wallet.name} signed ${signed.length} of ${txs.length} transactions`)

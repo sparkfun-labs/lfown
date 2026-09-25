@@ -36,6 +36,8 @@ function until(ts) {
 const minutes = (m) => (m >= 1440 && m % 1440 === 0 ? `${m / 1440} days` : m >= 120 && m % 60 === 0 ? `${m / 60} h` : `${m} min`)
 
 let config = null
+/** The Wallet Standard name of the fair-launch cluster. */
+const fairChain = () => `solana:${config?.cluster === 'localnet' ? 'localnet' : config?.cluster ?? 'devnet'}`
 let connection = null
 let session = null
 
@@ -87,7 +89,7 @@ async function ensureWallet() {
   if (session) return session
   const found = available()
   if (!found.length) throw new Error('No Solana wallet found in this browser.')
-  session = await connect(await chooseWallet(found))
+  session = await connect(await chooseWallet(found), { chain: fairChain() })
   paintConnect()
   render()
   return session
@@ -213,10 +215,12 @@ const tokenBalance = async (mint, owner) => {
 // ── pages ────────────────────────────────────────────────────────────────────
 
 function banner() {
-  const faucet = config.cluster === 'localnet' && session
-    ? '<button class="btn ghost" type="button" id="faucet">Get test SOL and coins</button>' : ''
+  const coinsOnly = config.cluster !== 'localnet'
+  const faucet = config.faucet && session
+    ? `<button class="btn ghost" type="button" id="faucet">${coinsOnly ? 'Get test coins' : 'Get test SOL and coins'}</button>` : ''
+  const sol = coinsOnly ? ' Test SOL: <a href="https://faucet.solana.com" target="_blank" rel="noopener">faucet.solana.com</a>.' : ''
   return `<div class="net"><b>Test network · ${esc(config.cluster)}</b>
-    <span>Fair launches run on a test chain until their programs are audited. Nothing here is real money.</span>${faucet}</div>`
+    <span>Fair launches run on a test chain until their programs are audited. Nothing here is real money.${sol}</span>${faucet}</div>`
 }
 function wireBanner() {
   const button = $('#faucet')
@@ -541,11 +545,13 @@ async function boot() {
   for (const k of ['tokensForInvestors', 'tokensForPool']) config.terms[k] = BigInt(config.terms[k])
   config.governance.proposalStake = BigInt(config.governance.proposalStake)
   connection = new Connection(`${location.origin}${config.rpcPath}`, 'confirmed')
-  if (config.cluster === 'localnet') (await import('./dev-wallet.js')).installDevWallet()
+  // A throwaway wallet, on this machine only, for a test cluster: Phantom cannot sign for a
+  // local chain, and on devnet it lets the flow be checked without one.
+  if (['localnet', 'devnet'].includes(config.cluster)) (await import('./dev-wallet.js')).installDevWallet()
   paintConnect()
   await render()
   for (let wait = 0; wait < 8 && !available().length; wait++) await new Promise((r) => setTimeout(r, 250))
-  const resumed = await reconnect().catch(() => null)
+  const resumed = await reconnect({ chain: fairChain() }).catch(() => null)
   if (resumed) { session = resumed; paintConnect(); render() }
   // A raise and its markets move by the minute; so does this page.
   setInterval(() => { if (!busy && !document.hidden && !document.activeElement?.matches('input, select')) render() }, 20_000)

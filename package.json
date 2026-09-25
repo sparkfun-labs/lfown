@@ -11,7 +11,8 @@
     "test:rpc": "node scripts/test-rpc.mjs",
     "test:sponsor": "node scripts/test-sponsor-devnet.mjs",
     "test:fee-wallet": "node scripts/test-fee-wallet-devnet.mjs",
-    "test:fair-local": "node scripts/test-fair-local.mjs"
+    "test:fair-local": "node scripts/test-fair-local.mjs",
+    "test:fair-devnet": "node scripts/test-fair-local.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

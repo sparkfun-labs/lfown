@@ -150,7 +150,9 @@ export async function faucet(config, faucetSecret, address) {
   const to = new PublicKey(address)
   const connection = new Connection(config.rpc, 'confirmed')
   const key = keypairFrom(faucetSecret)
-  await waitFor(connection, await connection.requestAirdrop(to, 2 * LAMPORTS_PER_SOL), null, { timeoutMs: 30_000 })
+  if (config.cluster === 'localnet') {
+    await waitFor(connection, await connection.requestAirdrop(to, 2 * LAMPORTS_PER_SOL), null, { timeoutMs: 30_000 })
+  }
   const ixs = config.quotes.flatMap((q) => {
     const mint = new PublicKey(q.mint)
     const account = getAssociatedTokenAddressSync(mint, to, true)
@@ -160,5 +162,5 @@ export async function faucet(config, faucetSecret, address) {
     ]
   })
   if (ixs.length) await send(connection, key, ixs, `faucet ${address.slice(0, 6)}`, () => {})
-  return { sol: 2, coins: config.quotes.map((q) => ({ symbol: q.symbol, amount: 5_000 })) }
+  return { sol: config.cluster === 'localnet' ? 2 : 0, coins: config.quotes.map((q) => ({ symbol: q.symbol, amount: 5_000 })) }
 }

@@ -549,7 +549,10 @@ const toRaise = (publicKey, a) => ({
 
 /** Every raise the program holds, newest first. */
 export async function listRaises(connection) {
-  const all = await programs(connection).raise.account.raise.all()
+  // Raises of today's layout only: a test cluster keeps accounts from older versions of
+  // the program, and one of those would fail the whole listing.
+  const raise = programs(connection).raise.account.raise
+  const all = await raise.all([{ dataSize: raise.size }])
   return all.map(({ publicKey, account }) => toRaise(publicKey, account)).sort((x, y) => y.startsAt - x.startsAt)
 }
 

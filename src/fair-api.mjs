@@ -66,7 +66,7 @@ export async function handleFair(url, request, env, { limited }) {
 
   if (path === '/api/fair/config') {
     const { rpc, ...open } = config
-    return json({ ...open, rpcPath: '/api/fair/rpc' })
+    return json({ ...open, rpcPath: '/api/fair/rpc', faucet: Boolean(env.FAIR_FAUCET_KEY) })
   }
 
   if (path === '/api/fair/rpc' && request.method === 'POST') {
@@ -110,10 +110,10 @@ export async function handleFair(url, request, env, { limited }) {
     })
   }
 
-  // Test SOL and test coin for a wallet, so a local run needs nothing from outside.
-  // Localnet only: on devnet the faucet is Solana's, and the stand-in coin is minted by hand.
+  // Test coins for a wallet — and test SOL on localnet. Devnet's SOL comes from Solana's
+  // own faucet (faucet.solana.com): its airdrops are rationed, and not ours to hand out.
   if (path === '/api/fair/faucet' && request.method === 'POST') {
-    if (config.cluster !== 'localnet' || !env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
+    if (!['localnet', 'devnet'].includes(config.cluster) || !env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
     if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
     const { address } = await request.json().catch(() => ({}))
     const { faucet } = await import('./lib/fair-keeper.mjs')
