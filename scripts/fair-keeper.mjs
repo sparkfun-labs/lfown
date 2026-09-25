@@ -21,6 +21,7 @@ const stamp = () => new Date().toISOString().slice(11, 19)
 const pass = () => runFairKeeper({ config, keeperSecret: env.FAIR_KEEPER_KEY, memory, log: (m) => console.log(`${stamp()} ${m}`) })
   .catch((e) => console.error(`${stamp()} pass failed: ${e.message}`))
 
-console.log(`${stamp()} keeper on ${config.cluster} (${config.rpc})`)
+// The host only: the URL may carry an API key.
+console.log(`${stamp()} keeper on ${config.cluster} (${new URL(config.rpc).host})`)
 await pass()
 if (!process.argv.includes('--once')) setInterval(pass, 15_000)
