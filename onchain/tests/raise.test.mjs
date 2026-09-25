@@ -67,11 +67,11 @@ function world() {
     if (code) assert.equal(r.code, code, `${what}: expected ${code}, got ${r.code}\n${r.logs?.join('\n')}`)
   }
 
-  const createMint = (authority) => {
+  const createMint = (authority, freezeAuthority = null) => {
     const mint = Keypair.generate()
     must(send([
       SystemProgram.createAccount({ fromPubkey: payer.publicKey, newAccountPubkey: mint.publicKey, lamports: Number(svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE))), space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
-      createInitializeMint2Instruction(mint.publicKey, 6, authority, null),
+      createInitializeMint2Instruction(mint.publicKey, 6, authority, freezeAuthority),
     ], [payer, mint]), 'create mint')
     return mint.publicKey
   }
@@ -100,8 +100,8 @@ function world() {
 }
 
 /** A raise opened on fresh mints, with its addresses and one call per instruction. */
-function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintAuthority, recipients, mintSigns = true } = {}) {
-  const usdcMint = w.createMint(w.payer.publicKey)
+function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintAuthority, recipients, mintSigns = true, freezableCoin = false } = {}) {
+  const usdcMint = w.createMint(w.payer.publicKey, freezableCoin ? w.payer.publicKey : null)
   const baseMintKp = Keypair.generate()
   const [raise] = PublicKey.findProgramAddressSync([Buffer.from('raise'), baseMintKp.publicKey.toBuffer()], PROGRAM_ID)
   // The mint is created with the raise as its authority, which is only possible because the
@@ -239,4 +239,6 @@ test('a mint the raise does not control is refused', () => {
   const w = world()
   const r = openRaise(w, { mintAuthority: Keypair.generate().publicKey })
   w.refused(r.init(), 'InvalidMint', 'opening a raise on a mint someone else can still mint')
+  // Nor a coin someone could freeze the raise's vault in.
+  w.refused(openRaise(w, { freezableCoin: true }).init(), 'InvalidMint', 'a raise priced in a freezable coin')
 })

@@ -62,6 +62,11 @@ const RPC_ALLOWED = new Set([
 /** A page's biggest batch is a handful of calls; a transaction is 1,232 bytes. */
 const RPC_MAX_CALLS = 20
 const RPC_MAX_BYTES = 32 * 1024
+/** Accounts read per request, all calls together: what one RPC call allows. */
+const RPC_MAX_ACCOUNTS = 100
+/** The faucet: three wallets a day per visitor, thirty an hour for everyone. */
+const FAUCET_PER_IP_PER_DAY = 3
+const FAUCET_PER_HOUR = 30
 
 /** Only this site's pages use the proxy: a request from another origin is refused. */
 const sameOrigin = (request, url) => {
@@ -104,20 +109,24 @@ export async function handleFair(url, request, env, { limited, ctx }) {
   if (path === '/api/fair/rpc' && request.method === 'POST') {
     if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, { status: 403 })
     if (await limited(env.RPC_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
-    const text = await request.text()
-    if (text.length > RPC_MAX_BYTES) return json({ error: 'too large' }, { status: 413 })
+    const bytes = new Uint8Array(await request.arrayBuffer())
+    if (bytes.length > RPC_MAX_BYTES) return json({ error: 'too large' }, { status: 413 })
     let body = null
-    try { body = JSON.parse(text) } catch {}
+    try { body = JSON.parse(new TextDecoder().decode(bytes)) } catch {}
     const calls = Array.isArray(body) ? body : [body]
     if (!body || !calls.length || calls.length > RPC_MAX_CALLS || calls.some((c) => !RPC_ALLOWED.has(c?.method))) {
       return json({ error: 'method not allowed' }, { status: 400 })
     }
-    // Scanning a whole program, only over the fair-launch programs, which are small.
-    const scannable = new Set(Object.values(PROGRAM_IDS).map((id) => id.toBase58()))
+    // Scanning a whole program, only over LFOwn's own fair-launch programs, which are small
+    // (not Meteora's, which holds every DAMM pool there is).
+    const scannable = new Set([PROGRAM_IDS.raise, PROGRAM_IDS.futarchy, PROGRAM_IDS.amm, PROGRAM_IDS.vault].map((id) => id.toBase58()))
     if (calls.some((c) => c.method === 'getProgramAccounts' && !scannable.has(c.params?.[0]))) {
       return json({ error: 'method not allowed' }, { status: 400 })
     }
-    const upstream = await fetch(config.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: text })
+    const accounts = calls.reduce((n, c) => n + (c.method === 'getMultipleAccounts' ? (Array.isArray(c.params?.[0]) ? c.params[0].length : RPC_MAX_ACCOUNTS + 1) : 0), 0)
+    if (accounts > RPC_MAX_ACCOUNTS) return json({ error: 'too many accounts' }, { status: 400 })
+    // What we checked is what we send: re-serialized, so a key given twice is sent once.
+    const upstream = await fetch(config.rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
     return new Response(upstream.body, { status: upstream.status, headers: { 'content-type': 'application/json' } })
   }
 
@@ -126,6 +135,10 @@ export async function handleFair(url, request, env, { limited, ctx }) {
   // the page (and a wallet) until the programs are audited: an agent that moves backers'
   // money should come after that, not before.
   const one = path.match(/^\/api\/fair\/raise\/([1-9A-HJ-NP-Za-km-z]{32,44})$/)
+  if (one) {
+    const { PublicKey } = await import('@solana/web3.js')
+    try { new PublicKey(one[1]) } catch { return json({ error: 'not a mint address' }, { status: 400 }) }
+  }
   if ((path === '/api/fair/raises' || one) && request.method === 'GET') {
     if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
     return cached(request, ctx, () => readApi(config, connection, one?.[1]))
@@ -137,6 +150,8 @@ export async function handleFair(url, request, env, { limited, ctx }) {
     if (!env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
     if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, { status: 403 })
     if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
+    // Rationed: every wallet it serves costs its key the accounts' rent.
+    if (await faucetSpent(env, request)) return json({ error: 'the faucet is rationed: try again later' }, { status: 429 })
     const { address } = await request.json().catch(() => ({}))
     const { faucet } = await import('./lib/fair-keeper.mjs')
     try {
@@ -153,12 +168,37 @@ export async function handleFair(url, request, env, { limited, ctx }) {
   return json({ error: 'not found' }, { status: 404 })
 }
 
+/**
+ * Counts one faucet use against this visitor's day and everyone's hour, and says whether
+ * either was already spent. KV is not atomic: a burst can pass a few over, never many.
+ */
+async function faucetSpent(env, request) {
+  const kv = env.REGISTRY
+  if (!kv) return false
+  const ip = request.headers.get('cf-connecting-ip') ?? 'unknown'
+  const now = new Date()
+  const keys = [
+    [`fair:faucet:ip:${ip}:${now.toISOString().slice(0, 10)}`, FAUCET_PER_IP_PER_DAY, 2 * 86_400],
+    [`fair:faucet:hour:${now.toISOString().slice(0, 13)}`, FAUCET_PER_HOUR, 2 * 3_600],
+  ]
+  const counts = await Promise.all(keys.map(([k]) => kv.get(k).then((v) => Number(v ?? 0))))
+  if (counts.some((n, i) => n >= keys[i][1])) return true
+  await Promise.all(keys.map(([k, , ttl], i) => kv.put(k, String(counts[i] + 1), { expirationTtl: ttl })))
+  return false
+}
+
 /** The read API: every raise, or one raise with its DAO and proposals. */
 async function readApi(config, connection, mint) {
   const F = await import('./lib/fair-launch.mjs')
-  if (!mint) return json({ cluster: config.cluster, raises: await F.listRaises(connection) })
-  const raise = await F.readRaise(connection, mint)
-  if (!raise) return json({ error: 'no raise for that mint' }, { status: 404 })
+  // `standard`: on LFOwn's terms, the only raises the site asks anyone to back.
+  const withStandard = async (r) => ({ ...r, standard: await F.isStandardRaise(connection, config, r) })
+  if (!mint) {
+    const raises = await F.listRaises(connection)
+    return json({ cluster: config.cluster, raises: await Promise.all(raises.map(withStandard)) })
+  }
+  const found = await F.readRaise(connection, mint)
+  if (!found) return json({ error: 'no raise for that mint' }, { status: 404 })
+  const raise = await withStandard(found)
   const dao = raise.state === 'succeeded' ? await F.readDao(connection, raise.baseMint, raise.quoteMint) : null
   const proposals = dao ? await F.readProposals(connection, dao, dao.proposalCount) : []
   return json({

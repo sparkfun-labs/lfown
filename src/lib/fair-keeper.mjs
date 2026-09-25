@@ -39,6 +39,8 @@ const keypairFrom = (secret) => {
 const CHECKPOINT_REFRESH = 60
 /** Transactions per pass, all DAOs and raises together. */
 const MAX_SENDS_PER_PASS = 40
+/** DAOs opened per pass: each costs the keeper about 0.06 SOL of rent. */
+const MAX_BOOTSTRAPS_PER_PASS = 2
 /** Pool fees are claimed at most this often per DAO. */
 const FEE_CLAIM_EVERY = 60 * 60
 /** The TWAP takes one observation a minute at most. */
@@ -93,40 +95,32 @@ export async function runFairKeeper({ config, keeperSecret, memory = new Map(), 
 
   await F.assertCluster(connection, config.cluster)
   const now = await chainNow(connection)
-  const standard = standardRaise(config, connection)
   const raises = []
-  for (const r of await F.listRaises(connection)) if (await standard(r)) raises.push(r)
-  for (const r of raises) {
+  for (const r of await F.listRaises(connection)) if (await F.isStandardRaise(connection, config, r)) raises.push(r)
+
+  // The DAOs first, oldest first: their checkpoints expire if nobody refreshes them, and a
+  // flood of new raises must not starve them.
+  for (const r of [...raises].reverse()) {
     if (budget <= 0) break
-    const tag = r.baseMint.slice(0, 6)
-    if (r.state === 'live' && now >= r.endsAt) {
-      // Met its goal in time: settling it *is* opening its DAO, in one instruction.
-      // Otherwise it failed, and settling it lets its backers take their coins back.
-      const opens = r.totalCommitted >= r.goal && now < r.endsAt + r.claimDelaySeconds
-      await step(opens ? `${tag} open the DAO` : `${tag} settle as failed`, async () => [opens
-        ? await F.bootstrapIx(connection, r, me, { terms: config.terms, governance: config.governance })
-        : await F.settleIx(connection, r, me)])
-      continue // its new state is read on the next pass
-    }
     if (r.state !== 'succeeded') continue
     const dao = await F.readDao(connection, r.baseMint, r.quoteMint)
-    if (dao) await tendDao({ connection, me, dao, now, step, memory, tag })
+    if (dao) await tendDao({ connection, me, dao, now, step, memory, tag: r.baseMint.slice(0, 6) })
+  }
+
+  let bootstraps = MAX_BOOTSTRAPS_PER_PASS
+  for (const r of raises) {
+    if (budget <= 0) break
+    if (r.state !== 'live' || now < r.endsAt) continue
+    const tag = r.baseMint.slice(0, 6)
+    // Met its goal in time: settling it *is* opening its DAO, in one instruction.
+    // Otherwise it failed, and settling it lets its backers take their coins back.
+    const opens = r.totalCommitted >= r.goal && now < r.endsAt + r.claimDelaySeconds
+    if (opens && bootstraps-- <= 0) continue
+    await step(opens ? `${tag} open the DAO` : `${tag} settle as failed`, async () => [opens
+      ? await F.bootstrapIx(connection, r, me, { terms: config.terms, governance: config.governance })
+      : await F.settleIx(connection, r, me)])
   }
   if (budget <= 0) log('pass stopped at its transaction budget; the rest waits for the next one')
-}
-
-/**
- * A raise on LFOwn's terms: priced in one of the configured coins, selling the standard
- * supply, and committed to the standard DAO. Anything else is someone's own raise: the
- * programs let anyone crank it, but LFOwn's keeper does not pay for it.
- */
-function standardRaise(config, connection) {
-  const quotes = new Set(config.quotes.map((q) => q.mint))
-  const p = F.programs(connection)
-  return async (r) => quotes.has(r.quoteMint)
-    && r.tokensForInvestors === config.terms.tokensForInvestors
-    && r.tokensForPool === config.terms.tokensForPool
-    && r.daoCommitment === (await F.daoCommitment(p, F.daoNameFor(r.baseMint), config.terms.withdrawalBps, config.governance)).map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
 async function tendDao({ connection, me, dao: d, now, step, memory, tag }) {

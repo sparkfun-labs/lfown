@@ -106,8 +106,16 @@ pub fn attach_position_handler(ctx: Context<AttachPosition>) -> Result<()> {
         require!(nft.amount == 1, FutarchyError::InvalidPosition);
     }
 
+    // The first checkpoint: the pool's price as its admin hands it over. After this, only
+    // `record_price` moves it, a step at a time.
+    let sqrt_price = spot_sqrt_price(&ctx.accounts.pool)?;
+    let now = Clock::get()?.unix_timestamp;
     let dao = &mut ctx.accounts.dao;
     dao.position = ctx.accounts.position.key();
+    dao.price_checkpoint = sqrt_price;
+    dao.price_checkpoint_at = now;
+    dao.price_anchor = sqrt_price;
+    dao.price_anchor_at = now;
     emit!(PositionAttached { dao: dao.key(), pool: dao.pool, position: dao.position });
     Ok(())
 }

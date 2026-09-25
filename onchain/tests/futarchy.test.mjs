@@ -165,7 +165,7 @@ async function launchedDao(w, { name = 'lfown-test', withdrawalBps = 5_000, gov 
     liquidityBase: ata(baseMint, liquidityAuthority), liquidityQuote: ata(quoteMint, liquidityAuthority),
   }
   d.init = async (bps = withdrawalBps) => fut.methods.initializeDao(name, pool, { damm: {} }, bps, gov)
-    .accountsStrict({ admin: admin.publicKey, dao, moderator, treasury, mintAuthority, liquidityAuthority, baseMint, quoteMint, systemProgram: SystemProgram.programId })
+    .accountsStrict({ admin: admin.publicKey, dao, moderator, treasury, mintAuthority, liquidityAuthority, baseMint, quoteMint, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })
     .instruction()
   d.record = async () => fut.methods.recordPrice().accountsStrict({ dao, pool }).instruction()
   d.attach = async () => fut.methods.attachPosition()
@@ -183,13 +183,10 @@ async function launchedDao(w, { name = 'lfown-test', withdrawalBps = 5_000, gov 
 
 async function openDao(w, opts) {
   const d = await launchedDao(w, opts)
-  d.handOverMint()
-  w.must(w.send([await d.init()], [d.admin]), 'open the DAO')
+  w.must(w.send([await d.init()], [d.admin]), 'open the DAO, handing it the mint')
   d.handOverPosition()
-  w.must(w.send([await d.attach()], [d.admin]), 'attach the position')
+  w.must(w.send([await d.attach()], [d.admin]), 'attach the position, at the pool price')
   w.fund(d.quoteMint, d.treasury, 1_000n * UNIT)
-  // The price guard needs a checkpoint a minute old before any liquidity moves.
-  w.must(w.send([await d.record()], [d.admin]), 'record the pool price')
   w.warp(61)
   return d
 }
@@ -199,7 +196,7 @@ async function openDao(w, opts) {
  * keeper does after a real move. Returns how many updates it took.
  */
 async function followPrice(w, d) {
-  for (let i = 1; i <= 400; i++) {
+  for (let i = 1; i <= 2_000; i++) {
     w.warp(61)
     w.must(w.send([await d.record()], [w.payer]), 'record the pool price')
     const spot = BigInt(w.decode(damm, 'pool', d.pool).sqrtPrice.toString())
@@ -379,17 +376,32 @@ const winner = (w, p) => {
 test('a DAO is only opened over a token and a position it actually controls', async () => {
   const w = world()
   const d = await launchedDao(w)
-  w.refused(w.send([await d.init()], [d.admin]), 'MintNotControlled', 'opening a DAO while the admin still holds the mint')
+  // Whoever holds the mint opens its DAO, and hands it over in the same instruction: once
+  // handed to the DAO's address first, anyone could have opened the DAO and been its admin.
+  const stranger = w.person()
+  const byStranger = await fut.methods.initializeDao(d.name, d.pool, { damm: {} }, 5_000, GOV)
+    .accountsStrict({ admin: stranger.publicKey, dao: d.dao, moderator: d.moderator, treasury: d.treasury, mintAuthority: d.mintAuthority, liquidityAuthority: d.liquidityAuthority, baseMint: d.baseMint, quoteMint: d.quoteMint, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })
+    .instruction()
+  w.refused(w.send([byStranger], [stranger]), 'MintNotControlled', 'a stranger opening the DAO of a mint they do not hold')
   d.handOverMint()
-  w.refused(w.send([await d.init(0)], [d.admin]), 'InvalidWithdrawal', 'a withdrawal share of zero')
-  w.refused(w.send([await d.init(10_000)], [d.admin]), 'InvalidWithdrawal', 'a withdrawal share of everything')
-  w.must(w.send([await d.init()], [d.admin]), 'open the DAO')
+  w.refused(w.send([byStranger], [stranger]), 'MintNotControlled', 'a stranger opening it once the mint sits at the DAO’s address')
+  w.refused(w.send([await d.init()], [d.admin]), 'MintNotControlled', 'the admin, who no longer holds it, too')
+
+  // A token its admin still holds.
+  const e = await launchedDao(w)
+  w.refused(w.send([await e.init(0)], [e.admin]), 'InvalidWithdrawal', 'a withdrawal share of zero')
+  w.refused(w.send([await e.init(10_000)], [e.admin]), 'InvalidWithdrawal', 'a withdrawal share of everything')
+  w.must(w.send([await e.init()], [e.admin]), 'open the DAO, handing it the mint')
+  const mint = MintLayout.decode(Buffer.from(w.svm.getAccount(e.baseMint).data))
+  assert.equal(new PublicKey(mint.mintAuthority).toBase58(), e.mintAuthority.toBase58(), 'the DAO holds the mint')
   // The position NFT is still the admin's: the DAO does not get to call it its own.
-  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(d.admin.publicKey, d.positionNftAccount, d.liquidityAuthority, d.nft, TOKEN_2022_PROGRAM_ID)], [d.admin]), 'empty nft account')
-  w.refused(w.send([await d.attach()], [d.admin]), 'InvalidPosition', 'attaching a position the DAO does not hold')
-  d.handOverPosition()
-  w.must(w.send([await d.attach()], [d.admin]), 'attach the position')
-  w.refused(w.send([await d.attach()], [d.admin]), 'PositionAlreadyAttached', 'attaching twice')
+  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(e.admin.publicKey, e.positionNftAccount, e.liquidityAuthority, e.nft, TOKEN_2022_PROGRAM_ID)], [e.admin]), 'empty nft account')
+  w.refused(w.send([await e.attach()], [e.admin]), 'InvalidPosition', 'attaching a position the DAO does not hold')
+  w.refused(w.send([await e.record()], [e.admin]), 'NoPriceCheckpoint', 'a first checkpoint from anyone')
+  e.handOverPosition()
+  w.must(w.send([await e.attach()], [e.admin]), 'attach the position')
+  assert.ok(BigInt(w.decode(fut, 'daoAccount', e.dao).priceCheckpoint.toString()) > 0n, 'at the pool price, as the first checkpoint')
+  w.refused(w.send([await e.attach()], [e.admin]), 'PositionAlreadyAttached', 'attaching twice')
 })
 
 test('the pool funds a proposal, the winner runs on-chain, the liquidity goes home, and fees are split', async () => {
@@ -644,12 +656,12 @@ test('audit 1: nobody can open a DAO under a raise’s name or for its mint, and
   const dummyDao = pda(fut, ['dao', dummyKp.publicKey])
   w.must(w.send([
     SystemProgram.createAccount({ fromPubkey: squatter.publicKey, newAccountPubkey: dummyKp.publicKey, lamports: Number(w.svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE))), space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
-    createInitializeMint2Instruction(dummyKp.publicKey, 6, pda(fut, ['mint_authority', dummyDao]), null),
+    createInitializeMint2Instruction(dummyKp.publicKey, 6, squatter.publicKey, null),
   ], [squatter, dummyKp]), 'a throwaway mint')
   const initFor = async (mint, dao) => fut.methods.initializeDao('victim-dao', Keypair.generate().publicKey, { damm: {} }, 5_000, GOV).accountsStrict({
     admin: squatter.publicKey, dao, moderator: pda(fut, ['moderator', mint]), treasury: pda(fut, ['treasury', dao]),
     mintAuthority: pda(fut, ['mint_authority', dao]), liquidityAuthority: pda(fut, ['liquidity', dao]),
-    baseMint: mint, quoteMint: r.coin, systemProgram: SystemProgram.programId,
+    baseMint: mint, quoteMint: r.coin, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).instruction()
   w.must(w.send([await initFor(dummyKp.publicKey, dummyDao)], [squatter]), 'a DAO under the victim’s name, over the throwaway mint')
   assert.notEqual(dummyDao.toBase58(), r.dao.toBase58(), 'which is not the victim’s DAO')
@@ -888,6 +900,13 @@ test('audit 9–10: yes or no only, winners wait, run within a window, and withi
     creator: d.admin.publicKey, proposal: p.proposal, moderator: d.moderator, dao: d.dao, ...programs,
   }).remainingAccounts(Array.from({ length: 8 }, () => meta(Keypair.generate().publicKey))).instruction()], [d.admin]), 'TooManyOptions', 'a third option')
 
+  // The limits are per proposal: four payments of 10% each would have taken 34%.
+  const tenth = { transfer: { mint: d.quoteMint, amount: bn(100n * UNIT), recipient: grantee } }
+  w.refused(w.send([await setActions(d, p, 1, [tenth, tenth, tenth, tenth])], [d.admin]), 'DuplicateAction', 'the same coin paid four times')
+  w.refused(w.send([await setActions(d, p, 1, [
+    { mintTo: { amount: bn(100_000n * UNIT), recipient: grantee } }, { mintTo: { amount: bn(100_000n * UNIT), recipient: grantee } },
+  ])], [d.admin]), 'DuplicateAction', 'two mints')
+
   w.must(w.send([await setActions(d, p, 1, [
     { transfer: { mint: d.quoteMint, amount: bn(400n * UNIT), recipient: grantee } }, // 40% of the treasury: over the 10% limit
     { mintTo: { amount: bn(100_000n * UNIT), recipient: grantee } }, // 0.5% of supply: under the 1% limit
@@ -940,4 +959,118 @@ test('anyone may propose against a stake, gets it back once the market decides (
   assert.equal(w.balance(ata(d.baseMint, d.treasury)) - treasuryBefore, 10_000n * UNIT, 'the treasury keeps 20% of a stake the market turned down')
   assert.equal(w.svm.getAccount(pda(fut, ['stake', p.proposal])), null, 'the escrow is closed')
   w.refused(w.send([await returnStake(d, p, stranger, proposer.publicKey)], [stranger]), null, 'returning it twice')
+})
+
+// ── the re-audit ────────────────────────────────────────────────────────────
+
+/** Someone holding each option's conditional coin, split from `amount` of the coin. */
+async function splitter(w, d, p, amount) {
+  const who = w.person()
+  w.fund(d.quoteMint, who.publicKey, amount)
+  w.must(w.send([await vault.methods.deposit({ quote: {} }, bn(amount))
+    .accountsStrict({ signer: who.publicKey, vault: p.vault, mint: d.quoteMint, vaultAta: ata(d.quoteMint, p.vault), userAta: ata(d.quoteMint, who.publicKey), tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId })
+    .remainingAccounts(p.options.flatMap((o) => [meta(o.condQuote), meta(ata(o.condQuote, who.publicKey))])).instruction()], [who]), 'split the coin')
+  return who
+}
+const buyIx = async (o, who, amount) => amm.methods.swap(true, bn(amount), bn(0)).accountsStrict({
+  trader: who.publicKey, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
+  traderAccountA: ata(o.condQuote, who.publicKey), traderAccountB: ata(o.condBase, who.publicKey), tokenProgram: TOKEN_PROGRAM_ID,
+}).instruction()
+const crankIx = (o) => amm.methods.crankTwap().accountsStrict({ pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB }).instruction()
+
+// MetaDAO-like rules: an hour of trading, 5% a minute at most, an option must win by 3%.
+const LIVE_GOV = { ...GOV, proposalLengthMinutes: 60, marketBiasBps: 300, maxObservationChangeBps: 500 }
+
+test('re-audit H1: a gift to a market’s reserves moves nothing', async () => {
+  const w = world()
+  const d = await openDao(w, { name: 'gift', gov: LIVE_GOV })
+  const p = await createProposal(w, d, 0)
+  w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare')
+  w.must(await launch(w, d, p), 'launch')
+  const o1 = p.options[1]
+  const attacker = await splitter(w, d, p, 2_000n * UNIT)
+  const before = w.decode(amm, 'poolAccount', o1.pool)
+
+  // A quiet market; a minute before the end, coins sent straight to option 1's reserve, then a crank.
+  w.warp(59 * 60)
+  w.must(w.send([
+    createTransferInstruction(ata(o1.condQuote, attacker.publicKey), o1.reserveA, attacker.publicKey, 1_000n * UNIT),
+    await crankIx(o1),
+  ], [attacker]), 'a gift and a crank')
+  const after = w.decode(amm, 'poolAccount', o1.pool)
+  assert.equal(after.reserveA.toString(), before.reserveA.toString(), 'the pool does not count a gift')
+  const ownPrice = (BigInt(before.reserveA.toString()) * 1_000_000_000_000n) / BigInt(before.reserveB.toString())
+  assert.equal(after.oracle.lastPrice.toString(), ownPrice.toString(), 'and the price it recorded is the pool’s own')
+
+  w.warp(61)
+  w.must(await finalize(w, p), 'finalize')
+  assert.equal(winner(w, p), 0, 'the status quo still wins')
+})
+
+test('re-audit H1: after a quiet market, a last-minute trade counts for its last minute only', async () => {
+  const w = world()
+  const d = await openDao(w, { name: 'quiet', gov: LIVE_GOV })
+  const p = await createProposal(w, d, 0)
+  w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare')
+  w.must(await launch(w, d, p), 'launch')
+  const o1 = p.options[1]
+  const attacker = await splitter(w, d, p, 2_000n * UNIT)
+  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(attacker.publicKey, ata(o1.condBase, attacker.publicKey), attacker.publicKey, o1.condBase)], [attacker]), 'account')
+
+  // 58 quiet minutes, then option 1 bought hard and cranked a minute later: upstream
+  // credited that one skewed sample to the whole quiet hour.
+  w.warp(58 * 60)
+  w.must(w.send([await buyIx(o1, attacker, 1_500n * UNIT)], [attacker]), 'buy option 1 hard')
+  w.warp(61)
+  w.must(w.send([await crankIx(o1)], [attacker]), 'crank on the skewed price')
+  w.warp(61)
+  w.must(await finalize(w, p), 'finalize')
+  assert.equal(winner(w, p), 0, 'two skewed minutes out of sixty do not beat the status quo by 3%')
+})
+
+test('re-audit M1: a market stops trading, and its TWAP stops counting, at its end', async () => {
+  const w = world()
+  const d = await openDao(w, { name: 'ended' })
+  const p = await createProposal(w, d, 0)
+  w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare')
+  w.must(await launch(w, d, p), 'launch')
+  const o1 = p.options[1]
+  const end = Number(w.decode(amm, 'poolAccount', o1.pool).oracle.endUnixTime)
+  assert.equal(end, Number(w.svm.getClock().unixTimestamp) + GOV.proposalLengthMinutes * 60, 'the market ends a proposal length after its launch')
+  const trader = await splitter(w, d, p, 100n * UNIT)
+  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(trader.publicKey, ata(o1.condBase, trader.publicKey), trader.publicKey, o1.condBase)], [trader]), 'account')
+
+  w.warp(GOV.proposalLengthMinutes * 60 + 3_600) // an hour past the end, nobody finalized
+  w.refused(w.send([await buyIx(o1, trader, 10n * UNIT)], [trader]), 'TradingEnded', 'trading past the end')
+  w.must(w.send([await crankIx(o1)], [trader]), 'a crank long after the end')
+  assert.equal(Number(w.decode(amm, 'poolAccount', o1.pool).oracle.lastUpdateUnixTime), end, 'counts up to the end, not a second more')
+  w.must(await finalize(w, p), 'finalize')
+})
+
+test('re-audit M2: whoever wins every minute’s update drifts the checkpoint 5% per half hour at most', async () => {
+  const w = world()
+  const d = await openDao(w)
+  const attacker = w.person()
+  w.fund(d.quoteMint, attacker.publicKey, 50_000n * UNIT)
+  give(w, d, attacker.publicKey, 8_000_000n * UNIT)
+  const start = BigInt(w.decode(fut, 'daoAccount', d.dao).priceCheckpoint.toString())
+  const { sp: s0 } = poolState(w, d)
+  const pushRecordPull = async () => {
+    const { sp, L } = poolState(w, d)
+    w.must(w.send([await dammSwapRaw(d, attacker, d.quoteMint, d.baseMint, quoteToPush(L, sp, s0 * 2n))], [attacker]), 'push 4x')
+    w.must(w.send([await d.record()], [attacker]), 'take the minute’s update')
+    const after = poolState(w, d)
+    w.must(w.send([await dammSwapRaw(d, attacker, d.baseMint, d.quoteMint, baseToPull(after.L, after.sp, s0))], [attacker]), 'pull back')
+  }
+  const price = (x) => (Number(x) / Number(start)) ** 2
+  const checkpoint = () => price(BigInt(w.decode(fut, 'daoAccount', d.dao).priceCheckpoint.toString()))
+  // Every minute of the first half-hour window…
+  for (let minute = 0; minute < 28; minute++) { w.warp(61); await pushRecordPull() }
+  assert.ok(checkpoint() <= 1.051, `28 minutes won in a row: ${checkpoint()}, not 1.01²⁸`)
+  // …and of the next one: 5% more, from where the window opened.
+  for (let minute = 0; minute < 29; minute++) { w.warp(61); await pushRecordPull() }
+  assert.ok(checkpoint() <= 1.105, `an hour won in a row: ${checkpoint()}`)
+  // The pool's real price never moved: honest updates pull it back, as slowly.
+  for (let minute = 0; minute < 100 && checkpoint() > 1.001; minute++) { w.warp(61); w.must(w.send([await d.record()], [w.payer]), 'an honest update') }
+  assert.ok(checkpoint() < 1.001, `and it came back: ${checkpoint()}`)
 })

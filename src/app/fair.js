@@ -209,18 +209,6 @@ async function names(mints) {
   })
 }
 
-/**
- * Whether a raise is on LFOwn's terms: one of this page's coins, the standard supply, and
- * committed to the standard DAO. The programs let anyone open a raise on other terms; this
- * page shows those, but does not ask anyone to back one.
- */
-async function standardRaise(raise) {
-  if (!config.quotes.some((q) => q.mint === raise.quoteMint)) return false
-  if (raise.tokensForInvestors !== config.terms.tokensForInvestors || raise.tokensForPool !== config.terms.tokensForPool) return false
-  const expected = await F.daoCommitment(F.programs(connection), F.daoNameFor(raise.baseMint), config.terms.withdrawalBps, config.governance)
-  return raise.daoCommitment === expected.map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
 const quoteOf = (mint) => config.quotes.find((q) => q.mint === String(mint)) ?? { symbol: 'coin', usdPrice: 0 }
 const tokenBalance = async (mint, owner) => {
   try { return BigInt((await connection.getTokenAccountBalance(F.ata(mint, owner))).value.amount) } catch { return 0n }
@@ -248,11 +236,20 @@ function wireBanner() {
   })
 }
 
-function termsList(quote, t = config.terms, g = config.governance) {
-  const goal = F.goalInCoin(quote.usdPrice || 1, t.goalUsd)
+/**
+ * The deal. With a `raise`, that raise's own figures, read from the chain; without, the
+ * terms a new raise would get. The DAO's rules are the configured ones either way: a raise
+ * shown with them has been checked to commit to exactly those.
+ */
+function termsList(quote, raise = null, t = config.terms, g = config.governance) {
+  if (raise) {
+    t = { ...t, tokensForInvestors: raise.tokensForInvestors, tokensForPool: raise.tokensForPool, durationSeconds: raise.endsAt - raise.startsAt,
+      poolShareBps: Number((raise.quoteToPool * 10_000n) / raise.goal) }
+  }
+  const goal = raise ? raise.goal : F.goalInCoin(quote.usdPrice || 1, t.goalUsd)
   const supply = t.tokensForInvestors + t.tokensForPool
   return `<ul class="terms">
-    <li><span>Goal</span><span>${usd(t.goalUsd)} ≈ ${coins(goal)} ${esc(quote.symbol)}</span></li>
+    <li><span>Goal</span><span>${raise ? '' : `${usd(t.goalUsd)} ≈ `}${coins(goal)} ${esc(quote.symbol)}</span></li>
     <li><span>Price</span><span>one price for everyone: ${coins((goal * 1_000_000n) / t.tokensForInvestors, 6)} ${esc(quote.symbol)} per token</span></li>
     <li><span>Backers</span><span>${tokensM(t.tokensForInvestors)} tokens (${Math.round(Number((t.tokensForInvestors * 1000n) / supply)) / 10}%), excess refunded</span></li>
     <li><span>Pool</span><span>${tokensM(t.tokensForPool)} tokens + ${t.poolShareBps / 100}% of the raise, owned by the DAO</span></li>
@@ -334,7 +331,7 @@ async function renderRaise(mint) {
   const ended = raise.endsAt <= nowS()
   const state = raise.state === 'live' ? (ended ? 'ended' : 'live') : raise.state
   const price = (raise.goal * 1_000_000n) / raise.tokensForInvestors
-  const standard = await standardRaise(raise)
+  const standard = await F.isStandardRaise(connection, config, raise)
 
   view.innerHTML = `${banner()}
     <a class="back" href="/raise">← Fair launches</a>
@@ -351,7 +348,7 @@ async function renderRaise(mint) {
       <div class="card hot" id="position">${standard ? positionCard(raise, mine, q, ended) : `<h2>Not on LFOwn's terms</h2>
         <p>This raise was opened directly on the program, with another supply, coin or DAO than LFOwn's. Nothing here checks what it
         commits to, so this page does not take commitments for it.</p>${raise.state !== 'live' || ended ? positionCard(raise, mine, q, ended) : ''}`}</div>
-      <div class="card"><h2>The deal</h2>${termsList(q)}</div>
+      <div class="card"><h2>The deal</h2>${termsList(q, raise)}</div>
     </div>
     <div id="dao"></div>`
   wireBanner()

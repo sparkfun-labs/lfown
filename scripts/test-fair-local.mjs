@@ -25,6 +25,8 @@ const env = Object.fromEntries(readFileSync(new URL('../.dev.vars', import.meta.
 const config = fairConfig(env)
 if (!['localnet', 'devnet'].includes(config?.cluster)) throw new Error('No fair-launch cluster in .dev.vars: run `npm run localnet` or `node scripts/devnet-setup.mjs` in onchain/ first.')
 const connection = new Connection(config.rpc, 'confirmed')
+// Before a single lamport moves: the chain must be the one .dev.vars names.
+await F.assertCluster(connection, config.cluster)
 const coin = config.quotes[0]
 const quoteMint = new PublicKey(coin.mint)
 const stamp = () => new Date().toISOString().slice(11, 19)
@@ -109,7 +111,7 @@ await send([
   await F.setActionsIx(connection, d, 0, alice.publicKey, 1, [{ transfer: { mint: quoteMint, amount: 10n * F.UNIT, recipient: alice.publicKey } }]),
   await F.prepareIx(connection, d, 0, alice.publicKey),
 ], [alice], 'actions and liquidity')
-say('alice staked 100k tokens, proposed, and took the liquidity out; she walks away')
+say(`alice staked ${whole(config.governance.proposalStake) / 1e3}k tokens, proposed, and took the liquidity out; she walks away`)
 await keeperPass() // launches it
 let [p] = await F.readProposals(connection, await F.readDao(connection, mint.publicKey, quoteMint), 1)
 assert.equal(p.state, 'pending', 'the keeper launched the prepared proposal')

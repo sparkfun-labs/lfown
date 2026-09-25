@@ -233,6 +233,10 @@ pub fn initialize_proposal_handler<'info>(
 
     vault::cpi::initialize(init_vault_ctx, proposal_id)?;
 
+    // Each market trades, and its TWAP counts, for the proposal's length from the moment
+    // it is funded (`launch_proposal`), and not a second past it.
+    let trading_seconds = proposal.config.length as u32 * 60;
+
     // Create pool 0
     let create_pool_0_ctx = CpiContext::new_with_signer(
         ctx.accounts.amm_program.to_account_info(),
@@ -258,6 +262,7 @@ pub fn initialize_proposal_handler<'info>(
         proposal.config.starting_observation,
         proposal.config.max_observation_delta,
         proposal.config.warmup_duration,
+        trading_seconds,
         Some(ctx.accounts.dao.liquidity_authority)
     )?;
 
@@ -286,6 +291,7 @@ pub fn initialize_proposal_handler<'info>(
         proposal.config.starting_observation,
         proposal.config.max_observation_delta,
         proposal.config.warmup_duration,
+        trading_seconds,
         Some(ctx.accounts.dao.liquidity_authority)
     )?;
 

@@ -2,7 +2,7 @@
 // no Squads, no protocol keys — see programs/COMBINATOR-FORK.md.
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
-use anchor_spl::token::Mint;
+use anchor_spl::token::{self, spl_token::instruction::AuthorityType, Mint, SetAuthority, Token};
 
 use crate::constants::MAX_WITHDRAWAL_BPS;
 use crate::errors::FutarchyError;
@@ -15,10 +15,13 @@ pub struct InitializeDAO<'info> {
     #[account(mut)]
     pub admin: Signer<'info>,
 
-    /// The DAO must already hold its token's mint authority. A DAO that governs a token
-    /// someone else can still mint governs nothing, so the handover comes first.
+    /// Only whoever holds the token's mint may open its DAO, and hands the mint to it in
+    /// the same instruction. A DAO that governs a token someone else can still mint governs
+    /// nothing; and a mint handed to the DAO's address first could be claimed by anyone
+    /// who opened the DAO before its owner did.
     #[account(
-        constraint = base_mint.mint_authority == COption::Some(mint_authority.key()) @ FutarchyError::MintNotControlled,
+        mut,
+        constraint = base_mint.mint_authority == COption::Some(admin.key()) @ FutarchyError::MintNotControlled,
     )]
     pub base_mint: Box<Account<'info, Mint>>,
 
@@ -56,6 +59,7 @@ pub struct InitializeDAO<'info> {
     #[account(seeds = [LIQUIDITY_SEED, dao.key().as_ref()], bump)]
     pub liquidity_authority: UncheckedAccount<'info>,
 
+    pub token_program: Program<'info, Token>,
 
     pub system_program: Program<'info, System>,
 }
@@ -107,11 +111,26 @@ pub fn initialize_dao_handler(
         withdrawal_bps,
         active_proposal: Pubkey::default(),
         governance,
-        // No checkpoint until the position is attached and someone records the price.
+        // No checkpoint until the admin attaches the position, at the pool's price then.
         price_checkpoint: 0,
         price_checkpoint_at: 0,
+        price_anchor: 0,
+        price_anchor_at: 0,
         pending_return: false,
     });
+
+    // The mint goes to the DAO in the same instruction that opens it.
+    token::set_authority(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            SetAuthority {
+                current_authority: ctx.accounts.admin.to_account_info(),
+                account_or_mint: ctx.accounts.base_mint.to_account_info(),
+            },
+        ),
+        AuthorityType::MintTokens,
+        Some(ctx.accounts.mint_authority.key()),
+    )?;
 
     emit!(ModeratorInitialized {
         version: MODERATOR_VERSION,

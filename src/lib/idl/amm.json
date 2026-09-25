@@ -465,6 +465,10 @@
           "type": "u32"
         },
         {
+          "name": "trading_duration",
+          "type": "u32"
+        },
+        {
           "name": "liquidity_provider",
           "type": {
             "option": "pubkey"
@@ -909,6 +913,11 @@
       "code": 6011,
       "name": "InvalidFee",
       "msg": "Fee exceeds maximum"
+    },
+    {
+      "code": 6012,
+      "name": "TradingEnded",
+      "msg": "This market's trading window has ended"
     }
   ],
   "types": [
@@ -1036,6 +1045,14 @@
                 "name": "TwapOracle"
               }
             }
+          },
+          {
+            "name": "reserve_a",
+            "type": "u64"
+          },
+          {
+            "name": "reserve_b",
+            "type": "u64"
           }
         ]
       }
@@ -1211,6 +1228,21 @@
             "name": "min_recording_interval",
             "docs": [
               "Minimum time in-between TWAP recordings"
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "trading_duration",
+            "docs": [
+              "LFOwn fork: how long the market trades once funded (0: no end)"
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "end_unix_time",
+            "docs": [
+              "LFOwn fork: when the market stops trading and the TWAP stops counting (0: no end).",
+              "Set when the market is funded."
             ],
             "type": "i64"
           }

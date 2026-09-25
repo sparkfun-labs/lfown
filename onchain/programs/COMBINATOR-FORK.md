@@ -20,11 +20,15 @@ This fork puts every one of those under the program.
 
 **Step 1 — the treasury and the mint answer to the market** (`futarchy`)
 - Squads, the protocol multisig keys, child DAOs and historical imports are removed.
-- The DAO's treasury and mint authority are PDAs (`treasury`, `mint_authority`). A DAO can
-  only be opened over a token whose mint authority it already holds.
+- The DAO's treasury and mint authority are PDAs (`treasury`, `mint_authority`). A DAO is
+  found by its token's mint (`[b"dao", mint]`), and only the mint's current authority opens
+  it, handing the mint over in the same instruction.
 - Each option but the status quo carries up to four actions (`Transfer` from the
-  treasury, `MintTo`), fixed before the markets open (`set_option_actions`).
-- `execute_transfer` / `execute_mint`: anyone, once, and only for the option that won.
+  treasury, `MintTo`) — one transfer per coin and one mint at most — fixed before the
+  markets open (`set_option_actions`). Two options per proposal at most.
+- `execute_transfer` / `execute_mint`: anyone, once, only for the option that won, after the
+  DAO's `execution_delay_seconds` and within its `execution_window_seconds`, and within its
+  `max_transfer_bps` of the treasury and `max_mint_bps` of the supply.
 
 **Step 2 — the pool's liquidity and fees answer to the program** (`futarchy`)
 - The DAO's Meteora DAMM v2 position NFT is held by a PDA (`liquidity`) and attached once
@@ -42,21 +46,34 @@ This fork puts every one of those under the program.
 **`amm`**
 - `remove_liquidity` refuses while the pool is still trading: upstream let the liquidity
   provider drain a live proposal's market.
+- The pool keeps its own count of its reserves (`reserve_a`, `reserve_b`); swaps and the
+  TWAP read that, never the reserve accounts' balances, which anyone can add to.
+- The TWAP credits each interval with the observation that held during it, not the one
+  taken at its end; it starts when the market is funded, at the funding price; it stops,
+  and so does trading, `trading_duration` after that.
 
 **Step 3 — nobody's permission, nobody's timing** (`futarchy`, `lfown_raise`)
 - A raise stores, before its first backer, a sha256 of the DAO it will open: name,
   withdrawal share and governance rules (`dao_commitment`). `bootstrap_dao` refuses any
   other DAO and so needs nobody's signature: a keeper, or anyone, opens it at settlement.
+  It settles the raise itself, as the pool operator: a raise succeeds only by becoming its
+  DAO, and one with no DAO by `ends_at + claim_delay_seconds` refunds everyone.
+- `initialize_raise` needs the new mint's signature, pays only the DAO that mint derives,
+  opens the pool at the backers' price, and refuses coins with a freeze authority.
 - A proposal's length, warmup, pass margin, TWAP bounds and market fee come from the DAO's
   `GovernanceConfig`, fixed when it opens; the proposer chooses the question and its
   options only. Upstream took them from the proposer, harmless while one admin proposed.
 - Anyone may propose, by locking the DAO's `proposal_stake` in a proposal-owned escrow;
-  `return_stake` (anyone) gives it back to the proposer once the market has decided.
+  `return_stake` (anyone) gives it back to the proposer once the market has decided, less
+  `failed_stake_slash_bps` for the treasury if it was turned down.
 - The markets open at the DAO pool's own price, computed on-chain (`price_guard.rs`),
   instead of at a starting observation the proposer supplied.
 - A price guard on every move of the DAO's liquidity (`prepare_proposal_liquidity`,
-  `return_liquidity`, `initialize_proposal`): `record_price` (anyone, at most every five
-  minutes) writes a checkpoint, and the pool must be within 5% of one between one and
-  thirty minutes old. A push and pull within one transaction never passes.
+  `return_liquidity`, `initialize_proposal`): `record_price` (anyone, once a minute) moves
+  a checkpoint toward the pool's price by 1% at most, and by 5% at most in any half-hour
+  window; the pool must be within 5% of a checkpoint under thirty minutes old. The first
+  checkpoint is the pool's price when the DAO gets it (`bootstrap_dao`, `attach_position`).
+- Liquidity leaves and returns only through the DAO's associated accounts, and no proposal
+  takes it out while the last one's is still outside the pool (`pending_return`).
 - Once the liquidity is out, the options are frozen and `launch_proposal` is open to anyone,
   so a proposer who walks away cannot strand the DAO's liquidity outside its pool.

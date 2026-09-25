@@ -145,6 +145,9 @@ pub enum FutarchyError {
     #[msg("An account is not the one this instruction requires")]
     InvalidAccount,
 
+    #[msg("An option pays each coin once and mints once at most")]
+    DuplicateAction,
+
     #[msg("The last proposal's liquidity must go back into the pool first")]
     LiquidityNotReturned,
 

@@ -629,9 +629,18 @@ await test('fair launch: off without FAIR_RPC, and the library agrees with the r
   assert.equal((await rpcCall(call1('getSlot'), { origin: 'https://evil.test' })).status, 403, 'other sites cannot use the proxy')
   assert.equal((await rpcCall(Array.from({ length: 21 }, () => call1('getSlot')))).status, 400, 'batches are bounded')
   assert.equal((await rpcCall(call1('getProgramAccounts', ['TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA']))).status, 400, 'no scan of a big program')
+  assert.equal((await rpcCall(call1('getProgramAccounts', ['cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG']))).status, 400, 'no scan of Meteora’s program')
+  const many = Array.from({ length: 101 }, () => 'So11111111111111111111111111111111111111112')
+  assert.equal((await rpcCall(call1('getMultipleAccounts', [many]))).status, 400, 'a hundred accounts per request at most')
   assert.equal((await rpcCall(call1('getSlot'))).status, 200, 'the page’s own calls go through')
+  assert.equal((await fair(`/api/fair/raise/${'z'.repeat(44)}`)).status, 400, 'an address that does not decode')
   const faucet = await fair('/api/fair/faucet', { method: 'POST', body: '{}' })
   assert.equal(faucet.status, 404, 'no faucet without its key')
+  const { Keypair } = await import('@solana/web3.js')
+  const withFaucet = { ...on, FAIR_FAUCET_KEY: JSON.stringify([...Keypair.generate().secretKey]) }
+  const drip = () => fair('/api/fair/faucet', { method: 'POST', headers: { 'cf-connecting-ip': '203.0.113.9' }, body: JSON.stringify({ address: Keypair.generate().publicKey.toBase58() }) }, withFaucet)
+  for (let i = 0; i < 3; i++) assert.notEqual((await drip()).status, 429, 'three wallets a day')
+  assert.equal((await drip()).status, 429, 'a fresh address does not make the faucet free')
 
   const F = await import(new URL('../src/lib/fair-launch.mjs', import.meta.url).href)
   // The same cases as the raise's own tests: 6,000 + 3,000 + 1,000 against a 5,000 goal.

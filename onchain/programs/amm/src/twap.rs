@@ -58,6 +58,11 @@ pub struct TwapOracle {
     pub warmup_duration: u32,
     /// Minimum time in-between TWAP recordings
     pub min_recording_interval: i64,
+    /// LFOwn fork: how long the market trades once funded (0: no end)
+    pub trading_duration: u32,
+    /// LFOwn fork: when the market stops trading and the TWAP stops counting (0: no end).
+    /// Set when the market is funded.
+    pub end_unix_time: i64,
 }
 
 impl TwapOracle {
@@ -66,8 +71,11 @@ impl TwapOracle {
         starting_observation: u128,
         max_observation_delta: u128,
         warmup_duration: u32,
+        trading_duration: u32,
     ) -> Self {
         Self {
+            trading_duration,
+            end_unix_time: 0,
             created_at_unix_time: timestamp,
             last_update_unix_time: timestamp,
             last_price: 0,
@@ -80,11 +88,36 @@ impl TwapOracle {
         }
     }
 
+    /// LFOwn fork: restarts the clock when the market is funded, at the price it is funded
+    /// at, and sets when it ends. The proposal was created at an earlier price, perhaps
+    /// much earlier; the funding amounts are the pool's price as the DAO's guard let it
+    /// out.
+    pub fn start(&mut self, now: i64, reserves_a: u64, reserves_b: u64) {
+        if reserves_b > 0 {
+            self.starting_observation = (reserves_a as u128).saturating_mul(PRICE_SCALE) / reserves_b as u128;
+        }
+        self.created_at_unix_time = now;
+        self.last_update_unix_time = now;
+        self.cumulative_observations = 0;
+        self.last_observation = self.starting_observation;
+        self.end_unix_time = if self.trading_duration == 0 { 0 } else { now.saturating_add(self.trading_duration as i64) };
+    }
+
+    /// Whether the market's trading window is over.
+    pub fn ended(&self, now: i64) -> bool {
+        self.end_unix_time != 0 && now >= self.end_unix_time
+    }
+
     /// Records a new price sample and updates the TWAP accumulator.
     /// Returns the current TWAP
+    ///
+    /// LFOwn fork: each interval is credited with the observation that held *during* it —
+    /// the one recorded at its start — and the new sample only counts from now on. Upstream
+    /// credited the whole interval with the sample taken at its end, so one sample, taken
+    /// after a quiet day, decided the whole day. Time stops at the market's end.
     pub fn crank_twap(&mut self, reserves_a: u64, reserves_b: u64) -> Result<u128> {
         let clock = Clock::get()?;
-        let now = clock.unix_timestamp;
+        let now = if self.end_unix_time != 0 { clock.unix_timestamp.min(self.end_unix_time) } else { clock.unix_timestamp };
 
         // Early exit: rate limit or no liquidity
         if now < self.last_update_unix_time + self.min_recording_interval
@@ -121,7 +154,7 @@ impl TwapOracle {
 
             self.cumulative_observations = self
                 .cumulative_observations
-                .wrapping_add(new_obs.saturating_mul(elapsed));
+                .wrapping_add(prev_obs.saturating_mul(elapsed));
         }
 
         // Commit state

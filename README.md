@@ -898,21 +898,27 @@ commits during a raise, refunds whatever is over the goal, and hands the rest to
 The programs are in `onchain/` (`lfown_raise`, and `futarchy`, `amm`, `vault` forked
 from Combinator — see `onchain/programs/COMBINATOR-FORK.md` for every change and why).
 **They are not on mainnet and must not be until audited.** The site's fair-launch
-routes exist only when the Worker has `FAIR_RPC` (a test cluster); production has none,
+routes exist only when the Worker has `FAIR_RPC` and `FAIR_CLUSTER` (`localnet` or
+`devnet`, and the RPC's genesis hash must match it); production has neither,
 so `/raise` says fair launches are not open, `/api/fair/*` answers 404, and the link
 on `/launch` never shows. `npm run test:worker` checks exactly that.
 
 What does the work: `src/lib/fair-launch.mjs` builds every instruction and reads every
 account (the page, the keeper and the scripts share it); `src/lib/fair-keeper.mjs`
-presses every button anyone may press — settle, open the committed DAO, refresh the price
+presses every button anyone may press, for raises on LFOwn's terms only — open the
+committed DAO (which settles the raise), settle failed raises, refresh the price
 checkpoint, launch prepared proposals, crank the TWAPs, finalize, bring the liquidity home
 and back into the pool, execute winners, return stakes, claim pool fees — from the
 Worker's minute cron when `FAIR_KEEPER_KEY` is set; `src/app/fair.js` is `/raise` and
 `/raise/<mint>`.
 
+Devnet: `node scripts/devnet-setup.mjs` in `onchain/` writes devnet `FAIR_*` settings with
+Solana's public devnet RPC (or `FAIR_DEVNET_RPC`, a devnet-only endpoint) — never the
+production Helius key. `npm run test:fair-devnet` then runs a whole launch there.
+
 For agents, two read-only routes: `GET /api/fair/raises` (every raise) and
 `GET /api/fair/raise/<mint>` (a raise, its DAO, its proposals with their TWAPs and
-actions). Opening or backing a raise through an agent waits for mainnet and the audit:
+actions; each raise says whether it is `standard`, on LFOwn's terms). Opening or backing a raise through an agent waits for mainnet and the audit:
 it would move backers' money.
 
 ### Running it locally

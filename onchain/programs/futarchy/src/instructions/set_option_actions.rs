@@ -43,11 +43,19 @@ pub fn set_option_actions_handler(
     require!(option_index >= 1, FutarchyError::NoActionsOnStatusQuo);
     require!(option_index < ctx.accounts.proposal.num_options, FutarchyError::InvalidOptionIndex);
     require!(actions.len() <= MAX_ACTIONS as usize, FutarchyError::TooManyActions);
-    for action in &actions {
+    for (i, action) in actions.iter().enumerate() {
         let amount = match action {
             Action::Transfer { amount, .. } | Action::MintTo { amount, .. } => *amount,
         };
         require!(amount > 0, FutarchyError::InvalidAction);
+        // One transfer per coin and one mint per option: the DAO's limits are on what one
+        // action moves, so four actions of 20% each would have moved 59% of the treasury.
+        let repeated = actions[..i].iter().any(|earlier| match (earlier, action) {
+            (Action::Transfer { mint: a, .. }, Action::Transfer { mint: b, .. }) => a == b,
+            (Action::MintTo { .. }, Action::MintTo { .. }) => true,
+            _ => false,
+        });
+        require!(!repeated, FutarchyError::DuplicateAction);
     }
 
     ctx.accounts.option_actions.set_inner(OptionActions {

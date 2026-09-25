@@ -16,6 +16,10 @@
 // pulls it back. The guard then accepts a spot price within 5% of a checkpoint no older
 // than half an hour.
 //
+// A second bound caps how far it moves in any half hour, from where it stood when that
+// half hour began: whoever takes every minute's update — and there is one per minute, for
+// everyone — drifts it 5% at most per half hour, however many minutes they win.
+//
 // (The first version recorded the spot price outright and asked it to be a minute old:
 // pushing the price, recording, and pulling it back in one transaction, then doing the
 // same a minute later around the move itself, beat it. Clamping the step is what closes
@@ -54,6 +58,13 @@ pub fn next_checkpoint(previous: u128, spot: u128) -> u128 {
     }
     let step = previous / 20_000 * MAX_CHECKPOINT_STEP_BPS as u128;
     spot.clamp(previous.saturating_sub(step), previous.saturating_add(step))
+}
+
+/// The next checkpoint after `next_checkpoint`, held within `MAX_CHECKPOINT_DRIFT_BPS`
+/// (in price) of the window's `anchor`.
+pub fn within_drift(anchor: u128, next: u128) -> u128 {
+    let drift = anchor / 20_000 * MAX_CHECKPOINT_DRIFT_BPS as u128;
+    next.clamp(anchor.saturating_sub(drift), anchor.saturating_add(drift))
 }
 
 /// Whether the price `spot²` is within `MAX_PRICE_MOVE_BPS` of `checkpoint²`. Compared
@@ -113,6 +124,16 @@ mod tests {
         assert!((price(down) - 0.99).abs() < 0.0002, "{}", price(down));
         assert_eq!(next_checkpoint(ONE, ONE + 5), ONE + 5, "a small move is taken whole");
         assert_eq!(next_checkpoint(0, ONE), ONE, "the first one is the price");
+    }
+
+    #[test]
+    fn a_window_drifts_five_percent_at_most() {
+        let price = |s: u128| (s as f64 / ONE as f64).powi(2);
+        let mut checkpoint = ONE;
+        for _ in 0..30 {
+            checkpoint = within_drift(ONE, next_checkpoint(checkpoint, ONE * 2));
+        }
+        assert!((price(checkpoint) - 1.05).abs() < 0.001, "{}", price(checkpoint));
     }
 
     #[test]

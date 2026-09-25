@@ -139,6 +139,7 @@ pub fn add_option_handler<'info>(
         proposal.config.starting_observation,
         proposal.config.max_observation_delta,
         proposal.config.warmup_duration,
+        proposal.config.length as u32 * 60,
         Some(ctx.accounts.dao.liquidity_authority),
     )?;
 

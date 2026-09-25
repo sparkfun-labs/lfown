@@ -37,4 +37,7 @@ pub enum AmmError {
 
     #[msg("Fee exceeds maximum")]
     InvalidFee,
+
+    #[msg("This market's trading window has ended")]
+    TradingEnded,
 }

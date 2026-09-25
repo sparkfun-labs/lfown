@@ -125,11 +125,14 @@ pub fn swap_handler(
 ) -> Result<()> {
     require!(input_amount > 0, AmmError::InvalidAmount);
 
-    let reserve_a = ctx.accounts.reserve_a.amount;
-    let reserve_b = ctx.accounts.reserve_b.amount;
+    // LFOwn fork: the pool's own reserves (see PoolAccount), and no trading once the
+    // market's window is over: its TWAP has stopped counting.
+    let reserve_a = ctx.accounts.pool.reserve_a;
+    let reserve_b = ctx.accounts.pool.reserve_b;
     let fee_bps = ctx.accounts.pool.fee as u64;
+    require!(!ctx.accounts.pool.oracle.ended(Clock::get()?.unix_timestamp), AmmError::TradingEnded);
 
-    // Crank TWAP oracle
+    // Crank TWAP oracle, on the reserves before this swap
     ctx.accounts.pool.oracle.crank_twap(reserve_a, reserve_b)?;
 
     // Prevent swaps on empty pool
@@ -262,13 +265,20 @@ pub fn swap_handler(
         }
     }
 
-    // Post-transfer invariant check
-    ctx.accounts.reserve_a.reload()?;
-    ctx.accounts.reserve_b.reload()?;
-    let invariant_after = Swap::invariant(
-        ctx.accounts.reserve_a.amount as u128,
-        ctx.accounts.reserve_b.amount as u128,
-    )?;
+    // The pool's count follows the swap: A -> B adds the taxed input to A and takes the
+    // output from B; B -> A adds the input to B and takes the output and its fee from A.
+    let pool = &mut ctx.accounts.pool;
+    if swap_a_to_b {
+        pool.reserve_a = reserve_a.checked_add(input_to_reserve).ok_or(AmmError::MathOverflow)?;
+        pool.reserve_b = reserve_b.checked_sub(output_to_user).ok_or(AmmError::MathUnderflow)?;
+    } else {
+        pool.reserve_b = reserve_b.checked_add(input_to_reserve).ok_or(AmmError::MathOverflow)?;
+        pool.reserve_a = reserve_a
+            .checked_sub(output_to_user)
+            .and_then(|a| a.checked_sub(fee_amount))
+            .ok_or(AmmError::MathUnderflow)?;
+    }
+    let invariant_after = Swap::invariant(pool.reserve_a as u128, pool.reserve_b as u128)?;
     require!(
         invariant_after >= invariant_before,
         AmmError::InvariantViolated

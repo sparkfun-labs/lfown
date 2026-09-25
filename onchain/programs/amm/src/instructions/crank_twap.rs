@@ -64,8 +64,8 @@ pub struct CrankTwap<'info> {
 }
 
 pub fn crank_twap_handler(ctx: Context<CrankTwap>) -> Result<u128> {
-    let reserve_a = ctx.accounts.reserve_a.amount;
-    let reserve_b = ctx.accounts.reserve_b.amount;
-
-    ctx.accounts.pool.oracle.crank_twap(reserve_a, reserve_b)
+    // The pool's own reserves, not the accounts' balances (see PoolAccount).
+    let pool = &mut ctx.accounts.pool;
+    let (reserve_a, reserve_b) = (pool.reserve_a, pool.reserve_b);
+    pool.oracle.crank_twap(reserve_a, reserve_b)
 }

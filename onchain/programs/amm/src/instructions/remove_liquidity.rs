@@ -105,6 +105,12 @@ pub fn remove_liquidity_handler(ctx: Context<RemoveLiquidity>, amount_a: u64, am
     require!(amount_a <= ctx.accounts.reserve_a.amount, AmmError::InsufficientReserve);
     require!(amount_b <= ctx.accounts.reserve_b.amount, AmmError::InsufficientReserve);
 
+    // Whatever was sent to the reserves outside the pool goes out with the liquidity; the
+    // pool's own count only drops by what it held.
+    let pool = &mut ctx.accounts.pool;
+    pool.reserve_a = pool.reserve_a.saturating_sub(amount_a);
+    pool.reserve_b = pool.reserve_b.saturating_sub(amount_b);
+
     let pool = &ctx.accounts.pool;
     let seeds = &[
         POOL_SEED,

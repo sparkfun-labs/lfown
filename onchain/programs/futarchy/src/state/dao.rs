@@ -140,6 +140,10 @@ pub struct DAOAccount {
     /// held at least a minute ago: see `price_guard.rs`.
     pub price_checkpoint: u128,
     pub price_checkpoint_at: i64,
+    /// Where the checkpoint stood when its current window opened, and when: within a
+    /// window it moves `MAX_CHECKPOINT_DRIFT_BPS` from there at most, whoever records.
+    pub price_anchor: u128,
+    pub price_anchor_at: i64,
 
     /// Set when a proposal's liquidity comes home, cleared when it is back in the pool. No
     /// proposal may take liquidity out in between, or each would take a share of what was

@@ -57,4 +57,10 @@ pub struct PoolAccount {
     pub liquidity_provider: Pubkey,
 
     pub oracle: TwapOracle,
+
+    // LFOwn fork: the reserves as the pool itself accounts for them. Upstream read the
+    // reserve accounts' balances, and anyone can add to a token account: a plain transfer
+    // moved the price the TWAP recorded without a swap. Only deposits and swaps move these.
+    pub reserve_a: u64,
+    pub reserve_b: u64,
 }

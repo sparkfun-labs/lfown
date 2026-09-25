@@ -115,6 +115,7 @@ pub fn create_pool_handler(
     starting_observation: u128,
     max_observation_delta: u128,
     warmup_duration: u32,
+    trading_duration: u32,
     liquidity_provider: Option<Pubkey>, // Optional seperate provider
 ) -> Result<()> {
     // Fee cannot exceed maximum
@@ -134,7 +135,10 @@ pub fn create_pool_handler(
             starting_observation,
             max_observation_delta,
             warmup_duration,
+            trading_duration,
         ),
+        reserve_a: 0,
+        reserve_b: 0,
         state: PoolState::Trading,
         bumps: PoolBumps {
             pool: ctx.bumps.pool,

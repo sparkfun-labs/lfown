@@ -36,7 +36,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::{
-    associated_token::AssociatedToken,
+    associated_token::{self as ata, get_associated_token_address, AssociatedToken},
     token::{self, spl_token::instruction::AuthorityType, Mint, MintTo, SetAuthority, Token, TokenAccount, Transfer},
 };
 
@@ -220,9 +220,19 @@ pub mod lfown_raise {
         let quote_to_pool = raise.quote_to_pool;
         let tokens_for_pool = raise.tokens_for_pool;
 
-        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, &ctx.accounts.treasury_quote, &ctx.accounts.raise, seeds, quote_to_treasury)?;
-        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, &ctx.accounts.operator_quote, &ctx.accounts.raise, seeds, quote_to_pool)?;
-        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.base_vault, &ctx.accounts.operator_base, &ctx.accounts.raise, seeds, tokens_for_pool)?;
+        // The recipients' accounts, opened only now: a failed raise pays nobody and opens none.
+        let a = &ctx.accounts;
+        for (account, owner, mint) in [
+            (&a.treasury_quote, &a.treasury, &a.quote_mint),
+            (&a.operator_quote, &a.pool_operator, &a.quote_mint),
+        ] {
+            open_associated(a, account.to_account_info(), owner.to_account_info(), mint.to_account_info())?;
+        }
+        open_associated(a, a.operator_base.to_account_info(), a.pool_operator.to_account_info(), a.base_mint.to_account_info())?;
+
+        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, ctx.accounts.treasury_quote.to_account_info(), &ctx.accounts.raise, seeds, quote_to_treasury)?;
+        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, ctx.accounts.operator_quote.to_account_info(), &ctx.accounts.raise, seeds, quote_to_pool)?;
+        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.base_vault, ctx.accounts.operator_base.to_account_info(), &ctx.accounts.raise, seeds, tokens_for_pool)?;
         // The token stays mintable after launch, under governance: the operator passes the
         // authority on to the DAO's mint vault when it creates the DAO.
         token::set_authority(
@@ -259,10 +269,10 @@ pub mod lfown_raise {
         let mint_key = raise.base_mint;
         let seeds: &[&[u8]] = &[RAISE_SEED, mint_key.as_ref(), &[raise.bump]];
         if tokens > 0 {
-            transfer_signed(&ctx.accounts.token_program, &ctx.accounts.base_vault, &ctx.accounts.user_base, &ctx.accounts.raise, seeds, tokens)?;
+            transfer_signed(&ctx.accounts.token_program, &ctx.accounts.base_vault, ctx.accounts.user_base.to_account_info(), &ctx.accounts.raise, seeds, tokens)?;
         }
         if refund > 0 {
-            transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, &ctx.accounts.user_quote, &ctx.accounts.raise, seeds, refund)?;
+            transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, ctx.accounts.user_quote.to_account_info(), &ctx.accounts.raise, seeds, refund)?;
         }
         ctx.accounts.commitment.settled = true;
         emit!(Claimed { raise: ctx.accounts.raise.key(), owner: ctx.accounts.user.key(), tokens, refund });
@@ -277,7 +287,7 @@ pub mod lfown_raise {
         let amount = ctx.accounts.commitment.amount;
         let mint_key = raise.base_mint;
         let seeds: &[&[u8]] = &[RAISE_SEED, mint_key.as_ref(), &[raise.bump]];
-        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, &ctx.accounts.user_quote, &ctx.accounts.raise, seeds, amount)?;
+        transfer_signed(&ctx.accounts.token_program, &ctx.accounts.quote_vault, ctx.accounts.user_quote.to_account_info(), &ctx.accounts.raise, seeds, amount)?;
         ctx.accounts.commitment.settled = true;
         emit!(Claimed { raise: ctx.accounts.raise.key(), owner: ctx.accounts.user.key(), tokens: 0, refund: amount });
         Ok(())
@@ -285,10 +295,25 @@ pub mod lfown_raise {
 }
 
 /// A transfer out of one of the raise's vaults, signed by the raise.
+/// Opens `account`, the associated token account of `owner` for `mint`, if it is not open.
+fn open_associated<'info>(a: &Settle<'info>, account: AccountInfo<'info>, owner: AccountInfo<'info>, mint: AccountInfo<'info>) -> Result<()> {
+    ata::create_idempotent(CpiContext::new(
+        a.associated_token_program.to_account_info(),
+        ata::Create {
+            payer: a.cranker.to_account_info(),
+            associated_token: account,
+            authority: owner,
+            mint,
+            system_program: a.system_program.to_account_info(),
+            token_program: a.token_program.to_account_info(),
+        },
+    ))
+}
+
 fn transfer_signed<'info>(
     token_program: &Program<'info, Token>,
     from: &Account<'info, TokenAccount>,
-    to: &Account<'info, TokenAccount>,
+    to: AccountInfo<'info>,
     raise: &Account<'info, Raise>,
     seeds: &[&[u8]],
     amount: u64,
@@ -296,7 +321,7 @@ fn transfer_signed<'info>(
     token::transfer(
         CpiContext::new_with_signer(
             token_program.to_account_info(),
-            Transfer { from: from.to_account_info(), to: to.to_account_info(), authority: raise.to_account_info() },
+            Transfer { from: from.to_account_info(), to, authority: raise.to_account_info() },
             &[seeds],
         ),
         amount,
@@ -315,7 +340,12 @@ pub struct InitializeRaise<'info> {
         constraint = base_mint.freeze_authority.is_none() @ RaiseError::InvalidMint,
     )]
     pub base_mint: Box<Account<'info, Mint>>,
-    #[account(constraint = quote_mint.decimals == 6 @ RaiseError::InvalidMint)]
+    // A coin someone can freeze could freeze the raise's vault, and with it every refund.
+    // No ownership coin has a freeze authority (checked 25 Sep 2026: none of 23).
+    #[account(
+        constraint = quote_mint.decimals == 6 @ RaiseError::InvalidMint,
+        constraint = quote_mint.freeze_authority.is_none() @ RaiseError::InvalidMint,
+    )]
     pub quote_mint: Box<Account<'info, Mint>>,
     #[account(
         init,
@@ -379,15 +409,18 @@ pub struct Settle<'info> {
     /// CHECK: checked against the address recorded at initialization.
     #[account(address = raise.treasury)]
     pub treasury: UncheckedAccount<'info>,
-    #[account(init_if_needed, payer = cranker, associated_token::mint = quote_mint, associated_token::authority = treasury)]
-    pub treasury_quote: Box<Account<'info, TokenAccount>>,
+    /// CHECK: the treasury's associated account for the coin; opened on success only.
+    #[account(mut, address = get_associated_token_address(&treasury.key(), &quote_mint.key()) @ RaiseError::NotTheDao)]
+    pub treasury_quote: UncheckedAccount<'info>,
     /// CHECK: checked against the address recorded at initialization.
     #[account(address = raise.pool_operator)]
     pub pool_operator: UncheckedAccount<'info>,
-    #[account(init_if_needed, payer = cranker, associated_token::mint = quote_mint, associated_token::authority = pool_operator)]
-    pub operator_quote: Box<Account<'info, TokenAccount>>,
-    #[account(init_if_needed, payer = cranker, associated_token::mint = base_mint, associated_token::authority = pool_operator)]
-    pub operator_base: Box<Account<'info, TokenAccount>>,
+    /// CHECK: the operator's associated account for the coin; opened on success only.
+    #[account(mut, address = get_associated_token_address(&pool_operator.key(), &quote_mint.key()) @ RaiseError::NotTheDao)]
+    pub operator_quote: UncheckedAccount<'info>,
+    /// CHECK: the operator's associated account for the token; opened on success only.
+    #[account(mut, address = get_associated_token_address(&pool_operator.key(), &base_mint.key()) @ RaiseError::NotTheDao)]
+    pub operator_base: UncheckedAccount<'info>,
     #[account(mut)]
     pub cranker: Signer<'info>,
     pub token_program: Program<'info, Token>,

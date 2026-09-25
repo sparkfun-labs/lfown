@@ -61,7 +61,8 @@ pub const MAX_PROPOSAL_MINUTES: u16 = 14 * 24 * 60;
 /// The pool price a DAO's liquidity moves at must be within `MAX_PRICE_MOVE_BPS` of a
 /// checkpoint updated in the last `CHECKPOINT_MAX_AGE` seconds. The checkpoint itself
 /// follows the pool slowly: at most once per `CHECKPOINT_INTERVAL`, and by at most
-/// `MAX_CHECKPOINT_STEP_BPS` each time (see price_guard.rs).
+/// `MAX_CHECKPOINT_STEP_BPS` each time, and by at most `MAX_CHECKPOINT_DRIFT_BPS` in any
+/// `CHECKPOINT_WINDOW` (see price_guard.rs).
 #[constant]
 pub const CHECKPOINT_MAX_AGE: i64 = 30 * 60;
 #[constant]
@@ -70,6 +71,10 @@ pub const CHECKPOINT_INTERVAL: i64 = 60;
 pub const MAX_CHECKPOINT_STEP_BPS: u16 = 100;
 #[constant]
 pub const MAX_PRICE_MOVE_BPS: u16 = 500;
+#[constant]
+pub const CHECKPOINT_WINDOW: i64 = 30 * 60;
+#[constant]
+pub const MAX_CHECKPOINT_DRIFT_BPS: u16 = 500;
 
 /// Meteora DAMM v2's pool authority, the same on every network.
 pub const DAMM_POOL_AUTHORITY: Pubkey = pubkey!("HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC");

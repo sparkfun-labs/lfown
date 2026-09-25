@@ -107,14 +107,14 @@ pub fn add_liquidity_handler(
     // possibly much later; upstream credited all that waiting to the first observation —
     // an observation anyone could skew — and diluted every proposal that waited toward
     // its starting price.
-    if ctx.accounts.reserve_a.amount == 0 && ctx.accounts.reserve_b.amount == 0 {
-        let now = Clock::get()?.unix_timestamp;
-        let oracle = &mut ctx.accounts.pool.oracle;
-        oracle.created_at_unix_time = now;
-        oracle.last_update_unix_time = now;
-        oracle.cumulative_observations = 0;
-        oracle.last_observation = oracle.starting_observation;
+    // Its own reserves, not the accounts' balances: a token sent to an empty reserve ahead
+    // of the launch must not stop the clock from starting.
+    let pool = &mut ctx.accounts.pool;
+    if pool.reserve_a == 0 && pool.reserve_b == 0 {
+        pool.oracle.start(Clock::get()?.unix_timestamp, amount_a, amount_b);
     }
+    pool.reserve_a = pool.reserve_a.checked_add(amount_a).ok_or(AmmError::MathOverflow)?;
+    pool.reserve_b = pool.reserve_b.checked_add(amount_b).ok_or(AmmError::MathOverflow)?;
 
     // Transfer tokens from depositor -> reserves
     transfer_tokens(

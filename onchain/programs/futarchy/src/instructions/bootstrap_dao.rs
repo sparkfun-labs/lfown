@@ -290,6 +290,8 @@ pub fn bootstrap_dao_handler(
         // The pool opens at the raise's price, so that is the first checkpoint.
         price_checkpoint: sqrt_price,
         price_checkpoint_at: Clock::get()?.unix_timestamp,
+        price_anchor: sqrt_price,
+        price_anchor_at: Clock::get()?.unix_timestamp,
         pending_return: false,
     });
 

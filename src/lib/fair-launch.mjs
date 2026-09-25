@@ -76,8 +76,11 @@ export const GOVERNANCE = {
   marketBiasBps: 300,
   maxObservationChangeBps: 500,
   marketFeeBps: 30,
-  /** 100,000 of the 18M tokens: proposing costs something while the liquidity is away. */
-  proposalStake: 100_000n * UNIT,
+  /**
+   * 500,000 of the 18M tokens, about $250 at the raise price: proposing costs something
+   * while the liquidity is away, and a turned-down proposal costs half of it.
+   */
+  proposalStake: 500_000n * UNIT,
   /** A winning transfer moves at most 20% of what the treasury holds of that coin… */
   maxTransferBps: 2_000,
   /** …and a winning mint adds at most 5% to the supply. */
@@ -87,7 +90,7 @@ export const GOVERNANCE = {
   /** …and within a week of it, or never. */
   executionWindowSeconds: 7 * 24 * 60 * 60,
   /** Share of the stake the treasury keeps when the market turns a proposal down. */
-  failedStakeSlashBps: 2_000,
+  failedStakeSlashBps: 5_000,
 }
 
 // ── programs ─────────────────────────────────────────────────────────────────
@@ -232,6 +235,21 @@ export async function daoCommitment(p, name, withdrawalBps, governance) {
   const config = p.futarchy.coder.types.encode('governanceConfig', bnOf(governance))
   const bytes = new Uint8Array([...new TextEncoder().encode(name), ...u16le(withdrawalBps), ...config])
   return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))]
+}
+
+/**
+ * Whether a raise is on LFOwn's terms: priced in one of `config.quotes`, selling the
+ * standard supply, for at least half the standard goal at the coin's configured price,
+ * and committed to the standard DAO. The programs let anyone open a raise on any terms;
+ * the page asks nobody to back another, and the keeper pays for no other.
+ */
+export async function isStandardRaise(connection, config, raise) {
+  const quote = config.quotes.find((q) => q.mint === raise.quoteMint)
+  if (!quote) return false
+  if (raise.tokensForInvestors !== BigInt(config.terms.tokensForInvestors) || raise.tokensForPool !== BigInt(config.terms.tokensForPool)) return false
+  if (raise.goal * 2n < goalInCoin(quote.usdPrice || 1, config.terms.goalUsd)) return false
+  const expected = await daoCommitment(programs(connection), daoNameFor(raise.baseMint), config.terms.withdrawalBps, config.governance)
+  return raise.daoCommitment === hex(expected)
 }
 
 // ── opening a raise ──────────────────────────────────────────────────────────

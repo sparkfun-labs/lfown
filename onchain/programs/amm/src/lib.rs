@@ -41,6 +41,7 @@ pub mod amm {
         starting_observation: u128,
         max_observation_delta: u128,
         warmup_duration: u32,
+        trading_duration: u32,
         liquidity_provider: Option<Pubkey>,
     ) -> Result<()> {
         instructions::create_pool::create_pool_handler(
@@ -49,6 +50,7 @@ pub mod amm {
             starting_observation,
             max_observation_delta,
             warmup_duration,
+            trading_duration,
             liquidity_provider,
         )
     }
