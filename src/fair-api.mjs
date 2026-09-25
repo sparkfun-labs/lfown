@@ -150,8 +150,9 @@ export async function handleFair(url, request, env, { limited, ctx }) {
     if (!env.FAIR_FAUCET_KEY) return json({ error: 'no faucet here' }, { status: 404 })
     if (!sameOrigin(request, url)) return json({ error: 'forbidden' }, { status: 403 })
     if (await limited(env.HEAVY_LIMITER, request)) return json({ error: 'slow down' }, { status: 429 })
-    // Rationed: every wallet it serves costs its key the accounts' rent.
-    if (await faucetSpent(env, request)) return json({ error: 'the faucet is rationed: try again later' }, { status: 429 })
+    // Rationed on devnet, where every wallet it serves costs its key real devnet SOL. Not on
+    // a local chain, where SOL is free and every test wallet comes from the same machine.
+    if (config.cluster !== 'localnet' && await faucetSpent(env, request)) return json({ error: 'the faucet is rationed: try again later' }, { status: 429 })
     const { address } = await request.json().catch(() => ({}))
     const { faucet } = await import('./lib/fair-keeper.mjs')
     try {
