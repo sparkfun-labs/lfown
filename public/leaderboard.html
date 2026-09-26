@@ -125,6 +125,8 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
       <a class="mono hide-s" href="/launch">Launch</a>
       <a class="mono hide-s" href="/rewards">Rewards</a>
       <a class="mono hide-s" href="/leaderboard" aria-current="page">Leaderboard</a>
+      <a class="mono hide-s" href="/raise" data-fair hidden>Raise</a>
+      <a class="mono hide-s" href="/dao" data-fair hidden>DAO</a>
     </nav>
     <nav class="nav-actions">
       <button class="theme-toggle hide-s" type="button" id="themeToggle" aria-label="Switch colour theme">
@@ -170,6 +172,8 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
       <a href="/launch">Launch</a>
       <a href="/rewards">Rewards</a>
       <a href="/leaderboard">Leaderboard</a>
+      <a href="/raise" data-fair hidden>Raise</a>
+      <a href="/dao" data-fair hidden>DAO</a>
       <a href="/profile">Profile</a>
     </nav>
     <button class="theme-toggle drawer-theme" type="button" aria-label="Switch colour theme">
@@ -183,6 +187,24 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
     </a>
   </aside>
 
+<script>
+  // Fair launches' tabs, shown only where fair launches exist: a test cluster, until
+  // their programs are audited. Production answers 404 and they stay hidden. Asked
+  // once per visit.
+  (function () {
+    var tabs = document.querySelectorAll('[data-fair]')
+    if (!tabs.length || !window.fetch) return
+    var show = function () { for (var i = 0; i < tabs.length; i++) tabs[i].hidden = false }
+    var known = null
+    try { known = sessionStorage.getItem('lfown-fair') } catch (e) {}
+    if (known === '1') return show()
+    if (known === '0') return
+    fetch('/api/fair/config').then(function (r) {
+      try { sessionStorage.setItem('lfown-fair', r.ok ? '1' : '0') } catch (e) {}
+      if (r.ok) show()
+    }).catch(function () {})
+  })()
+</script>
 <script>
   // The theme lives here rather than in each page's bundle: there are two toggles
   // now, one in the bar and one in the drawer, and the landing ships no bundle at all.

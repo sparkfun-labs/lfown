@@ -1985,6 +1985,9 @@ export default {
       return Response.redirect(new URL(`/${url.search}`, url.origin).toString(), 301)
     }
 
+    // A DAO's pages are the fair-launch app's too: one page, routed in the browser.
+    if (url.pathname === '/dao' || url.pathname.startsWith('/dao/')) return shell('/raise', url, request, env)
+
     for (const section of ['/launch', '/coins', '/creator', '/raise']) {
       if (url.pathname !== section && !url.pathname.startsWith(`${section}/`)) continue
       if (url.pathname === section || url.pathname === `${section}/`) return shell(section, url, request, env)

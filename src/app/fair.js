@@ -321,7 +321,7 @@ function raiseCard(r, meta) {
 async function renderRaise(mint) {
   const raise = await F.readRaise(connection, mint)
   if (!raise) {
-    view.innerHTML = `${banner()}<a class="back" href="/raise">← Fair launches</a><h1>No raise here</h1><p class="lede">Nothing was raised for ${esc(short(mint))} on ${esc(config.cluster)}.</p>`
+    view.innerHTML = `${banner()}${crumbs(['Raises', '/raise'], [short(mint)])}<h1>No raise here</h1><p class="lede">Nothing was raised for ${esc(short(mint))} on ${esc(config.cluster)}.</p>`
     wireBanner()
     return
   }
@@ -334,10 +334,15 @@ async function renderRaise(mint) {
   const state = raise.state === 'live' ? (ended ? 'ended' : 'live') : raise.state
   const price = (raise.goal * 1_000_000n) / raise.tokensForInvestors
   const standard = await F.isStandardRaise(connection, config, raise)
+  const symbol = meta.symbol || short(raise.baseMint)
+  document.title = `${symbol} raise — LFOwn`
 
   view.innerHTML = `${banner()}
-    <a class="back" href="/raise">← Fair launches</a>
-    <h1>${esc(meta.symbol || short(raise.baseMint))} <span class="badge ${state === 'live' ? 'live' : ''}">${esc(state)}</span></h1>
+    ${crumbs(['Raises', '/raise'], [symbol])}
+    <div class="head-row">
+      <h1>${esc(symbol)} <span class="badge ${state === 'live' ? 'live' : ''}">${esc(state)}</span></h1>
+      ${dao ? `<a class="jump hot" href="/dao/${esc(raise.baseMint)}">Go to the DAO →</a>` : ''}
+    </div>
     <p class="lede">${esc(meta.name)} · a fair launch paired with ${esc(q.symbol)} · mint <span class="skel">${esc(short(raise.baseMint))}</span></p>
     <div class="totals">
       <div class="tot"><span class="lab">Committed</span><span class="big">${coins(raise.totalCommitted, 0)} ${esc(q.symbol)}</span><span class="sub">of ${coins(raise.goal, 0)} · ${pct}%</span></div>
@@ -352,10 +357,10 @@ async function renderRaise(mint) {
         commits to, so this page does not take commitments for it.</p>${raise.state !== 'live' || ended ? positionCard(raise, mine, q, ended) : ''}`}</div>
       <div class="card"><h2>The deal</h2>${termsList(q, raise)}</div>
     </div>
-    <div id="dao"></div>`
+    ${dao ? `<a class="dao-banner" href="/dao/${esc(raise.baseMint)}"><span class="lab">This raise became a DAO</span>
+      <b>${esc(symbol)} DAO — its pool, its treasury, and its decisions, traded in markets</b><span class="jump hot">Go to the DAO →</span></a>` : ''}`
   wireBanner()
   wirePosition(raise, q)
-  if (dao) await renderDao(dao, q, meta)
 }
 
 function positionCard(raise, mine, q, ended) {
@@ -390,7 +395,7 @@ function positionCard(raise, mine, q, ended) {
       : `<h2>The raise missed its goal</h2><p>Your ${coins(committed)} ${esc(q.symbol)} come back in full.</p>
         <button class="btn" type="button" id="p-refund">Take it back</button><p class="status" id="p-status"></p>`
   }
-  if (!committed) return '<h2>The raise succeeded</h2><p>You did not back it. Its token trades in the DAO\'s pool below.</p>'
+  if (!committed) return '<h2>The raise succeeded</h2><p>You did not back it. Its token trades in its DAO\'s pool.</p>'
   const a = F.allocation(raise, committed)
   if (mine.settled) return `<h2>Claimed</h2><p>You received ${tokensM(a.tokens)} tokens${a.refund ? ` and ${coins(a.refund)} ${esc(q.symbol)} back` : ''}.</p>`
   // A raise succeeds only by opening its DAO and pool, which opens claims at once.
@@ -414,15 +419,74 @@ function wirePosition(raise, q) {
   wire($('#p-refund'), status, async (say) => sendAll([[await F.refundIx(connection, raise, session.address)]], { say }), 'Refunded.')
 }
 
-// ── the DAO ──────────────────────────────────────────────────────────────────
+// ── DAOs ─────────────────────────────────────────────────────────────────────
+//
+//   /dao                 every DAO a raise became
+//   /dao/<mint>          one DAO: its pool, treasury, rules, proposals, and proposing
+//   /dao/<mint>/<id>     one decision, laid out the way MetaDAO lays its out: the two
+//                        markets' prices over time, their TWAPs, and a trade panel
 
-async function renderDao(d, q, meta) {
-  const box = $('#dao')
-  const p = F.programs(connection)
-  const pool = await p.cpAmm.account.pool.fetch(d.pool)
+/** What the page remembers across its redraws: the tab, the side, the amount typed. */
+const ui = { tab: 'summary', outcome: 1, action: 'buy', amount: '' }
+const LABELS = ['Fail', 'Pass']
+/** A coin amount in dollars, at the coin's configured price. */
+const dollars = (coinPerToken, q) => {
+  const v = coinPerToken * (q.usdPrice || 0)
+  if (!v) return '—'
+  return '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(3))
+}
+const crumbs = (...parts) => `<nav class="crumbs">${parts.map(([label, href]) => (href
+  ? `<a href="${href}">${esc(label)}</a>` : `<span>${esc(label)}</span>`)).join('<i>/</i>')}</nav>`
+
+async function daoFor(mint) {
+  const raise = await F.readRaise(connection, mint)
+  if (!raise) return {}
+  const [dao, [meta]] = await Promise.all([
+    raise.state === 'succeeded' ? F.readDao(connection, raise.baseMint, raise.quoteMint) : null,
+    names([raise.baseMint]),
+  ])
+  return { raise, dao, meta, q: quoteOf(raise.quoteMint) }
+}
+
+async function poolPrice(d) {
+  const pool = await F.programs(connection).cpAmm.account.pool.fetch(d.pool)
   const sqrt = Number(BigInt(pool.sqrtPrice.toString())) / 2 ** 64
-  const price = sqrt * sqrt // coin per token
-  const [treasury, mineTokens, proposals] = await Promise.all([
+  return sqrt * sqrt // coin per token
+}
+
+async function renderDaos() {
+  const raises = (await F.listRaises(connection)).filter((r) => r.state === 'succeeded')
+  const found = await Promise.all(raises.map(async (r) => ({ r, d: await F.readDao(connection, r.baseMint, r.quoteMint).catch(() => null) })))
+  const daos = found.filter((x) => x.d)
+  const meta = await names(daos.map((x) => x.r.baseMint))
+  const cards = await Promise.all(daos.map(async ({ r, d }, i) => {
+    const q = quoteOf(r.quoteMint)
+    const [price, treasury] = await Promise.all([poolPrice(d), tokenBalance(d.quoteMint, d.treasury)])
+    return `<a class="raise" href="/dao/${esc(r.baseMint)}">
+      <div><div class="nm">${esc(meta[i].symbol || short(r.baseMint))}</div><div class="pair">${esc(meta[i].name)} · governed by futarchy</div></div>
+      <div class="meta"><span>Price ${dollars(price, q)}</span><span>Treasury ${coins(treasury, 0)} ${esc(q.symbol)}</span></div>
+      <div class="meta"><span>${d.proposalCount} proposal${d.proposalCount === 1 ? '' : 's'}</span><span>${d.activeProposal ? '<b class="dot"></b>one trading' : 'none trading'}</span></div>
+    </a>`
+  }))
+  view.innerHTML = `${banner()}
+    <h1>The <em>DAOs</em></h1>
+    <p class="lede">Every raise that met its goal became a DAO: it owns its token's pool, its treasury and its mint, and moves them only
+      when a proposal wins its market.</p>
+    ${cards.length ? `<div class="grid">${cards.join('')}</div>` : '<p class="empty">No DAO yet: a raise becomes one when it meets its goal.</p>'}`
+  wireBanner()
+}
+
+async function renderDaoPage(mint) {
+  const { raise, dao: d, meta, q } = await daoFor(mint)
+  if (!d) {
+    view.innerHTML = `${banner()}${crumbs(['DAOs', '/dao'], [short(mint)])}<h1>No DAO here</h1>
+      <p class="lede">${raise ? `This raise has not become a DAO${raise.state === 'failed' ? ': it missed its goal' : ' yet'}.` : `Nothing was raised for ${esc(short(mint))}.`}</p>
+      ${raise ? `<a class="jump" href="/raise/${esc(mint)}">← The raise</a>` : ''}`
+    wireBanner()
+    return
+  }
+  const [price, treasury, mineTokens, proposals] = await Promise.all([
+    poolPrice(d),
     tokenBalance(d.quoteMint, d.treasury),
     session ? tokenBalance(d.baseMint, session.address) : 0n,
     F.readProposals(connection, d, d.proposalCount),
@@ -430,34 +494,66 @@ async function renderDao(d, q, meta) {
   const g = d.governance
   const stake = BigInt(g.proposalStake.toString())
   const busyDao = Boolean(d.activeProposal) || d.pendingReturn
-  box.innerHTML = `
-    <div class="sec-head"><h2>The DAO</h2><span class="skel">${esc(short(d.dao))} · governed by futarchy</span></div>
+  const symbol = meta.symbol || short(mint)
+  document.title = `${symbol} DAO — LFOwn`
+  view.innerHTML = `${banner()}
+    ${crumbs(['DAOs', '/dao'], [symbol])}
+    <div class="head-row">
+      <h1>${esc(symbol)} <span class="badge">DAO</span></h1>
+      <a class="jump" href="/raise/${esc(mint)}">← The raise</a>
+    </div>
+    <p class="lede">${esc(meta.name)} · governed by futarchy · treasury, mint and pool move only when a proposal wins its market</p>
     <div class="totals">
-      <div class="tot"><span class="lab">Pool price</span><span class="big">${price.toPrecision(3)}</span><span class="sub">${esc(q.symbol)} per ${esc(meta.symbol)}</span></div>
-      <div class="tot"><span class="lab">Treasury</span><span class="big">${coins(treasury)} ${esc(q.symbol)}</span><span class="sub">moves only when a proposal wins</span></div>
+      <div class="tot"><span class="lab">Pool price</span><span class="big">${dollars(price, q)}</span><span class="sub">${price.toPrecision(3)} ${esc(q.symbol)} per ${esc(symbol)}</span></div>
+      <div class="tot"><span class="lab">Treasury</span><span class="big">${coins(treasury, 0)} ${esc(q.symbol)}</span><span class="sub">${dollars(Number(treasury) / 1e6, q)}</span></div>
       <div class="tot"><span class="lab">Proposals</span><span class="big">${d.proposalCount}</span><span class="sub">${d.activeProposal ? 'one is trading now' : 'none trading'}</span></div>
-      ${session ? `<div class="tot"><span class="lab">You hold</span><span class="big">${tokensM(mineTokens)}</span><span class="sub">${esc(meta.symbol)}</span></div>` : ''}
+      ${session ? `<div class="tot"><span class="lab">You hold</span><span class="big">${tokensM(mineTokens)}</span><span class="sub">${esc(symbol)}</span></div>` : ''}
     </div>
     <div class="cols">
-      <div>${proposals.length ? proposals.map((x) => proposalCard(x, d, q, meta)).join('') : '<p class="empty">No proposal yet.</p>'}</div>
-      <div class="card">
-        <h2>Propose</h2>
-        <p>Anyone holding ${tokensM(stake)} ${esc(meta.symbol)} can ask the market. The stake comes back once it decides.
-          Markets run ${minutes(g.proposalLengthMinutes)}; an option has to beat the status quo by ${g.marketBiasBps / 100}%.</p>
-        <label><span class="lab">Question (64 characters)</span><input id="n-title" maxlength="64" placeholder="Pay the designer 50 ${esc(q.symbol)}"></label>
-        <div class="row">
-          <label><span class="lab">If it passes</span><select id="n-kind"><option value="transfer">Pay from the treasury</option><option value="mint">Mint new ${esc(meta.symbol)}</option></select></label>
-          <label><span class="lab">Amount</span><input id="n-amount" inputmode="decimal" placeholder="50"></label>
+      <div>
+        <div class="sec-head"><h2>Decisions</h2></div>
+        ${proposals.length ? proposals.map((x) => decisionRow(x, mint, q, symbol)).join('') : '<p class="empty">No proposal yet. Ask the market the first question.</p>'}
+      </div>
+      <div class="side">
+        <div class="card hot">
+          <h2>Propose</h2>
+          <p>Anyone holding ${tokensM(stake)} ${esc(symbol)} can ask the market. The stake comes back once it decides, less
+            ${g.failedStakeSlashBps / 100}% if it is turned down.</p>
+          <label><span class="lab">Question (64 characters)</span><input id="n-title" maxlength="64" placeholder="Pay the designer 50 ${esc(q.symbol)}"></label>
+          <div class="row">
+            <label><span class="lab">If it passes</span><select id="n-kind"><option value="transfer">Pay from the treasury</option><option value="mint">Mint new ${esc(symbol)}</option></select></label>
+            <label><span class="lab">Amount</span><input id="n-amount" inputmode="decimal" placeholder="50"></label>
+          </div>
+          <label><span class="lab">To</span><input id="n-to" placeholder="${session ? esc(session.address) : 'a wallet address'}"></label>
+          <button class="btn" type="button" id="n-go" ${session && (mineTokens < stake || busyDao) ? 'disabled' : ''}>Propose</button>
+          <p class="status" id="n-status">${!session ? '' : busyDao ? 'One proposal at a time: this one opens once the last one\'s liquidity is back in the pool.'
+            : mineTokens < stake ? `You need ${tokensM(stake)} ${esc(symbol)} to propose.` : ''}</p>
         </div>
-        <label><span class="lab">To</span><input id="n-to" placeholder="${session ? esc(session.address) : 'a wallet address'}"></label>
-        <p class="hint">A winner runs ${minutes(g.executionDelaySeconds / 60)} after the decision, and at most
-          ${g.maxTransferBps / 100}% of the treasury or ${g.maxMintBps / 100}% of the supply at once.</p>
-        <button class="btn" type="button" id="n-go" ${session && (mineTokens < stake || busyDao) ? 'disabled' : ''}>Propose</button>
-        <p class="status" id="n-status">${!session ? '' : busyDao ? 'One proposal at a time: this one opens once the last one\'s liquidity is back in the pool.'
-          : mineTokens < stake ? `You need ${tokensM(stake)} ${esc(meta.symbol)} to propose.` : ''}</p>
+        <div class="card"><h2>The rules</h2><ul class="terms">
+          <li><span>Markets run</span><span>${minutes(g.proposalLengthMinutes)}${g.warmupSeconds ? `, the first ${minutes(g.warmupSeconds / 60)} not counted` : ''}</span></li>
+          <li><span>To pass</span><span>Pass TWAP beats Fail by ${g.marketBiasBps / 100}%</span></li>
+          <li><span>Winners run</span><span>${minutes(g.executionDelaySeconds / 60)} after, within ${minutes(g.executionWindowSeconds / 60)}</span></li>
+          <li><span>At most</span><span>${g.maxTransferBps / 100}% of the treasury, ${g.maxMintBps / 100}% of supply</span></li>
+          <li><span>Pool fees</span><span>half to the DAO, half to LFOwn</span></li>
+        </ul></div>
       </div>
     </div>`
-  wireDao(d, q, proposals)
+  wireBanner()
+  wirePropose(d, q)
+}
+
+function decisionRow(x, mint, q, symbol) {
+  const ends = x.markets[1]?.endsAt || x.createdAt + x.lengthMinutes * 60
+  const twaps = x.markets.map((m) => (m ? F.observationPrice(m.twap) : 0))
+  const lead = x.state === 'resolved' ? x.winner : twaps[1] > twaps[0] * (1 + x.marketBiasBps / 10_000) ? 1 : 0
+  const state = x.state === 'resolved' ? `<span class="badge ${x.winner ? 'won' : ''}">${x.winner ? 'Passed' : 'Failed'}</span>`
+    : x.state === 'pending' ? `<span class="pill"><b class="dot"></b>${live(ends)}</span>`
+    : `<span class="badge">${x.prepared ? 'Opening' : 'Being written'}</span>`
+  return `<a class="decision-row" href="/dao/${esc(mint)}/${x.id}">
+    <div class="meta"><span class="tag">${esc(symbol)}-${String(x.id).padStart(3, '0')}</span>${state}</div>
+    <div class="title">${esc(x.metadata || `Proposal ${x.id}`)}</div>
+    ${x.state === 'setup' ? '' : `<div class="meta"><span class="${lead === 1 ? 'pass' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="${lead === 0 ? 'fail' : ''}">Fail ${dollars(twaps[0], q)}</span></div>`}
+  </a>`
 }
 
 function describe(action, q, meta) {
@@ -469,47 +565,187 @@ function describe(action, q, meta) {
   return `mint ${tokensM(action.mintTo.amount)} ${esc(meta.symbol)} to <span class="addr">${esc(action.mintTo.recipient.toBase58())}</span>`
 }
 
-function proposalCard(x, d, q, meta) {
-  const ends = x.createdAt + x.lengthMinutes * 60
-  const warmEnd = x.createdAt + x.warmupSeconds
-  const labels = ['Status quo', 'Pass']
-  const prices = x.markets.map((m) => (m ? F.observationPrice(m.twap) : 0))
-  const lead = prices[1] > prices[0] * (1 + x.marketBiasBps / 10_000) ? 1 : 0
-  const state = x.state === 'resolved' ? `decided: ${labels[x.winner].toLowerCase()}`
-    : x.state === 'pending' ? `trading · ${live(ends)} left${nowS() < warmEnd ? ' · warming up' : ''}`
-    : x.prepared ? 'opening its markets' : 'being written'
-  const actions = (x.actions[1] ?? []).map((a) => describe(a, q, meta)).join('; ') || 'nothing'
-  return `<div class="proposal" data-id="${x.id}">
-    <div><div class="title">${esc(x.metadata || `Proposal ${x.id}`)}</div>
-      <div class="meta"><span>#${x.id} · by ${esc(short(x.creator))}</span><span class="badge ${x.state === 'pending' ? 'live' : x.state === 'resolved' ? 'won' : ''}">${state}</span></div></div>
-    <p class="hint">If it passes: ${actions}.</p>
-    ${x.state === 'setup' ? '' : `<div class="opts">${labels.map((l, i) => `<div class="opt ${(x.state === 'resolved' ? x.winner : lead) === i ? 'lead' : ''}">
-      <span class="lab">${l}${x.state === 'resolved' && x.winner === i ? ' — won' : ''}</span>
-      <span class="price">${prices[i] ? prices[i].toPrecision(3) : '—'}</span><span class="hint">TWAP, ${esc(q.symbol)} per ${esc(meta.symbol)}</span></div>`).join('')}</div>`}
-    ${x.state === 'pending' && session ? `<div class="actions">
-      <input class="t-amount" inputmode="decimal" placeholder="${esc(q.symbol)} amount">
-      <button class="btn t-back" data-option="1" type="button">Back pass</button>
-      <button class="btn ghost t-back" data-option="0" type="button">Back status quo</button></div>
-      <p class="hint">Your ${esc(q.symbol)} becomes a claim on each outcome, and the side you back is bought: if it wins, you keep the ${esc(meta.symbol)} it bought.</p>` : ''}
-    ${x.state === 'resolved' && session ? '<div class="actions"><button class="btn ghost t-redeem" type="button">Redeem my winning side</button></div>' : ''}
-    <p class="status"></p>
+// A decision's chart and trades come from its markets' transactions: fetched at most
+// every half minute, not at every redraw.
+const histories = new Map()
+async function historyOf(d, id) {
+  const key = `${d.dao.toBase58()}:${id}`
+  const hit = histories.get(key)
+  if (hit && Date.now() - hit.at < 30_000) return hit.data
+  const data = await F.marketHistory(connection, d, id, { limit: 80 }).catch(() => ({ points: [[], []], trades: [] }))
+  histories.set(key, { at: Date.now(), data })
+  return data
+}
+
+/** The two markets' spot prices over time, as an SVG: Pass and Fail, like MetaDAO's. */
+function chart(points, q, start, end, opening = []) {
+  // Each market from its opening price, when it was funded.
+  const series = points.map((s, i) => [
+    ...(start && opening[i] ? [{ t: start, v: (Number(opening[i]) / 1e12) * (q.usdPrice || 1) }] : []),
+    ...s.map((p) => ({ t: p.t, v: (Number(p.price) / 1e12) * (q.usdPrice || 1) })),
+  ])
+  const all = series.flat()
+  if (all.length < 2) return '<div class="chart empty-chart">The chart fills in as the markets are cranked, once a minute.</div>'
+  const W = 640, H = 240, L = 8, R = 74, T = 12, B = 26
+  const t0 = start || Math.min(...all.map((p) => p.t))
+  const t1 = Math.max(end && end < nowS() ? end : nowS(), t0 + 60)
+  let lo = Math.min(...all.map((p) => p.v)), hi = Math.max(...all.map((p) => p.v))
+  const pad = (hi - lo || hi * 0.1 || 1) * 0.15
+  lo -= pad; hi += pad
+  const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R)
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B)
+  // Steps, not slopes: a market's price holds until its next update.
+  const path = (s) => s.map((p, i) => (i ? `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)).join('')
+    + (s.length ? `H${x(Math.min(t1, nowS())).toFixed(1)}` : '')
+  const fmt = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(3))
+  const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * (i + 0.5)) / 4)
+  const times = [0, 1, 2].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 3)
+  const last = series.map((s) => s[s.length - 1]).map((p) => p && { ...p, t: Math.min(t1, nowS()), y: y(p.v) })
+  return `<div class="chart"><div class="legend"><span class="pass">Pass</span><span class="fail">Fail</span></div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Pass and Fail prices over time">
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${W - R + 6}" y="${y(v) + 3}" class="axis">${fmt(v)}</text>`).join('')}
+      ${times.map((t) => `<text x="${x(t)}" y="${H - 8}" class="axis" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], t1 - t0 < 900 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' })}</text>`).join('')}
+      <path d="${path(series[0])}" class="line fail"/><path d="${path(series[1])}" class="line pass"/>
+      ${last.map((p, i) => (p ? `<circle cx="${x(p.t)}" cy="${p.y}" r="3.5" class="${i ? 'pass' : 'fail'}-dot"/>` : '')).join('')}
+    </svg></div>`
+}
+
+async function renderDecision(mint, id) {
+  const { dao: d, meta, q } = await daoFor(mint)
+  const [x] = d && id < d.proposalCount ? (await F.readProposals(connection, d, id + 1)).filter((p) => p.id === id) : []
+  const symbol = meta?.symbol || short(mint)
+  if (!x) {
+    view.innerHTML = `${banner()}${crumbs(['DAOs', '/dao'], [symbol, `/dao/${mint}`], [`#${id}`])}<h1>No such decision</h1>`
+    wireBanner()
+    return
+  }
+  const [history, position] = await Promise.all([
+    x.state === 'setup' ? { points: [[], []], trades: [] } : historyOf(d, id),
+    session && x.state !== 'setup' ? F.readPosition(connection, d, id, session.address) : null,
+  ])
+  const m = x.markets
+  const ends = m[1]?.endsAt || x.createdAt + x.lengthMinutes * 60
+  const counting = (m[1]?.startedAt || x.createdAt) + x.warmupSeconds
+  const twaps = m.map((k) => (k ? F.observationPrice(k.twap) : 0))
+  const bar = 1 + x.marketBiasBps / 10_000
+  const lead = x.state === 'resolved' ? x.winner : twaps[1] > twaps[0] * bar ? 1 : 0
+  const tag = `${symbol}-${String(id).padStart(3, '0')}`
+  document.title = `${x.metadata || tag} — LFOwn`
+  const status = x.state === 'resolved' ? `<span class="badge ${x.winner ? 'won' : ''}">${x.winner ? 'Passed' : 'Failed'}</span>`
+    : x.state === 'pending' ? `<span class="pill"><b class="dot"></b>${live(ends)}</span>`
+    : `<span class="badge">${x.prepared ? 'Its markets open within a minute' : 'Being written'}</span>`
+  const actions = x.actions[1] ?? []
+  const executed = x.executed?.[1] ?? 0
+  const g = d.governance
+  const opensAt = x.resolvedAt + Number(g.executionDelaySeconds)
+  const tabs = { summary: 'Summary', actions: 'Actions', trades: 'Trades', position: 'Position' }
+
+  const tabBody = {
+    summary: `<h3>Summary</h3>
+      <p>${esc(x.metadata || `Proposal ${id}`)}</p>
+      <p>If it passes, the DAO will ${actions.length ? actions.map((a) => describe(a, q, meta)).join(', then ') : 'do nothing'}.
+        It passes if the Pass market's TWAP beats the Fail market's by ${x.marketBiasBps / 100}% when the markets close.</p>
+      <p class="hint">Proposed by <span class="addr">${esc(x.creator)}</span>${x.stake ? `, who staked ${tokensM(x.stake)} ${esc(symbol)} to ask` : ''}.</p>`,
+    actions: `<h3>What passing does</h3>
+      ${actions.length ? `<ol class="steps">${actions.map((a, i) => `<li>${describe(a, q, meta)}${executed & (1 << i) ? ' <span class="badge won">done</span>' : ''}</li>`).join('')}</ol>` : '<p>Nothing.</p>'}
+      <p class="hint">Run by anyone, on-chain, ${minutes(Number(g.executionDelaySeconds) / 60)} after the decision and within ${minutes(Number(g.executionWindowSeconds) / 60)} of it —
+        ${x.state === 'resolved' && x.winner ? (nowS() < opensAt ? `from ${new Date(opensAt * 1000).toLocaleString()}` : 'now') : 'if it passes'}.</p>`,
+    trades: history.trades.length ? `<table class="trades"><thead><tr><th>When</th><th>Side</th><th>Trade</th><th>By</th></tr></thead><tbody>
+      ${history.trades.slice(0, 40).map((t) => `<tr><td>${new Date(t.t * 1000).toLocaleTimeString()}</td>
+        <td class="${t.option ? 'pass' : 'fail'}">${LABELS[t.option]}</td>
+        <td>${t.buy ? `bought ${tokensM(t.output)} for ${coins(t.input)}` : `sold ${tokensM(t.input)} for ${coins(t.output)}`}</td>
+        <td class="addr">${esc(short(t.trader))}</td></tr>`).join('')}</tbody></table>` : '<p class="hint">No trade yet.</p>',
+    position: !session ? '<p class="hint">Connect a wallet to see your position.</p>' : !position ? '<p class="hint">Nothing yet.</p>'
+      : `<table class="trades"><thead><tr><th>Side</th><th>${esc(q.symbol)} (conditional)</th><th>${esc(symbol)} (conditional)</th></tr></thead><tbody>
+        ${[1, 0].map((i) => `<tr><td class="${i ? 'pass' : 'fail'}">${LABELS[i]}</td><td>${coins(position[i].coin)}</td><td>${tokensM(position[i].token)}</td></tr>`).join('')}
+        </tbody></table>
+        ${x.state === 'resolved' ? `<button class="btn" type="button" id="t-redeem">Redeem the ${LABELS[x.winner]} side</button><p class="status" id="t-redeem-status"></p>` : ''}`,
+  }
+
+  view.innerHTML = `${banner()}
+    ${crumbs(['DAOs', '/dao'], [symbol, `/dao/${mint}`], [tag])}
+    <div class="decision">
+      <div class="main">
+        <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
+        <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
+        ${x.state === 'setup' ? '<p class="empty">Its markets open once its creator has taken the liquidity out; the keeper launches them within a minute.</p>'
+          : chart(history.points, q, m[1]?.startedAt, ends, m.map((k) => k?.starting))}
+        <div class="twap">
+          <div class="twap-head"><h2>TWAP</h2>
+            <div><span class="pass ${lead === 1 ? 'lead' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="fail ${lead === 0 ? 'lead' : ''}">Fail ${dollars(twaps[0], q)}</span></div></div>
+          <div class="twap-bar"><i class="pass" style="width:${twaps[0] + twaps[1] ? (100 * twaps[1]) / (twaps[0] + twaps[1]) : 50}%"></i></div>
+          <p class="hint">${x.state === 'pending' && nowS() < counting ? `Counting starts in ${live(counting)}: the first ${minutes(x.warmupSeconds / 60)} are not counted.`
+            : x.state === 'resolved' ? `Decided: the ${LABELS[x.winner]} market's TWAP won.`
+            : `Pass needs ${dollars(twaps[0] * bar, q)} to win: Fail's TWAP plus ${x.marketBiasBps / 100}%.`}</p>
+        </div>
+        <nav class="tabs">${Object.entries(tabs).map(([k, v]) => `<button type="button" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${v}</button>`).join('')}</nav>
+        <div class="tab-body">${tabBody[ui.tab]}</div>
+      </div>
+      <aside class="panel">${tradePanel(x, q, symbol, position)}</aside>
+    </div>`
+  wireBanner()
+  for (const b of view.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { ui.tab = b.dataset.tab; render() })
+  wireTrade(d, x, q, symbol, position)
+  wire($('#t-redeem'), $('#t-redeem-status'), async (say) => sendAll([await F.redeemWinningsIxs(connection, d, id, session.address)], { say }), 'Redeemed.')
+}
+
+function tradePanel(x, q, symbol, position) {
+  if (x.state === 'resolved') {
+    return `<div class="panel-box"><span class="lab">Decided</span><div class="result ${x.winner ? 'pass' : 'fail'}">${LABELS[x.winner]}</div>
+      <p class="hint">The ${LABELS[x.winner]} side redeems one for one into ${esc(q.symbol)} and ${esc(symbol)}; the other side is worth nothing now.
+      Your position and the redeem button are under Position.</p></div>`
+  }
+  if (x.state !== 'pending') return `<div class="panel-box"><p class="hint">Trading opens with its markets.</p></div>`
+  const m = x.markets
+  const held = position?.[ui.outcome]?.token ?? 0n
+  return `<div class="panel-box">
+    <span class="lab">Outcome market</span>
+    <div class="seg">${[1, 0].map((i) => `<button type="button" data-outcome="${i}" class="${ui.outcome === i ? `on ${i ? 'pass' : 'fail'}` : ''}"><b class="${i ? 'pass' : 'fail'}-sq"></b>${LABELS[i]} ${dollars(m[i]?.spot ?? 0, q)}</button>`).join('')}</div>
+    <span class="lab">Action</span>
+    <div class="seg">${['buy', 'sell'].map((a) => `<button type="button" data-action="${a}" class="${ui.action === a ? 'on' : ''}">${a === 'buy' ? 'Buy' : 'Sell'}</button>`).join('')}</div>
+    <span class="lab">You spend</span>
+    <label class="spend"><input id="t-amount" inputmode="decimal" placeholder="0" value="${esc(ui.amount)}">
+      <span>${ui.action === 'buy' ? esc(q.symbol) : `${LABELS[ui.outcome]} ${esc(symbol)}`}</span></label>
+    ${ui.action === 'sell' ? `<p class="hint">You hold ${tokensM(held)} ${LABELS[ui.outcome]} ${esc(symbol)}${held ? ' · <button class="link" type="button" id="t-max">max</button>' : ''}</p>` : ''}
+    <div class="recv"><span>You receive, estimated</span><b id="t-recv">—</b></div>
+    <p class="hint">A trade is exposure to an outcome, not a vote. Buying ${LABELS[ui.outcome]} splits your ${esc(q.symbol)} into a Pass and a Fail claim and
+      swaps the ${LABELS[ui.outcome]} one for ${LABELS[ui.outcome]} ${esc(symbol)}: if ${LABELS[ui.outcome]} wins you keep the ${esc(symbol)}, if not, the other claim's ${esc(q.symbol)} comes back.</p>
+    <button class="btn wide" type="button" id="t-go">${session ? `${ui.action === 'buy' ? 'Buy' : 'Sell'} ${LABELS[ui.outcome]}` : 'Connect wallet'}</button>
+    <p class="status" id="t-status"></p>
   </div>`
 }
 
-function wireDao(d, q, proposals) {
-  for (const card of view.querySelectorAll('.proposal')) {
-    const id = Number(card.dataset.id)
-    const status = card.querySelector('.status')
-    for (const b of card.querySelectorAll('.t-back')) {
-      wire(b, status, async (say) => {
-        const amount = Math.round(Number(card.querySelector('.t-amount').value) * 1e6)
-        if (!(amount > 0)) throw new Error(`Enter an amount of ${q.symbol}.`)
-        await sendAll([await F.backOptionIxs(connection, d, id, session.address, Number(b.dataset.option), BigInt(amount))], { say })
-      }, 'Backed.')
-    }
-    wire(card.querySelector('.t-redeem'), status, async (say) =>
-      sendAll([await F.redeemWinningsIxs(connection, d, id, session.address)], { say }), 'Redeemed.')
+function wireTrade(d, x, q, symbol, position) {
+  for (const b of view.querySelectorAll('[data-outcome]')) b.addEventListener('click', () => { ui.outcome = Number(b.dataset.outcome); render() })
+  for (const b of view.querySelectorAll('[data-action]')) b.addEventListener('click', () => { ui.action = b.dataset.action; ui.amount = ''; render() })
+  const input = $('#t-amount')
+  if (!input) return
+  const estimate = () => {
+    ui.amount = input.value
+    const m = x.markets[ui.outcome]
+    const units = BigInt(Math.max(0, Math.round(Number(input.value) * 1e6)) || 0)
+    if (!m || !units) { $('#t-recv').textContent = '—'; return }
+    $('#t-recv').textContent = ui.action === 'buy'
+      ? `${tokensM(F.swapOutput(units, m.reserveCoin, m.reserveToken, m.fee))} ${LABELS[ui.outcome]} ${symbol}`
+      : `${coins(F.sellOutput(units, m.reserveToken, m.reserveCoin, m.fee))} ${LABELS[ui.outcome]} ${q.symbol}`
   }
+  input.addEventListener('input', estimate)
+  estimate()
+  $('#t-max')?.addEventListener('click', () => { input.value = String(Number(position[ui.outcome].token) / 1e6); estimate() })
+  wire($('#t-go'), $('#t-status'), async (say) => {
+    await ensureWallet()
+    const units = BigInt(Math.round(Number(input.value) * 1e6))
+    if (!(units > 0n)) throw new Error(`Enter an amount of ${ui.action === 'buy' ? q.symbol : `${LABELS[ui.outcome]} ${symbol}`}.`)
+    const ixs = ui.action === 'buy'
+      ? await F.backOptionIxs(connection, d, x.id, session.address, ui.outcome, units)
+      : await F.sellOptionIxs(connection, d, x.id, session.address, ui.outcome, units)
+    await sendAll([ixs], { say })
+    ui.amount = ''
+    histories.clear()
+  }, ui.action === 'buy' ? 'Bought.' : 'Sold.')
+}
+
+function wirePropose(d, q) {
   wire($('#n-go'), $('#n-status'), async (say) => {
     const wallet = await ensureWallet()
     const title = $('#n-title').value.trim()
@@ -537,6 +773,7 @@ function wireDao(d, q, proposals) {
       await F.proposeIxs(connection, d, id, wallet.address, title),
       [await F.setActionsIx(connection, d, id, wallet.address, 1, [action]), await F.prepareIx(connection, d, id, wallet.address)],
     ], { say })
+    history.pushState(null, '', `/dao/${d.baseMint.toBase58()}/${id}`)
   }, 'Proposed. Its markets open within a minute.')
 }
 
@@ -547,8 +784,13 @@ async function render() {
   if (!config || rendering) return
   rendering = true
   try {
-    const tail = location.pathname.replace(/^\/raise\/?/, '').replace(/\/$/, '')
-    if (/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(tail)) await renderRaise(tail)
+    const [section, mint, id] = location.pathname.split('/').filter(Boolean)
+    markTab(section)
+    const isMint = (v) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(v ?? '')
+    if (section === 'dao' && isMint(mint) && /^\d+$/.test(id ?? '')) await renderDecision(mint, Number(id))
+    else if (section === 'dao' && isMint(mint)) await renderDaoPage(mint)
+    else if (section === 'dao') await renderDaos()
+    else if (isMint(mint)) await renderRaise(mint)
     else await renderIndex()
   } catch (e) {
     console.error(e)
@@ -558,11 +800,23 @@ async function render() {
   }
 }
 
-view.addEventListener('click', (e) => {
-  const a = e.target.closest('a[href^="/raise"]')
-  if (!a || e.metaKey || e.ctrlKey) return
+/** The header's Raise and DAO tabs: shown here, and the current one marked. */
+function markTab(section) {
+  for (const a of document.querySelectorAll('[data-fair]')) {
+    a.hidden = false
+    if (a.getAttribute('href') === `/${section === 'dao' ? 'dao' : 'raise'}`) a.setAttribute('aria-current', 'page')
+    else a.removeAttribute('aria-current')
+  }
+}
+
+// Links within the app, in the page or the header's tabs, move without a page load.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href^="/raise"], a[href^="/dao"]')
+  if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return
   e.preventDefault()
+  if (a.getAttribute('href') !== location.pathname) ui.tab = 'summary'
   history.pushState(null, '', a.getAttribute('href')) // renders, see below
+  window.scrollTo(0, 0)
 })
 window.addEventListener('popstate', render)
 // Pushed by the "Open the raise" handler after it lands.

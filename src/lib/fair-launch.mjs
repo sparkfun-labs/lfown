@@ -42,7 +42,7 @@ import cpAmmIdl from './idl/cp_amm.json' with { type: 'json' }
 
 // Anchor ships CommonJS: Node only offers it as a default export, a bundler as named ones.
 const anchor = Reflect.get(anchorModule, 'default') ?? anchorModule
-const { AnchorProvider, BN, Program } = anchor
+const { AnchorProvider, BN, BorshCoder, Program } = anchor
 
 // ── the terms ────────────────────────────────────────────────────────────────
 
@@ -581,12 +581,9 @@ export async function backOptionIxs(connection, d, id, trader, optionIndex, amou
   const q = proposalAddresses(d, id)
   const who = new PublicKey(trader)
   const o = q.options[optionIndex]
-  const [market, reserveIn, reserveOut] = await Promise.all([
-    p.amm.account.poolAccount.fetch(o.pool),
-    connection.getTokenAccountBalance(o.reserveA).then((b) => BigInt(b.value.amount)),
-    connection.getTokenAccountBalance(o.reserveB).then((b) => BigInt(b.value.amount)),
-  ])
-  const expected = swapOutput(BigInt(amount), reserveIn, reserveOut, market.fee)
+  // The pool's own count of its reserves, which is what it prices with.
+  const market = await p.amm.account.poolAccount.fetch(o.pool)
+  const expected = swapOutput(BigInt(amount), num(market.reserveA), num(market.reserveB), market.fee)
   const minOut = (expected * BigInt(10_000 - slippageBps)) / 10_000n
   const opens = q.options.flatMap((x) => [
     createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condQuote, who), who, x.condQuote),
@@ -601,6 +598,107 @@ export async function backOptionIxs(connection, d, id, trader, optionIndex, amou
     traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
   }).instruction()
   return [...opens, split, buy]
+}
+
+/** What selling `amountIn` of a market's token yields in its coin, as the amm computes it. */
+export function sellOutput(amountIn, reserveBase, reserveQuote, feeBps) {
+  const gross = (amountIn * reserveQuote) / (reserveBase + amountIn)
+  let fee = (gross * BigInt(feeBps)) / 10_000n
+  if (feeBps > 0 && fee === 0n) fee = 1n
+  return gross > fee ? gross - fee : 0n
+}
+
+/**
+ * Selling a side back: `amount` of an option's conditional token swapped into that option's
+ * conditional coin — a claim on the coin if that option wins. Bounded by `slippageBps`.
+ */
+export async function sellOptionIxs(connection, d, id, trader, optionIndex, amount, { slippageBps = 200 } = {}) {
+  const p = programs(connection)
+  const o = proposalAddresses(d, id).options[optionIndex]
+  const who = new PublicKey(trader)
+  const market = await p.amm.account.poolAccount.fetch(o.pool)
+  const expected = sellOutput(BigInt(amount), num(market.reserveB), num(market.reserveA), market.fee)
+  const minOut = (expected * BigInt(10_000 - slippageBps)) / 10_000n
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(who, ata(o.condQuote, who), who, o.condQuote),
+    await p.amm.methods.swap(false, new BN(amount.toString()), new BN(minOut.toString())).accountsStrict({
+      trader: who, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
+      traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
+    }).instruction(),
+  ]
+}
+
+/** A trader's conditional coins and tokens in each of a proposal's markets. */
+export async function readPosition(connection, d, id, trader) {
+  const who = new PublicKey(trader)
+  const q = proposalAddresses(d, id)
+  const addresses = q.options.flatMap((o) => [ata(o.condQuote, who), ata(o.condBase, who)])
+  const infos = await connection.getMultipleAccountsInfo(addresses)
+  const amount = (info) => (info ? new DataView(info.data.buffer, info.data.byteOffset + 64, 8).getBigUint64(0, true) : 0n)
+  return q.options.map((_, i) => ({ coin: amount(infos[2 * i]), token: amount(infos[2 * i + 1]) }))
+}
+
+/**
+ * A proposal's markets as their transactions tell it, the newest `limit` of each: every
+ * TWAP update (the chart) and every trade. Read from the amm's events in the logs, since
+ * a pool keeps only its latest state. One transaction often touches both markets — a
+ * crank does — and an amm event does not name its pool, so each event is matched to the
+ * amm instruction that logged it, and that instruction to its pool.
+ */
+export async function marketHistory(connection, d, id, { limit = 60 } = {}) {
+  const coder = new BorshCoder(ammIdl)
+  const amm = PROGRAM_IDS.amm.toBase58()
+  const q = proposalAddresses(d, id)
+  const pools = q.options.map((o) => o.pool.toBase58())
+  const lists = await Promise.all(q.options.map((o) => connection.getSignaturesForAddress(o.pool, { limit }, 'confirmed')))
+  const seen = new Map()
+  for (const x of lists.flat()) if (!x.err) seen.set(x.signature, x)
+  const sigs = [...seen.values()]
+  const points = q.options.map(() => [])
+  const trades = []
+  // An RPC takes twenty calls per request through the site's proxy.
+  for (let i = 0; i < sigs.length; i += 20) {
+    const batch = sigs.slice(i, i + 20)
+    const txs = await connection.getTransactions(batch.map((x) => x.signature), { commitment: 'confirmed', maxSupportedTransactionVersion: 0 })
+    txs.forEach((tx, j) => {
+      if (!tx?.meta?.logMessages) return
+      const keys = tx.transaction.message.getAccountKeys({ accountKeysFromLookups: tx.meta.loadedAddresses })
+      const key = (index) => keys.get(index)?.toBase58()
+      // The amm's instructions in the order they ran: each top-level one, then its inner ones.
+      const calls = []
+      tx.transaction.message.compiledInstructions.forEach((ix, top) => {
+        const all = [{ program: ix.programIdIndex, accounts: ix.accountKeyIndexes }]
+        for (const group of tx.meta.innerInstructions ?? []) {
+          if (group.index === top) for (const inner of group.instructions) all.push({ program: inner.programIdIndex, accounts: inner.accounts })
+        }
+        for (const call of all) {
+          if (key(call.program) !== amm) continue
+          const touched = call.accounts.map(key)
+          calls.push(pools.findIndex((pool) => touched.includes(pool)))
+        }
+      })
+      let next = 0
+      let option = -1
+      for (const line of tx.meta.logMessages) {
+        if (line.startsWith(`Program ${amm} invoke`)) { option = calls[next++] ?? -1; continue }
+        if (line.startsWith(`Program ${amm} success`) || line.startsWith(`Program ${amm} failed`)) { option = -1; continue }
+        if (option < 0 || !line.startsWith('Program data: ')) continue
+        let event = null
+        try { event = coder.events.decode(line.slice('Program data: '.length)) } catch {}
+        if (!event) continue
+        const f = (snake, camel) => event.data[camel] ?? event.data[snake]
+        if (event.name === 'TWAPUpdate' || event.name === 'TwapUpdate') {
+          points[option].push({ t: Number(f('unix_time', 'unixTime')), price: num(event.data.price), observation: num(event.data.observation) })
+        } else if (event.name === 'CondSwap') {
+          trades.push({
+            option, t: batch[j].blockTime ?? 0, signature: batch[j].signature, trader: event.data.trader.toBase58(),
+            buy: Boolean(f('swap_a_to_b', 'swapAToB')), input: num(f('input_amount', 'inputAmount')), output: num(f('output_amount', 'outputAmount')),
+          })
+        }
+      }
+    })
+  }
+  return { points: points.map((series) => series.sort((a, b) => a.t - b.t)), trades: trades.sort((a, b) => b.t - a.t) }
 }
 
 /** After the decision: the winning option's conditional coin and token, back into the real ones. */
@@ -709,6 +807,10 @@ export async function readProposals(connection, d, count) {
       metadata: a.metadata,
       markets: markets.map((m, i) => (m ? {
         index: i, twap: twapOf(m.oracle), lastPrice: num(m.oracle.lastPrice), lastUpdate: Number(m.oracle.lastUpdateUnixTime),
+        // Its spot price, coin per token, from the pool's own count of its reserves.
+        reserveCoin: num(m.reserveA), reserveToken: num(m.reserveB), fee: m.fee,
+        spot: num(m.reserveB) ? Number(num(m.reserveA)) / Number(num(m.reserveB)) : 0,
+        startedAt: Number(m.oracle.createdAtUnixTime), endsAt: Number(m.oracle.endUnixTime), starting: num(m.oracle.startingObservation),
       } : null)),
       actions: actions.map((x) => x?.actions ?? []),
       executed: actions.map((x) => x?.executed ?? 0),

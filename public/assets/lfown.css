@@ -73,6 +73,8 @@ body::after{
    launch flow included, which has to fit a laptop screen without scrolling. */
 .earners{position:relative;overflow:hidden;white-space:nowrap;border-bottom:1.5px solid var(--ink);background:var(--card)}
 .earners[hidden]{display:none}
+/* Fair-launch tabs: in every header, shown only where fair launches run. */
+[data-fair][hidden]{display:none!important}
 .earners-track{display:flex;width:max-content;animation:earners-slide 60s linear infinite;will-change:transform}
 .earners:hover .earners-track{animation-play-state:paused}
 .earners-grp{display:flex;flex:0 0 auto}

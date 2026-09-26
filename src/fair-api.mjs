@@ -58,6 +58,8 @@ const RPC_ALLOWED = new Set([
   'getProgramAccounts', 'getLatestBlockhash', 'getMinimumBalanceForRentExemption', 'getSignatureStatuses',
   'sendTransaction', 'simulateTransaction', 'getSlot', 'getBlockTime', 'getEpochInfo', 'getFeeForMessage',
   'isBlockhashValid', 'getBlockHeight', 'getTokenSupply', 'getRecentPrioritizationFees', 'getGenesisHash', 'getVersion',
+  // A decision's chart and trades: its markets' recent transactions, a batch at a time.
+  'getSignaturesForAddress', 'getTransaction',
 ])
 /** A page's biggest batch is a handful of calls; a transaction is 1,232 bytes. */
 const RPC_MAX_CALLS = 20
