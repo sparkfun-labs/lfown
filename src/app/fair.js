@@ -28,11 +28,13 @@ const nowS = () => Math.floor(Date.now() / 1000)
 function until(ts) {
   const s = ts - nowS()
   if (s <= 0) return 'ended'
-  if (s < 90) return `${s}s`
-  if (s < 5400) return `${Math.round(s / 60)} min`
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
   if (s < 172_800) return `${Math.round(s / 3600)} h`
   return `${Math.round(s / 86_400)} days`
 }
+/** A countdown the page keeps ticking, second by second (see `tick`). */
+const live = (ts) => `<span data-until="${Number(ts)}">${until(ts)}</span>`
 const minutes = (m) => (m >= 1440 && m % 1440 === 0 ? `${m / 1440} days` : m >= 120 && m % 60 === 0 ? `${m / 60} h` : `${m} min`)
 
 let config = null
@@ -308,11 +310,11 @@ async function renderIndex() {
 function raiseCard(r, meta) {
   const q = quoteOf(r.quoteMint)
   const pct = r.goal ? Math.min(100, Number((r.totalCommitted * 1000n) / r.goal) / 10) : 0
-  const state = r.state === 'live' ? (r.endsAt > nowS() ? `ends in ${until(r.endsAt)}` : 'ended, settling') : r.state
+  const state = r.state === 'live' ? (r.endsAt > nowS() ? `ends in ${live(r.endsAt)}` : 'ended, settling') : esc(r.state)
   return `<a class="raise" href="/raise/${esc(r.baseMint)}">
     <div><div class="nm">${esc(meta.symbol || short(r.baseMint))}</div><div class="pair">${esc(meta.name)} · paired with ${esc(q.symbol)}</div></div>
     <div class="progress"><i style="width:${pct}%"></i></div>
-    <div class="meta"><span>${coins(r.totalCommitted, 0)} / ${coins(r.goal, 0)} ${esc(q.symbol)}</span><span>${esc(state)}</span></div>
+    <div class="meta"><span>${coins(r.totalCommitted, 0)} / ${coins(r.goal, 0)} ${esc(q.symbol)}</span><span>${state}</span></div>
   </a>`
 }
 
@@ -340,7 +342,7 @@ async function renderRaise(mint) {
     <div class="totals">
       <div class="tot"><span class="lab">Committed</span><span class="big">${coins(raise.totalCommitted, 0)} ${esc(q.symbol)}</span><span class="sub">of ${coins(raise.goal, 0)} · ${pct}%</span></div>
       <div class="tot"><span class="lab">Price per token</span><span class="big">${coins(price, 6)}</span><span class="sub">${esc(q.symbol)}, the same for everyone</span></div>
-      <div class="tot"><span class="lab">${state === 'live' ? 'Ends in' : 'Ended'}</span><span class="big">${state === 'live' ? until(raise.endsAt) : new Date(raise.endsAt * 1000).toLocaleString()}</span></div>
+      <div class="tot"><span class="lab">${state === 'live' ? 'Ends in' : 'Ended'}</span><span class="big">${state === 'live' ? live(raise.endsAt) : new Date(raise.endsAt * 1000).toLocaleString()}</span></div>
       <div class="tot"><span class="lab">To backers</span><span class="big">${tokensM(raise.tokensForInvestors)}</span><span class="sub">tokens, pro rata</span></div>
     </div>
     <div class="progress" style="margin:-18px 0 28px"><i style="width:${Math.min(100, pct)}%"></i></div>
@@ -375,7 +377,7 @@ function positionCard(raise, mine, q, ended) {
     if (raise.totalCommitted >= raise.goal && nowS() < deadline) {
       return `<h2>The raise met its goal</h2><p>Opening its DAO settles it: the pool and the treasury are paid, the pool opens at the
         raise's price, and claims open, all in one transaction. LFOwn's keeper does it within a minute; anyone can, until
-        ${until(deadline)} from now — past that, everyone is refunded instead.</p>
+        ${live(deadline)} from now — past that, everyone is refunded instead.</p>
         <button class="btn" type="button" id="p-bootstrap">Open the DAO now</button><p class="status" id="p-status"></p>`
     }
     return `<h2>The raise has ended</h2><p>It ${raise.totalCommitted >= raise.goal ? 'got no DAO in time' : 'missed its goal'}: settling it
@@ -474,12 +476,12 @@ function proposalCard(x, d, q, meta) {
   const prices = x.markets.map((m) => (m ? F.observationPrice(m.twap) : 0))
   const lead = prices[1] > prices[0] * (1 + x.marketBiasBps / 10_000) ? 1 : 0
   const state = x.state === 'resolved' ? `decided: ${labels[x.winner].toLowerCase()}`
-    : x.state === 'pending' ? `trading · ${until(ends)} left${nowS() < warmEnd ? ' · warming up' : ''}`
+    : x.state === 'pending' ? `trading · ${live(ends)} left${nowS() < warmEnd ? ' · warming up' : ''}`
     : x.prepared ? 'opening its markets' : 'being written'
   const actions = (x.actions[1] ?? []).map((a) => describe(a, q, meta)).join('; ') || 'nothing'
   return `<div class="proposal" data-id="${x.id}">
     <div><div class="title">${esc(x.metadata || `Proposal ${x.id}`)}</div>
-      <div class="meta"><span>#${x.id} · by ${esc(short(x.creator))}</span><span class="badge ${x.state === 'pending' ? 'live' : x.state === 'resolved' ? 'won' : ''}">${esc(state)}</span></div></div>
+      <div class="meta"><span>#${x.id} · by ${esc(short(x.creator))}</span><span class="badge ${x.state === 'pending' ? 'live' : x.state === 'resolved' ? 'won' : ''}">${state}</span></div></div>
     <p class="hint">If it passes: ${actions}.</p>
     ${x.state === 'setup' ? '' : `<div class="opts">${labels.map((l, i) => `<div class="opt ${(x.state === 'resolved' ? x.winner : lead) === i ? 'lead' : ''}">
       <span class="lab">${l}${x.state === 'resolved' && x.winner === i ? ' — won' : ''}</span>
@@ -566,6 +568,19 @@ window.addEventListener('popstate', render)
 // Pushed by the "Open the raise" handler after it lands.
 const push = history.pushState.bind(history)
 history.pushState = (...args) => { push(...args); setTimeout(render, 0) }
+
+// Every second: countdowns tick, and one that reaches zero redraws the page, since what
+// the page offers changes then (a raise to settle, a market to finalize).
+function tick() {
+  let ended = false
+  for (const el of view.querySelectorAll('[data-until]')) {
+    const ts = Number(el.dataset.until)
+    el.textContent = until(ts)
+    if (ts <= nowS() && !el.dataset.ended) { el.dataset.ended = '1'; ended = true }
+  }
+  if (ended && !busy && !document.activeElement?.matches('input, select')) setTimeout(render, 1500)
+}
+setInterval(tick, 1000)
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 
