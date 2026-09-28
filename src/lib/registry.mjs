@@ -22,15 +22,33 @@ const RESOLVED_API = 'https://api.01resolved.com/v1/global-dashboard'
 /** A project's full financials on 01Resolved, for a link beside the numbers taken from it. */
 export const financialsUrl = (slug) => `https://www.01resolved.com/${encodeURIComponent(slug)}/financials`
 
-async function resolvedPages(path, key) {
-  const rows = []
-  for (let page = 1; page <= 10; page++) {
-    const res = await fetch(`${RESOLVED_API}/${path}?limit=100&page=${page}`, {
+/**
+ * 01Resolved's plan: ten rows a request, three pages deep, and a cap on the pace. Asking
+ * for more is a 400 or a 403, too fast a 429 — and any of them sends the catalogue back
+ * to MetaDAO's treasuries. So pages of ten, one request at a time, a pause between them,
+ * and one more try after a 429.
+ */
+const RESOLVED_PAGE = 10
+const RESOLVED_MAX_PAGES = 3
+const pause = (ms) => new Promise((r) => setTimeout(r, ms))
+
+async function resolvedPage(path, key, page) {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${RESOLVED_API}/${path}?limit=${RESOLVED_PAGE}&page=${page}`, {
       headers: { 'x-api-key': key, accept: 'application/json', 'user-agent': UA },
       signal: AbortSignal.timeout(10_000),
     })
+    if (res.status === 429 && attempt === 0) { await pause(3_000); continue }
     if (!res.ok) throw new Error(`01resolved ${res.status} on ${path}`)
-    const body = await res.json()
+    return res.json()
+  }
+}
+
+async function resolvedPages(path, key) {
+  const rows = []
+  for (let page = 1; page <= RESOLVED_MAX_PAGES; page++) {
+    if (page > 1) await pause(1_200)
+    const body = await resolvedPage(path, key, page)
     rows.push(...(body.data ?? []))
     if (!(body.meta?.totalPages > page)) break
   }
@@ -202,10 +220,10 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey 
   let listed = coins
   if (resolvedKey) {
     try {
-      const [projects, launches] = await Promise.all([
-        resolvedPages('projects-launch', resolvedKey),
-        resolvedPages('completed-launches/info', resolvedKey),
-      ])
+      // One after the other: side by side they tripped the plan's pace limit.
+      const projects = await resolvedPages('projects-launch', resolvedKey)
+      await pause(1_200)
+      const launches = await resolvedPages('completed-launches/info', resolvedKey)
       listed = withFinancials(coins, projects, launches)
     } catch (e) {
       console.error(`01resolved unavailable, keeping MetaDAO's treasuries: ${e.message}`)
