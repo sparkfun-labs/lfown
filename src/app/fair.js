@@ -257,7 +257,9 @@ function wireBanner() {
 function termsList(quote, raise = null, t = config.terms, g = config.governance) {
   if (raise) {
     t = { ...t, tokensForInvestors: raise.tokensForInvestors, tokensForPool: raise.tokensForPool, durationSeconds: raise.endsAt - raise.startsAt,
-      poolShareBps: Number((raise.quoteToPool * 10_000n) / raise.goal) }
+      // Rounded, not truncated: the pool's share is 80% of the goal rounded down to a base
+      // unit, which a truncated percentage showed as 79.99%.
+      poolShareBps: Number((raise.quoteToPool * 10_000n + raise.goal / 2n) / raise.goal) }
   }
   const goal = raise ? raise.goal : F.goalInCoin(quote.usdPrice || 1, t.goalUsd)
   const supply = t.tokensForInvestors + t.tokensForPool
@@ -339,7 +341,9 @@ async function renderRaise(mint) {
   const q = quoteOf(raise.quoteMint)
   const [meta] = await names([raise.baseMint])
   const dao = raise.state === 'succeeded' ? await F.readDao(connection, raise.baseMint, raise.quoteMint) : null
-  const mine = session ? await F.readCommitment(connection, raise, session.address) : null
+  const [mine, held] = session
+    ? await Promise.all([F.readCommitment(connection, raise, session.address), tokenBalance(raise.quoteMint, session.address)])
+    : [null, 0n]
   const pct = Number((raise.totalCommitted * 1000n) / raise.goal) / 10
   const ended = raise.endsAt <= nowS()
   const state = raise.state === 'live' ? (ended ? 'ended' : 'live') : raise.state
@@ -363,7 +367,7 @@ async function renderRaise(mint) {
     </div>
     <div class="progress" style="margin:-18px 0 28px"><i style="width:${Math.min(100, pct)}%"></i></div>
     <div class="cols">
-      <div class="card hot" id="position">${standard ? positionCard(raise, mine, q, ended) : `<h2>Not on LFOwn's terms</h2>
+      <div class="card hot" id="position">${standard ? positionCard(raise, mine, q, ended, held) : `<h2>Not on LFOwn's terms</h2>
         <p>This raise was opened directly on the program, with another supply, coin or DAO than LFOwn's. Nothing here checks what it
         commits to, so this page does not take commitments for it.</p>${raise.state !== 'live' || ended ? positionCard(raise, mine, q, ended) : ''}`}</div>
       <div class="card"><h2>The deal</h2>${termsList(q, raise)}</div>
@@ -374,7 +378,7 @@ async function renderRaise(mint) {
   wirePosition(raise, q)
 }
 
-function positionCard(raise, mine, q, ended) {
+function positionCard(raise, mine, q, ended, held = 0n) {
   if (!session) return `<h2>Back this raise</h2><p>Connect a wallet to commit ${esc(q.symbol)}, or to claim what you are owed.</p>
     <button class="btn" type="button" id="p-connect">Connect wallet</button>`
   const committed = mine?.amount ?? 0n
@@ -386,6 +390,7 @@ function positionCard(raise, mine, q, ended) {
         : ` — about ${tokensM(projected.tokens)} tokens if it reaches its goal; below it, everything comes back`}.
         Anything over the goal is refunded pro rata when it closes.</p>
       <label><span class="lab">Commit (${esc(q.symbol)})</span><input id="p-amount" inputmode="decimal" placeholder="100"></label>
+      <p class="hint">In your wallet: <b>${coins(held)} ${esc(q.symbol)}</b>${held ? ` · <button class="link" type="button" id="p-max" data-max="${Number(held) / 1e6}">max</button>` : ''}</p>
       <button class="btn" type="button" id="p-commit">Commit</button><p class="status" id="p-status"></p>`
   }
   if (raise.state === 'live') {
@@ -419,9 +424,12 @@ function positionCard(raise, mine, q, ended) {
 function wirePosition(raise, q) {
   $('#p-connect')?.addEventListener('click', () => ensureWallet().catch(() => {}))
   const status = $('#p-status')
+  $('#p-max')?.addEventListener('click', (e) => { $('#p-amount').value = e.target.dataset.max })
   wire($('#p-commit'), status, async (say) => {
     const amount = Math.round(Number($('#p-amount').value) * 1e6)
     if (!(amount > 0)) throw new Error(`Enter an amount of ${q.symbol}.`)
+    const held = await tokenBalance(raise.quoteMint, session.address)
+    if (BigInt(amount) > held) throw new Error(`You have ${coins(held)} ${q.symbol} in your wallet.`)
     await sendAll([[await F.commitIx(connection, raise, session.address, BigInt(amount))]], { say })
   }, 'Committed.')
   wire($('#p-settle'), status, async (say) => sendAll([[await F.settleIx(connection, raise, session.address)]], { say }), 'Settled.')
@@ -602,16 +610,23 @@ function chart(points, q, start, end, opening = [], spots = []) {
   if (all.length < 2) return '<div class="chart empty-chart">The chart fills in as the markets are cranked, once a minute.</div>'
   const W = 640, H = 240, L = 8, R = 74, T = 12, B = 26
   const t0 = start || Math.min(...all.map((p) => p.t))
-  const t1 = Math.max(end && end < nowS() ? end : nowS(), t0 + 60)
+  // From the market's opening to now, or to its end.
+  const t1 = Math.max(end && end < nowS() ? end : nowS(), t0 + 10)
+  // At least 1% either side of the price: prices that differ by a rounding of the last
+  // base unit are flat, not a cliff.
   let lo = Math.min(...all.map((p) => p.v)), hi = Math.max(...all.map((p) => p.v))
-  const pad = (hi - lo || hi * 0.1 || 1) * 0.15
+  const mid = (lo + hi) / 2
+  lo = Math.min(lo, mid * 0.99); hi = Math.max(hi, mid * 1.01)
+  const pad = (hi - lo) * 0.15
   lo -= pad; hi += pad
   const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R)
   const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B)
   // Steps, not slopes: a market's price holds until its next update.
   const path = (s) => s.map((p, i) => (i ? `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)).join('')
     + (s.length ? `H${x(Math.min(t1, nowS())).toFixed(1)}` : '')
-  const fmt = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(3))
+  // Enough digits for the axis's four labels to differ.
+  const digits = Math.min(8, Math.max(3, Math.ceil(Math.log10(Math.abs(mid) / ((hi - lo) / 4 || 1))) + 1))
+  const fmt = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(digits))
   const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * (i + 0.5)) / 4)
   const times = [0, 1, 2].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 3)
   const last = series.map((s) => s[s.length - 1]).map((p) => p && { ...p, t: Math.min(t1, nowS()), y: y(p.v) })
@@ -690,7 +705,7 @@ async function renderDecision(mint, id) {
           <div class="twap-head"><h2>TWAP</h2>
             <div><span class="pass ${lead === 1 ? 'lead' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="fail ${lead === 0 ? 'lead' : ''}">Fail ${dollars(twaps[0], q)}</span></div></div>
           <div class="twap-bar"><i class="pass" style="width:${twaps[0] + twaps[1] ? (100 * twaps[1]) / (twaps[0] + twaps[1]) : 50}%"></i></div>
-          <p class="hint">${x.state === 'pending' && nowS() < counting ? `Counting starts in ${live(counting)}: the first ${minutes(x.warmupSeconds / 60)} are not counted.`
+          <p class="hint">${x.state === 'pending' && nowS() < counting ? `Counting starts in ${live(counting)}: the first ${minutes(x.warmupSeconds / 60)} of trading is a warmup, not counted.`
             : x.state === 'resolved' ? `Decided: the ${LABELS[x.winner]} market's TWAP won.`
             : `Pass needs ${dollars(twaps[0] * bar, q)} to win: Fail's TWAP plus ${x.marketBiasBps / 100}%.`}</p>
         </div>
