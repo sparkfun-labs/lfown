@@ -598,8 +598,8 @@ async function historyOf(d, id) {
 
 /**
  * The two markets' prices over time, drawn the way MetaDAO draws them: Pass and Fail as
- * steps with a light fill beneath, the warmup hatched, the DAO pool's spot price dotted,
- * and each line's price now tagged on the right.
+ * steps, the end of the warmup marked, the DAO pool's spot price dotted, and each line's
+ * price now tagged on the right.
  */
 function chart(points, q, { start, end, warmupEnd, opening = [], spots = [], poolSpot = 0 }) {
   const usd = q.usdPrice || 1
@@ -632,7 +632,6 @@ function chart(points, q, { start, end, warmupEnd, opening = [], spots = [], poo
   // Steps, not slopes: a market's price holds until its next update.
   const step = (s) => s.map((p, i) => (i ? `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)).join('')
     + (s.length ? `H${x(tEnd).toFixed(1)}` : '')
-  const area = (s) => (s.length ? `${step(s)}V${H - B}H${x(s[0].t).toFixed(1)}Z` : '')
   // Enough digits for the axis labels to differ.
   const digits = Math.min(8, Math.max(3, Math.ceil(Math.log10(Math.abs(mid) / ((hi - lo) / 5 || 1))) + 1))
   const fmt = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(digits))
@@ -652,11 +651,9 @@ function chart(points, q, { start, end, warmupEnd, opening = [], spots = [], poo
   const ends = series.map((s, i) => (s.length ? { cls: i ? 'pass' : 'fail', x: x(tEnd), y: y(s[s.length - 1].v) } : null)).filter(Boolean)
   return `<div class="chart"><div class="legend"><span class="pass">Pass</span><span class="fail">Fail</span>${spot ? '<span class="spot">Spot</span>' : ''}</div>
     <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pass and Fail prices over time">
-      <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="hatch-line"/></pattern></defs>
-      ${warm ? `<rect x="${L}" y="${T}" width="${Math.max(0, warm - L)}" height="${H - T - B}" fill="url(#hatch)"/><line x1="${warm}" x2="${warm}" y1="${T}" y2="${H - B}" class="warm-line"/>` : ''}
+      ${warm ? `<line x1="${warm}" x2="${warm}" y1="${T}" y2="${H - B}" class="warm-line"/>` : ''}
       ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${W - R + 10}" y="${y(v) + 3}" class="axis">${fmt(v)}</text>`).join('')}
       ${times.map((t) => `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" class="grid-line"/><text x="${x(t)}" y="${H - 9}" class="axis" text-anchor="middle">${clock(t)}</text>`).join('')}
-      <path d="${area(series[1])}" class="area"/>
       ${spot ? `<line x1="${L}" x2="${x(tEnd)}" y1="${y(spot)}" y2="${y(spot)}" class="line spot"/>` : ''}
       <path d="${step(series[0])}" class="line fail under"/><path d="${step(series[1])}" class="line pass"/>
       ${ends.map((e) => `<circle cx="${e.x}" cy="${e.y}" r="7" class="${e.cls}-halo"/><circle cx="${e.x}" cy="${e.y}" r="3.6" class="${e.cls}-dot"/>`).join('')}
@@ -757,7 +754,7 @@ async function renderDecision(mint, id) {
         ${x.state === 'setup' ? setupNote(x)
           : chart(history.points, q, { start: m[1]?.startedAt, end: ends, warmupEnd: counting, opening: m.map((k) => k?.starting), spots: m.map((k) => k?.spot), poolSpot })}
         ${x.state === 'pending' && nowS() < counting
-          ? `<p class="hint warmup-note">Warmup: the TWAP starts counting in ${live(counting)}; the hatched first ${minutes(x.warmupSeconds / 60)} is not counted.</p>` : ''}
+          ? `<p class="hint warmup-note">Warmup: the TWAP starts counting in ${live(counting)}; the first ${minutes(x.warmupSeconds / 60)}, left of the dashed line, is not counted.</p>` : ''}
         <nav class="tabs">${Object.entries(tabs).map(([k, v]) => `<button type="button" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${v}</button>`).join('')}</nav>
         <div class="tab-body">${tabBody[ui.tab]}</div>
       </div>
