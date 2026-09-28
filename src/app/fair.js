@@ -715,14 +715,27 @@ async function renderDecision(mint, id) {
       <aside class="panel">${tradePanel(x, q, symbol, position, wallet)}</aside>
     </div>`
   wireBanner()
-  for (const b of view.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { ui.tab = b.dataset.tab; render() })
-  wireTrade(d, x, q, symbol, position, wallet)
+  // Tabs and the trade panel's choices change in place, at once: what they show is
+  // already read. Redrawing the page for them re-read the chain, and a click during the
+  // page's own refresh was lost.
+  const wireRedeem = () => wire($('#t-redeem'), $('#t-redeem-status'), async (say) => sendAll([await F.redeemWinningsIxs(connection, d, id, session.address)], { say }), 'Redeemed.')
+  const paintTab = () => {
+    for (const b of view.querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === ui.tab)
+    $('.tab-body').innerHTML = tabBody[ui.tab]
+    wireRedeem()
+  }
+  for (const b of view.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { ui.tab = b.dataset.tab; paintTab() })
+  const paintPanel = () => {
+    $('.panel').innerHTML = tradePanel(x, q, symbol, position, wallet)
+    wireTrade(d, x, q, symbol, position, wallet, paintPanel)
+  }
+  wireTrade(d, x, q, symbol, position, wallet, paintPanel)
   wire($('#t-launch'), $('#t-launch-status'), async (say) => {
     const { accountIxs, launch } = await F.launchIxs(connection, d, id, (await ensureWallet()).address)
     await sendAll([accountIxs, [launch]], { say })
   }, 'Launched: the markets are open.')
   wire($('#t-prepare'), $('#t-prepare-status'), async (say) => sendAll([[await F.prepareIx(connection, d, id, session.address)]], { say }), 'The liquidity is out.')
-  wire($('#t-redeem'), $('#t-redeem-status'), async (say) => sendAll([await F.redeemWinningsIxs(connection, d, id, session.address)], { say }), 'Redeemed.')
+  wireRedeem()
 }
 
 /**
@@ -781,9 +794,9 @@ function tradePanel(x, q, symbol, position, wallet) {
   </div>`
 }
 
-function wireTrade(d, x, q, symbol, position, wallet) {
-  for (const b of view.querySelectorAll('[data-outcome]')) b.addEventListener('click', () => { ui.outcome = Number(b.dataset.outcome); render() })
-  for (const b of view.querySelectorAll('[data-action]')) b.addEventListener('click', () => { ui.action = b.dataset.action; ui.amount = ''; render() })
+function wireTrade(d, x, q, symbol, position, wallet, repaint) {
+  for (const b of view.querySelectorAll('[data-outcome]')) b.addEventListener('click', () => { ui.outcome = Number(b.dataset.outcome); repaint() })
+  for (const b of view.querySelectorAll('[data-action]')) b.addEventListener('click', () => { ui.action = b.dataset.action; ui.amount = ''; repaint() })
   const input = $('#t-amount')
   if (!input) return
   const estimate = () => {
@@ -866,8 +879,11 @@ function wirePropose(d, q) {
 // ── routing ──────────────────────────────────────────────────────────────────
 
 let rendering = false
+let again = false
 async function render() {
-  if (!config || rendering) return
+  if (!config) return
+  // One draw at a time; a navigation that arrives during one is drawn right after it.
+  if (rendering) { again = true; return }
   rendering = true
   try {
     const [section, mint, id] = location.pathname.split('/').filter(Boolean)
@@ -883,6 +899,7 @@ async function render() {
     view.innerHTML = `<p class="empty">Could not read the chain: ${esc(fairError(e))}</p>`
   } finally {
     rendering = false
+    if (again) { again = false; render() }
   }
 }
 
