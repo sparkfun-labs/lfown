@@ -596,47 +596,95 @@ async function historyOf(d, id) {
   return data
 }
 
-/** The two markets' spot prices over time, as an SVG: Pass and Fail, like MetaDAO's. */
-function chart(points, q, start, end, opening = [], spots = []) {
+/**
+ * The two markets' prices over time, drawn the way MetaDAO draws them: Pass and Fail as
+ * steps with a light fill beneath, the warmup hatched, the DAO pool's spot price dotted,
+ * and each line's price now tagged on the right.
+ */
+function chart(points, q, { start, end, warmupEnd, opening = [], spots = [], poolSpot = 0 }) {
+  const usd = q.usdPrice || 1
+  const now = nowS()
+  const live = now < (end || Infinity)
+  const tEnd = end && end < now ? end : now
   // Each market from its opening price, when it was funded, to its price now: a trade
   // shows at once, not at the next crank.
-  const live = nowS() < (end || Infinity)
   const series = points.map((s, i) => [
-    ...(start && opening[i] ? [{ t: start, v: (Number(opening[i]) / 1e12) * (q.usdPrice || 1) }] : []),
-    ...s.map((p) => ({ t: p.t, v: (Number(p.price) / 1e12) * (q.usdPrice || 1) })),
-    ...(live && spots[i] ? [{ t: nowS(), v: spots[i] * (q.usdPrice || 1) }] : []),
+    ...(start && opening[i] ? [{ t: start, v: (Number(opening[i]) / 1e12) * usd }] : []),
+    ...s.map((p) => ({ t: p.t, v: (Number(p.price) / 1e12) * usd })),
+    ...(live && spots[i] ? [{ t: now, v: spots[i] * usd }] : []),
   ])
   const all = series.flat()
-  if (all.length < 2) return '<div class="chart empty-chart">The chart fills in as the markets are cranked, once a minute.</div>'
-  const W = 640, H = 240, L = 8, R = 74, T = 12, B = 26
+  if (all.length < 2) return '<div class="chart empty-chart">The chart fills in as the markets trade and are cranked.</div>'
+  const spot = poolSpot * usd
+  const W = 760, H = 300, L = 10, R = 92, T = 16, B = 30
   const t0 = start || Math.min(...all.map((p) => p.t))
-  // From the market's opening to now, or to its end.
-  const t1 = Math.max(end && end < nowS() ? end : nowS(), t0 + 10)
+  const t1 = Math.max(tEnd, t0 + 10)
   // At least 1% either side of the price: prices that differ by a rounding of the last
   // base unit are flat, not a cliff.
-  let lo = Math.min(...all.map((p) => p.v)), hi = Math.max(...all.map((p) => p.v))
+  let lo = Math.min(...all.map((p) => p.v), ...(spot ? [spot] : []))
+  let hi = Math.max(...all.map((p) => p.v), ...(spot ? [spot] : []))
   const mid = (lo + hi) / 2
   lo = Math.min(lo, mid * 0.99); hi = Math.max(hi, mid * 1.01)
-  const pad = (hi - lo) * 0.15
+  const pad = (hi - lo) * 0.12
   lo -= pad; hi += pad
-  const x = (t) => L + ((t - t0) / (t1 - t0)) * (W - L - R)
+  const x = (t) => L + ((Math.min(Math.max(t, t0), t1) - t0) / (t1 - t0)) * (W - L - R)
   const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B)
   // Steps, not slopes: a market's price holds until its next update.
-  const path = (s) => s.map((p, i) => (i ? `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)).join('')
-    + (s.length ? `H${x(Math.min(t1, nowS())).toFixed(1)}` : '')
-  // Enough digits for the axis's four labels to differ.
-  const digits = Math.min(8, Math.max(3, Math.ceil(Math.log10(Math.abs(mid) / ((hi - lo) / 4 || 1))) + 1))
+  const step = (s) => s.map((p, i) => (i ? `H${x(p.t).toFixed(1)}V${y(p.v).toFixed(1)}` : `M${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`)).join('')
+    + (s.length ? `H${x(tEnd).toFixed(1)}` : '')
+  const area = (s) => (s.length ? `${step(s)}V${H - B}H${x(s[0].t).toFixed(1)}Z` : '')
+  // Enough digits for the axis labels to differ.
+  const digits = Math.min(8, Math.max(3, Math.ceil(Math.log10(Math.abs(mid) / ((hi - lo) / 5 || 1))) + 1))
   const fmt = (v) => '$' + (v >= 1 ? v.toFixed(2) : v.toPrecision(digits))
-  const ticks = [0, 1, 2, 3].map((i) => lo + ((hi - lo) * (i + 0.5)) / 4)
-  const times = [0, 1, 2].map((i) => t0 + ((t1 - t0) * (i + 0.5)) / 3)
-  const last = series.map((s) => s[s.length - 1]).map((p) => p && { ...p, t: Math.min(t1, nowS()), y: y(p.v) })
-  return `<div class="chart"><div class="legend"><span class="pass">Pass</span><span class="fail">Fail</span></div>
-    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Pass and Fail prices over time">
-      ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${W - R + 6}" y="${y(v) + 3}" class="axis">${fmt(v)}</text>`).join('')}
-      ${times.map((t) => `<text x="${x(t)}" y="${H - 8}" class="axis" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], t1 - t0 < 900 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' })}</text>`).join('')}
-      <path d="${path(series[0])}" class="line fail under"/><path d="${path(series[1])}" class="line pass"/>
-      ${last.map((p, i) => (p ? `<circle cx="${x(p.t)}" cy="${p.y}" r="3.5" class="${i ? 'pass' : 'fail'}-dot"/>` : '')).join('')}
+  const ticks = [0, 1, 2, 3, 4].map((i) => lo + ((hi - lo) * (i + 0.5)) / 5)
+  const span = t1 - t0
+  const clock = (t) => new Date(t * 1000).toLocaleString([], span > 86_400
+    ? { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }
+    : span < 900 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' })
+  const times = [0, 1, 2, 3].map((i) => t0 + (span * (i + 0.5)) / 4)
+  // Price tags on the right, nudged apart so none hides another.
+  const tags = [
+    ...series.map((s, i) => s.length && { cls: i ? 'pass' : 'fail', v: s[s.length - 1].v }),
+    spot && { cls: 'spot', v: spot },
+  ].filter(Boolean).map((tg) => ({ ...tg, y: y(tg.v) })).sort((a, b) => a.y - b.y)
+  for (let i = 1; i < tags.length; i++) if (tags[i].y - tags[i - 1].y < 18) tags[i].y = tags[i - 1].y + 18
+  const warm = warmupEnd && warmupEnd > t0 ? x(Math.min(warmupEnd, t1)) : 0
+  const ends = series.map((s, i) => (s.length ? { cls: i ? 'pass' : 'fail', x: x(tEnd), y: y(s[s.length - 1].v) } : null)).filter(Boolean)
+  return `<div class="chart"><div class="legend"><span class="pass">Pass</span><span class="fail">Fail</span>${spot ? '<span class="spot">Spot</span>' : ''}</div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Pass and Fail prices over time">
+      <defs><pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" class="hatch-line"/></pattern></defs>
+      ${warm ? `<rect x="${L}" y="${T}" width="${Math.max(0, warm - L)}" height="${H - T - B}" fill="url(#hatch)"/><line x1="${warm}" x2="${warm}" y1="${T}" y2="${H - B}" class="warm-line"/>` : ''}
+      ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${W - R + 10}" y="${y(v) + 3}" class="axis">${fmt(v)}</text>`).join('')}
+      ${times.map((t) => `<line x1="${x(t)}" x2="${x(t)}" y1="${T}" y2="${H - B}" class="grid-line"/><text x="${x(t)}" y="${H - 9}" class="axis" text-anchor="middle">${clock(t)}</text>`).join('')}
+      <path d="${area(series[1])}" class="area"/>
+      ${spot ? `<line x1="${L}" x2="${x(tEnd)}" y1="${y(spot)}" y2="${y(spot)}" class="line spot"/>` : ''}
+      <path d="${step(series[0])}" class="line fail under"/><path d="${step(series[1])}" class="line pass"/>
+      ${ends.map((e) => `<circle cx="${e.x}" cy="${e.y}" r="7" class="${e.cls}-halo"/><circle cx="${e.x}" cy="${e.y}" r="3.6" class="${e.cls}-dot"/>`).join('')}
+      ${tags.map((tg) => `<g class="price-tag ${tg.cls}"><rect x="${W - R + 4}" y="${tg.y - 8.5}" width="${R - 6}" height="17" rx="2"/><text x="${W - R + 10}" y="${tg.y + 3.5}">${fmt(tg.v)}</text></g>`).join('')}
     </svg></div>`
+}
+
+/**
+ * The live TWAP, as MetaDAO heads a decision with it: both TWAPs, a bar with the mark
+ * Pass has to clear, whether it is passing and by how much, and the volume traded.
+ */
+function twapBlock(x, q, twaps, trades) {
+  const [fail, pass] = twaps
+  const b = x.marketBiasBps / 10_000
+  const share = pass + fail ? pass / (pass + fail) : 0.5
+  const mark = (1 + b) / (2 + b) // Pass's share of the two TWAPs where it starts to win
+  const margin = fail ? (pass / (fail * (1 + b)) - 1) * 100 : 0
+  const passing = x.state === 'resolved' ? x.winner === 1 : margin > 0
+  const volume = trades.reduce((sum, t) => sum + Number(t.buy ? t.input : t.output) / 1e6, 0) * (q.usdPrice || 0)
+  const verdict = x.state === 'resolved' ? (passing ? 'Passed' : 'Failed')
+    : `${passing ? 'Passing' : 'Failing'} by ${Math.abs(margin).toFixed(1)}%`
+  return `<div class="live-twap">
+    <h2>${x.state === 'resolved' ? 'Final TWAP' : 'Live TWAP'}</h2>
+    <div class="twap-values"><span><b class="pass-sq"></b>Pass <strong>${dollars(pass, q)}</strong></span><span><b class="fail-sq"></b>Fail <strong>${dollars(fail, q)}</strong></span></div>
+    <div class="twap-track"><i class="pass" style="width:${(share * 100).toFixed(2)}%"></i>
+      <span class="twap-mark" style="left:${(mark * 100).toFixed(2)}%"><em>+${(b * 100).toFixed(1)}%</em></span></div>
+    <div class="twap-foot"><span class="verdict ${passing ? 'pass' : 'fail'}">${verdict}</span><span>${volume ? `$${Math.round(volume).toLocaleString('en-US')} volume` : ''}</span></div>
+  </div>`
 }
 
 async function renderDecision(mint, id) {
@@ -648,11 +696,13 @@ async function renderDecision(mint, id) {
     wireBanner()
     return
   }
-  const [history, position, wallet] = await Promise.all([
+  const [history, position, wallet, poolSpot] = await Promise.all([
     x.state === 'setup' ? { points: [[], []], trades: [] } : historyOf(d, id),
     session && x.state !== 'setup' ? F.readPosition(connection, d, id, session.address) : null,
     // What the visitor can spend: the coin to buy with, the token to sell.
     session ? Promise.all([tokenBalance(d.quoteMint, session.address), tokenBalance(d.baseMint, session.address)]).then(([coin, token]) => ({ coin, token })) : null,
+    // The DAO pool's price now, the chart's dotted spot line.
+    poolPrice(d).catch(() => 0),
   ])
   const m = x.markets
   const ends = m[1]?.endsAt || x.createdAt + x.lengthMinutes * 60
@@ -697,18 +747,17 @@ async function renderDecision(mint, id) {
     ${crumbs(['DAOs', '/dao'], [symbol, `/dao/${mint}`], [tag])}
     <div class="decision">
       <div class="main">
-        <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
-        <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
-        ${x.state === 'setup' ? setupNote(x)
-          : chart(history.points, q, m[1]?.startedAt, ends, m.map((k) => k?.starting), m.map((k) => k?.spot))}
-        <div class="twap">
-          <div class="twap-head"><h2>TWAP</h2>
-            <div><span class="pass ${lead === 1 ? 'lead' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="fail ${lead === 0 ? 'lead' : ''}">Fail ${dollars(twaps[0], q)}</span></div></div>
-          <div class="twap-bar"><i class="pass" style="width:${twaps[0] + twaps[1] ? (100 * twaps[1]) / (twaps[0] + twaps[1]) : 50}%"></i></div>
-          <p class="hint">${x.state === 'pending' && nowS() < counting ? `Counting starts in ${live(counting)}: the first ${minutes(x.warmupSeconds / 60)} of trading is a warmup, not counted.`
-            : x.state === 'resolved' ? `Decided: the ${LABELS[x.winner]} market's TWAP won.`
-            : `Pass needs ${dollars(twaps[0] * bar, q)} to win: Fail's TWAP plus ${x.marketBiasBps / 100}%.`}</p>
+        <div class="decision-head">
+          <div>
+            <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
+            <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
+          </div>
+          ${x.state === 'setup' ? '' : twapBlock(x, q, twaps, history.trades)}
         </div>
+        ${x.state === 'setup' ? setupNote(x)
+          : chart(history.points, q, { start: m[1]?.startedAt, end: ends, warmupEnd: counting, opening: m.map((k) => k?.starting), spots: m.map((k) => k?.spot), poolSpot })}
+        ${x.state === 'pending' && nowS() < counting
+          ? `<p class="hint warmup-note">Warmup: the TWAP starts counting in ${live(counting)}; the hatched first ${minutes(x.warmupSeconds / 60)} is not counted.</p>` : ''}
         <nav class="tabs">${Object.entries(tabs).map(([k, v]) => `<button type="button" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${v}</button>`).join('')}</nav>
         <div class="tab-body">${tabBody[ui.tab]}</div>
       </div>
