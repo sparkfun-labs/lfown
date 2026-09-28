@@ -668,7 +668,7 @@ async function renderDecision(mint, id) {
       <div class="main">
         <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
         <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
-        ${x.state === 'setup' ? '<p class="empty">Its markets open once its creator has taken the liquidity out; the keeper launches them within a minute.</p>'
+        ${x.state === 'setup' ? setupNote(x)
           : chart(history.points, q, m[1]?.startedAt, ends, m.map((k) => k?.starting))}
         <div class="twap">
           <div class="twap-head"><h2>TWAP</h2>
@@ -686,7 +686,28 @@ async function renderDecision(mint, id) {
   wireBanner()
   for (const b of view.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { ui.tab = b.dataset.tab; render() })
   wireTrade(d, x, q, symbol, position)
+  wire($('#t-launch'), $('#t-launch-status'), async (say) => {
+    const { accountIxs, launch } = await F.launchIxs(connection, d, id, (await ensureWallet()).address)
+    await sendAll([accountIxs, [launch]], { say })
+  }, 'Launched: the markets are open.')
+  wire($('#t-prepare'), $('#t-prepare-status'), async (say) => sendAll([[await F.prepareIx(connection, d, id, session.address)]], { say }), 'The liquidity is out.')
   wire($('#t-redeem'), $('#t-redeem-status'), async (say) => sendAll([await F.redeemWinningsIxs(connection, d, id, session.address)], { say }), 'Redeemed.')
+}
+
+/**
+ * Before its markets open. Prepared: the liquidity is out, and anyone may launch the
+ * markets — the keeper does within a minute, or the visitor now. Not prepared: its creator
+ * has yet to take the liquidity out, which fixes its options.
+ */
+function setupNote(x) {
+  if (x.prepared) {
+    return `<div class="empty"><p><b>The liquidity is out of the pool.</b> Its markets open as soon as someone launches them: LFOwn's
+      keeper does within a minute, and anyone can, now.</p>
+      <p><button class="btn" type="button" id="t-launch">Launch the markets now</button></p><p class="status" id="t-launch-status"></p></div>`
+  }
+  const mine = session && session.address === x.creator
+  return `<div class="empty"><p>Its creator has yet to take the liquidity out of the pool, which fixes its options; its markets open after that.</p>
+    ${mine ? '<p><button class="btn" type="button" id="t-prepare">Take the liquidity out</button></p><p class="status" id="t-prepare-status"></p>' : ''}</div>`
 }
 
 function tradePanel(x, q, symbol, position) {
