@@ -106,15 +106,21 @@ say(`claims: alice ${whole(F.allocation(settled, 600n * F.UNIT).tokens) / 1e6}M 
 // ── a proposal: alice stakes, pays herself 10 coins from the treasury if it passes ──
 // The bootstrap left a checkpoint at the raise price, so the markets can open at once.
 const d = await F.readDao(connection, mint.publicKey, quoteMint)
-await send(await F.proposeIxs(connection, d, 0, alice.publicKey, 'Pay alice 10 tMETA'), [alice], 'propose')
+// As the page does it: the proposal, its option and the liquidity out, then the markets'
+// accounts and the markets themselves — no keeper needed. The question is the longest
+// the page allows, which is what brushes the transaction size limit.
+const question = 'Pay alice 10 tMETA from the treasury, as a test'.padEnd(48, '.').slice(0, 48)
+await send(await F.proposeIxs(connection, d, 0, alice.publicKey, question), [alice], 'propose')
 await send([
   await F.setActionsIx(connection, d, 0, alice.publicKey, 1, [{ transfer: { mint: quoteMint, amount: 10n * F.UNIT, recipient: alice.publicKey } }]),
   await F.prepareIx(connection, d, 0, alice.publicKey),
 ], [alice], 'actions and liquidity')
-say(`alice staked ${whole(config.governance.proposalStake) / 1e3}k tokens, proposed, and took the liquidity out; she walks away`)
-await keeperPass() // launches it
+const { accountIxs, launch } = await F.launchIxs(connection, d, 0, alice.publicKey)
+await send(accountIxs, [alice], 'market accounts')
+await send([launch], [alice], 'launch')
+say(`alice staked ${whole(config.governance.proposalStake) / 1e3}k tokens, proposed with a ${question.length}-byte question, took the liquidity out and opened the markets herself`)
 let [p] = await F.readProposals(connection, await F.readDao(connection, mint.publicKey, quoteMint), 1)
-assert.equal(p.state, 'pending', 'the keeper launched the prepared proposal')
+assert.equal(p.state, 'pending', 'the proposer launched the markets')
 
 await send(await F.backOptionIxs(connection, d, 0, bob.publicKey, 1, 200n * F.UNIT), [bob], 'bob backs option 1')
 say('bob backs option 1 with 200 tMETA; the market runs')

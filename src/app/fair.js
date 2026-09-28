@@ -190,7 +190,18 @@ function wire(button, status, action, done = 'Done.') {
 // ── reading ──────────────────────────────────────────────────────────────────
 
 /** A token's name and symbol from its Metaplex metadata: two borsh strings after 65 bytes. */
+// A token's name and symbol never change: read once per visit.
+const nameCache = new Map()
 async function names(mints) {
+  const missing = [...new Set(mints.map(String))].filter((m) => !nameCache.has(m))
+  if (missing.length) {
+    const read = await readNames(missing)
+    missing.forEach((m, i) => nameCache.set(m, read[i]))
+  }
+  return mints.map((m) => nameCache.get(String(m)))
+}
+
+async function readNames(mints) {
   const pdas = mints.map((m) => PublicKey.findProgramAddressSync(
     [new TextEncoder().encode('metadata'), F.METADATA_PROGRAM.toBytes(), new PublicKey(m).toBytes()], F.METADATA_PROGRAM)[0])
   // An RPC reads 100 accounts per call at most.
@@ -519,7 +530,7 @@ async function renderDaoPage(mint) {
           <h2>Propose</h2>
           <p>Anyone holding ${tokensM(stake)} ${esc(symbol)} can ask the market. The stake comes back once it decides, less
             ${g.failedStakeSlashBps / 100}% if it is turned down.</p>
-          <label><span class="lab">Question (64 characters)</span><input id="n-title" maxlength="64" placeholder="Pay the designer 50 ${esc(q.symbol)}"></label>
+          <label><span class="lab">Question (${QUESTION_BYTES} characters)</span><input id="n-title" maxlength="${QUESTION_BYTES}" placeholder="Pay the designer 50 ${esc(q.symbol)}"></label>
           <div class="row">
             <label><span class="lab">If it passes</span><select id="n-kind"><option value="transfer">Pay from the treasury</option><option value="mint">Mint new ${esc(symbol)}</option></select></label>
             <label><span class="lab">Amount</span><input id="n-amount" inputmode="decimal" placeholder="50"></label>
@@ -578,11 +589,14 @@ async function historyOf(d, id) {
 }
 
 /** The two markets' spot prices over time, as an SVG: Pass and Fail, like MetaDAO's. */
-function chart(points, q, start, end, opening = []) {
-  // Each market from its opening price, when it was funded.
+function chart(points, q, start, end, opening = [], spots = []) {
+  // Each market from its opening price, when it was funded, to its price now: a trade
+  // shows at once, not at the next crank.
+  const live = nowS() < (end || Infinity)
   const series = points.map((s, i) => [
     ...(start && opening[i] ? [{ t: start, v: (Number(opening[i]) / 1e12) * (q.usdPrice || 1) }] : []),
     ...s.map((p) => ({ t: p.t, v: (Number(p.price) / 1e12) * (q.usdPrice || 1) })),
+    ...(live && spots[i] ? [{ t: nowS(), v: spots[i] * (q.usdPrice || 1) }] : []),
   ])
   const all = series.flat()
   if (all.length < 2) return '<div class="chart empty-chart">The chart fills in as the markets are cranked, once a minute.</div>'
@@ -605,14 +619,14 @@ function chart(points, q, start, end, opening = []) {
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Pass and Fail prices over time">
       ${ticks.map((v) => `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="grid-line"/><text x="${W - R + 6}" y="${y(v) + 3}" class="axis">${fmt(v)}</text>`).join('')}
       ${times.map((t) => `<text x="${x(t)}" y="${H - 8}" class="axis" text-anchor="middle">${new Date(t * 1000).toLocaleTimeString([], t1 - t0 < 900 ? { hour: '2-digit', minute: '2-digit', second: '2-digit' } : { hour: '2-digit', minute: '2-digit' })}</text>`).join('')}
-      <path d="${path(series[0])}" class="line fail"/><path d="${path(series[1])}" class="line pass"/>
+      <path d="${path(series[0])}" class="line fail under"/><path d="${path(series[1])}" class="line pass"/>
       ${last.map((p, i) => (p ? `<circle cx="${x(p.t)}" cy="${p.y}" r="3.5" class="${i ? 'pass' : 'fail'}-dot"/>` : '')).join('')}
     </svg></div>`
 }
 
 async function renderDecision(mint, id) {
   const { dao: d, meta, q } = await daoFor(mint)
-  const [x] = d && id < d.proposalCount ? (await F.readProposals(connection, d, id + 1)).filter((p) => p.id === id) : []
+  const [x] = d ? await F.readProposals(connection, d, d.proposalCount, { ids: [id] }) : []
   const symbol = meta?.symbol || short(mint)
   if (!x) {
     view.innerHTML = `${banner()}${crumbs(['DAOs', '/dao'], [symbol, `/dao/${mint}`], [`#${id}`])}<h1>No such decision</h1>`
@@ -671,7 +685,7 @@ async function renderDecision(mint, id) {
         <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
         <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
         ${x.state === 'setup' ? setupNote(x)
-          : chart(history.points, q, m[1]?.startedAt, ends, m.map((k) => k?.starting))}
+          : chart(history.points, q, m[1]?.startedAt, ends, m.map((k) => k?.starting), m.map((k) => k?.spot))}
         <div class="twap">
           <div class="twap-head"><h2>TWAP</h2>
             <div><span class="pass ${lead === 1 ? 'lead' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="fail ${lead === 0 ? 'lead' : ''}">Fail ${dollars(twaps[0], q)}</span></div></div>
@@ -789,11 +803,19 @@ function wireTrade(d, x, q, symbol, position, wallet) {
   }, ui.action === 'buy' ? 'Bought.' : 'Sold.')
 }
 
+/**
+ * A question's length, in bytes. It rides in the proposal's transaction, which with 48
+ * bytes of question is 1,229 of Solana's 1,232; 64 did not fit.
+ */
+const QUESTION_BYTES = 48
+
 function wirePropose(d, q) {
   wire($('#n-go'), $('#n-status'), async (say) => {
     const wallet = await ensureWallet()
     const title = $('#n-title').value.trim()
     if (!title) throw new Error('Write the question.')
+    // Bytes, not characters: the question rides in a transaction already near its limit.
+    if (new TextEncoder().encode(title).length > QUESTION_BYTES) throw new Error(`The question is too long: ${QUESTION_BYTES} characters at most.`)
     const amount = Number($('#n-amount').value)
     if (!(amount > 0)) throw new Error('Enter an amount.')
     let to
@@ -811,14 +833,19 @@ function wirePropose(d, q) {
       ? { mintTo: { amount: units, recipient: to } }
       : { transfer: { mint: d.quoteMint, amount: units, recipient: to } }
     const id = d.proposalCount
-    // Two transactions, one approval: the proposal and its markets, then its option and
-    // the liquidity it takes out of the pool. From then on anyone can launch it.
+    // One approval, four transactions, each near Solana's size limit: the proposal and its
+    // markets; its option and the liquidity it takes out of the pool; the markets' token
+    // accounts; the markets opened with that liquidity. The keeper would launch them
+    // within a minute; the proposer does it now. Should the last ones fail, anyone can.
+    const { accountIxs, launch } = await F.launchIxs(connection, d, id, wallet.address)
     await sendAll([
       await F.proposeIxs(connection, d, id, wallet.address, title),
       [await F.setActionsIx(connection, d, id, wallet.address, 1, [action]), await F.prepareIx(connection, d, id, wallet.address)],
+      accountIxs,
+      [launch],
     ], { say })
     history.pushState(null, '', `/dao/${d.baseMint.toBase58()}/${id}`)
-  }, 'Proposed. Its markets open within a minute.')
+  }, 'Proposed: its markets are open.')
 }
 
 // ── routing ──────────────────────────────────────────────────────────────────

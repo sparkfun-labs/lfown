@@ -138,6 +138,8 @@ h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .chart .axis{fill:var(--ink-soft);font-family:var(--mono);font-size:10px}
 .chart .line{fill:none;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .chart .line.pass{stroke:var(--pass)}.chart .line.fail{stroke:var(--fail)}
+/* Fail underneath and wider: where the two lines meet, it still shows either side of Pass. */
+.chart .line.under{stroke-width:5}
 .chart .pass-dot{fill:var(--pass)}.chart .fail-dot{fill:var(--fail)}
 .empty-chart{display:grid;place-items:center;min-height:200px;color:var(--ink-soft);font-size:.9rem;text-align:center}
 .twap{margin:22px 0 26px;display:grid;gap:10px}

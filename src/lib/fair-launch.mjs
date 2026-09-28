@@ -110,15 +110,21 @@ export const FEE_AUTHORITY = new PublicKey(ammIdl.constants.find((c) => c.name =
 const readOnly = { publicKey: PublicKey.default, signTransaction: async (t) => t, signAllTransactions: async (t) => t }
 
 /** The four programs and Meteora's, bound to `connection`, for building and decoding. */
+// Built once per connection: a Program parses its whole IDL, and a page builds dozens of
+// instructions and reads.
+const bound = new WeakMap()
 export function programs(connection) {
+  if (bound.has(connection)) return bound.get(connection)
   const provider = new AnchorProvider(connection, readOnly, { commitment: 'confirmed' })
-  return {
+  const p = {
     raise: new Program(raiseIdl, provider),
     futarchy: new Program(futarchyIdl, provider),
     amm: new Program(ammIdl, provider),
     vault: new Program(vaultIdl, provider),
     cpAmm: new Program(cpAmmIdl, provider),
   }
+  bound.set(connection, p)
+  return p
 }
 
 // ── addresses ────────────────────────────────────────────────────────────────
@@ -425,8 +431,9 @@ export async function proposeIxs(connection, d, id, creator, metadata = null) {
   const q = proposalAddresses(d, id)
   const [o0, o1] = q.options
   const who = new PublicKey(creator)
+  // No instruction opening the proposer's token account: whoever can stake already has
+  // one, and the transaction is within a few bytes of Solana's limit as it is.
   return [
-    createAssociatedTokenAccountIdempotentInstruction(who, ata(d.baseMint, who), who, d.baseMint),
     await p.futarchy.methods.initializeProposal(metadata).accountsStrict({
       creator: who, moderator: d.moderator, dao: d.dao, proposal: q.proposal,
       pool: d.pool, tokenMint: d.baseMint, creatorToken: ata(d.baseMint, who), stakeEscrow: q.stakeEscrow,
@@ -796,9 +803,11 @@ export function allocation(raise, committed) {
 export async function readDao(connection, mint, quoteMint) {
   const p = programs(connection)
   const d = daoAddresses(mint, quoteMint)
-  const a = await p.futarchy.account.daoAccount.fetchNullable(d.dao)
-  if (!a) return null
-  const moderator = await p.futarchy.account.moderatorAccount.fetch(d.moderator)
+  const [a, moderator] = await Promise.all([
+    p.futarchy.account.daoAccount.fetchNullable(d.dao),
+    p.futarchy.account.moderatorAccount.fetchNullable(d.moderator),
+  ])
+  if (!a || !moderator) return null
   return {
     ...d,
     account: a,
@@ -811,16 +820,28 @@ export async function readDao(connection, mint, quoteMint) {
   }
 }
 
-export async function readProposals(connection, d, count) {
+/**
+ * A DAO's proposals, newest first — every one below `count`, or only `ids`. Read in three
+ * requests whatever their number: the proposals, their markets, their options' actions.
+ */
+export async function readProposals(connection, d, count, { ids } = {}) {
   const p = programs(connection)
+  const wanted = (ids ?? Array.from({ length: count }, (_, i) => i)).filter((id) => id >= 0 && id < count).sort((x, y) => y - x)
+  const qs = wanted.map((id) => proposalAddresses(d, id))
+  const [accounts, markets, actions] = await Promise.all([
+    p.futarchy.account.proposalAccount.fetchMultiple(qs.map((q) => q.proposal)),
+    p.amm.account.poolAccount.fetchMultiple(qs.flatMap((q) => q.options.map((o) => o.pool))),
+    p.futarchy.account.optionActions.fetchMultiple(qs.flatMap((q) => q.options.map((_, i) => q.actions(i)))),
+  ])
   const out = []
-  for (let id = count - 1; id >= 0; id--) {
-    const q = proposalAddresses(d, id)
-    const a = await p.futarchy.account.proposalAccount.fetchNullable(q.proposal)
-    if (!a) continue
+  qs.forEach((q, k) => {
+    const a = accounts[k]
+    if (!a) return
+    const id = wanted[k]
     const state = stateName(a.state)
-    const markets = await Promise.all(q.options.map((o) => p.amm.account.poolAccount.fetchNullable(o.pool)))
-    const actions = await Promise.all(q.options.map((_, i) => (i ? p.futarchy.account.optionActions.fetchNullable(q.actions(i)) : null)))
+    const n = q.options.length
+    const mine = markets.slice(k * n, (k + 1) * n)
+    const acts = actions.slice(k * n, (k + 1) * n).map((x, i) => (i ? x : null))
     out.push({
       id, address: q.proposal.toBase58(), creator: a.creator.toBase58(), state,
       winner: state === 'resolved' ? Number(Object.values(a.state.resolved)[0]) : null,
@@ -828,17 +849,17 @@ export async function readProposals(connection, d, count) {
       marketBiasBps: a.config.marketBias, startingObservation: num(a.config.startingObservation),
       prepared: num(a.baseLiquidity) > 0n, stake: num(a.stake),
       metadata: a.metadata,
-      markets: markets.map((m, i) => (m ? {
+      markets: mine.map((m, i) => (m ? {
         index: i, twap: twapOf(m.oracle), lastPrice: num(m.oracle.lastPrice), lastUpdate: Number(m.oracle.lastUpdateUnixTime),
         // Its spot price, coin per token, from the pool's own count of its reserves.
         reserveCoin: num(m.reserveA), reserveToken: num(m.reserveB), fee: m.fee,
         spot: num(m.reserveB) ? Number(num(m.reserveA)) / Number(num(m.reserveB)) : 0,
         startedAt: Number(m.oracle.createdAtUnixTime), endsAt: Number(m.oracle.endUnixTime), starting: num(m.oracle.startingObservation),
       } : null)),
-      actions: actions.map((x) => x?.actions ?? []),
-      executed: actions.map((x) => x?.executed ?? 0),
+      actions: acts.map((x) => x?.actions ?? []),
+      executed: acts.map((x) => x?.executed ?? 0),
     })
-  }
+  })
   return out
 }
 
