@@ -119,6 +119,16 @@ assert.equal(p.state, 'pending', 'the keeper launched the prepared proposal')
 await send(await F.backOptionIxs(connection, d, 0, bob.publicKey, 1, 200n * F.UNIT), [bob], 'bob backs option 1')
 say('bob backs option 1 with 200 tMETA; the market runs')
 
+// Selling, as on MetaDAO: alice spends her own tokens. They are split into a Pass and a
+// Fail token, and the Pass one is sold for Pass coin.
+const q = F.proposalAddresses(d, 0)
+const aliceTokens = await balance(F.ata(mint.publicKey, alice.publicKey))
+await send(await F.sellOptionIxs(connection, d, 0, alice.publicKey, 1, 100_000n * F.UNIT), [alice], 'alice sells Pass')
+assert.equal(aliceTokens - await balance(F.ata(mint.publicKey, alice.publicKey)), 100_000n * F.UNIT, 'the sale spent her tokens')
+assert.equal(await balance(F.ata(q.options[0].condBase, alice.publicKey)), 100_000n * F.UNIT, 'she keeps the Fail side of them')
+assert.ok(await balance(F.ata(q.options[1].condQuote, alice.publicKey)) > 0n, 'and holds Pass coin for the Pass side')
+say('alice sells 100k tokens on Pass: split, the Pass side sold for Pass coin, the Fail side kept')
+
 for (let i = 0; i < 40; i++) {
   await keeperPass()
   ;[p] = await F.readProposals(connection, await F.readDao(connection, mint.publicKey, quoteMint), 1)

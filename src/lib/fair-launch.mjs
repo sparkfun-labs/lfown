@@ -570,34 +570,54 @@ export function swapOutput(amountIn, reserveIn, reserveOut, feeBps) {
   return (taxed * reserveOut) / (reserveIn + taxed)
 }
 
+/** A token account's balance, or 0 when it does not exist. */
+async function balanceOf(connection, address) {
+  const info = await connection.getAccountInfo(address)
+  return info ? new DataView(info.data.buffer, info.data.byteOffset + 64, 8).getBigUint64(0, true) : 0n
+}
+
 /**
- * Backing an option: `amount` of the coin is split into one conditional coin per option
- * (a claim on the coin if that option wins), and this option's is swapped into its
- * conditional token. Whatever option wins, the trader keeps that option's side. The swap
- * refuses to fill more than `slippageBps` below the market as it is read here.
+ * Splits `amount` of the coin (`side: 'quote'`) or of the token (`'base'`) into one
+ * conditional unit per option — each a claim on it if that option wins — with the
+ * trader's conditional accounts opened first.
+ */
+async function splitIxs(p, d, q, who, side, amount) {
+  const mint = side === 'quote' ? d.quoteMint : d.baseMint
+  const cond = side === 'quote' ? 'condQuote' : 'condBase'
+  const opens = q.options.flatMap((x) => [
+    createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condQuote, who), who, x.condQuote),
+    createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condBase, who), who, x.condBase),
+  ])
+  if (amount <= 0n) return opens
+  const split = await p.vault.methods.deposit({ [side]: {} }, new BN(amount.toString())).accountsStrict({
+    signer: who, vault: q.vault, mint, vaultAta: ata(mint, q.vault), userAta: ata(mint, who),
+    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+  }).remainingAccounts(q.options.flatMap((x) => [meta(x[cond]), meta(ata(x[cond], who))])).instruction()
+  return [...opens, split]
+}
+
+/**
+ * Buying an option, as on MetaDAO: `amount` of the coin (META…) goes in. What the trader
+ * already holds of that option's conditional coin is used first; the rest of the coin is
+ * split into one conditional coin per option, and that option's is swapped into its
+ * conditional token. If the option wins the trader keeps the token; if not, the other
+ * options' conditional coins redeem for the coin. Bounded by `slippageBps`.
  */
 export async function backOptionIxs(connection, d, id, trader, optionIndex, amount, { slippageBps = 200 } = {}) {
   const p = programs(connection)
   const q = proposalAddresses(d, id)
   const who = new PublicKey(trader)
   const o = q.options[optionIndex]
+  const units = BigInt(amount)
   // The pool's own count of its reserves, which is what it prices with.
-  const market = await p.amm.account.poolAccount.fetch(o.pool)
-  const expected = swapOutput(BigInt(amount), num(market.reserveA), num(market.reserveB), market.fee)
+  const [market, held] = await Promise.all([p.amm.account.poolAccount.fetch(o.pool), balanceOf(connection, ata(o.condQuote, who))])
+  const expected = swapOutput(units, num(market.reserveA), num(market.reserveB), market.fee)
   const minOut = (expected * BigInt(10_000 - slippageBps)) / 10_000n
-  const opens = q.options.flatMap((x) => [
-    createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condQuote, who), who, x.condQuote),
-    createAssociatedTokenAccountIdempotentInstruction(who, ata(x.condBase, who), who, x.condBase),
-  ])
-  const split = await p.vault.methods.deposit({ quote: {} }, new BN(amount.toString())).accountsStrict({
-    signer: who, vault: q.vault, mint: d.quoteMint, vaultAta: ata(d.quoteMint, q.vault), userAta: ata(d.quoteMint, who),
-    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
-  }).remainingAccounts(q.options.flatMap((x) => [meta(x.condQuote), meta(ata(x.condQuote, who))])).instruction()
-  const buy = await p.amm.methods.swap(true, new BN(amount.toString()), new BN(minOut.toString())).accountsStrict({
+  const buy = await p.amm.methods.swap(true, new BN(units.toString()), new BN(minOut.toString())).accountsStrict({
     trader: who, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
     traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
   }).instruction()
-  return [...opens, split, buy]
+  return [...(await splitIxs(p, d, q, who, 'quote', units > held ? units - held : 0n)), buy]
 }
 
 /** What selling `amountIn` of a market's token yields in its coin, as the amm computes it. */
@@ -609,23 +629,26 @@ export function sellOutput(amountIn, reserveBase, reserveQuote, feeBps) {
 }
 
 /**
- * Selling a side back: `amount` of an option's conditional token swapped into that option's
- * conditional coin — a claim on the coin if that option wins. Bounded by `slippageBps`.
+ * Selling an option, as on MetaDAO: `amount` of the DAO's token goes in. What the trader
+ * already holds of that option's conditional token is used first; the rest of the token is
+ * split into one conditional token per option, and that option's is swapped into its
+ * conditional coin. If the option wins the trader has the coin instead of the token; if
+ * not, the other options' conditional tokens redeem for the token. Bounded by `slippageBps`.
  */
 export async function sellOptionIxs(connection, d, id, trader, optionIndex, amount, { slippageBps = 200 } = {}) {
   const p = programs(connection)
-  const o = proposalAddresses(d, id).options[optionIndex]
+  const q = proposalAddresses(d, id)
+  const o = q.options[optionIndex]
   const who = new PublicKey(trader)
-  const market = await p.amm.account.poolAccount.fetch(o.pool)
-  const expected = sellOutput(BigInt(amount), num(market.reserveB), num(market.reserveA), market.fee)
+  const units = BigInt(amount)
+  const [market, held] = await Promise.all([p.amm.account.poolAccount.fetch(o.pool), balanceOf(connection, ata(o.condBase, who))])
+  const expected = sellOutput(units, num(market.reserveB), num(market.reserveA), market.fee)
   const minOut = (expected * BigInt(10_000 - slippageBps)) / 10_000n
-  return [
-    createAssociatedTokenAccountIdempotentInstruction(who, ata(o.condQuote, who), who, o.condQuote),
-    await p.amm.methods.swap(false, new BN(amount.toString()), new BN(minOut.toString())).accountsStrict({
-      trader: who, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
-      traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
-    }).instruction(),
-  ]
+  const sell = await p.amm.methods.swap(false, new BN(units.toString()), new BN(minOut.toString())).accountsStrict({
+    trader: who, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
+    traderAccountA: ata(o.condQuote, who), traderAccountB: ata(o.condBase, who), tokenProgram: TOKEN_PROGRAM_ID,
+  }).instruction()
+  return [...(await splitIxs(p, d, q, who, 'base', units > held ? units - held : 0n)), sell]
 }
 
 /** A trader's conditional coins and tokens in each of a proposal's markets. */

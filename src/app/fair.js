@@ -619,9 +619,11 @@ async function renderDecision(mint, id) {
     wireBanner()
     return
   }
-  const [history, position] = await Promise.all([
+  const [history, position, wallet] = await Promise.all([
     x.state === 'setup' ? { points: [[], []], trades: [] } : historyOf(d, id),
     session && x.state !== 'setup' ? F.readPosition(connection, d, id, session.address) : null,
+    // What the visitor can spend: the coin to buy with, the token to sell.
+    session ? Promise.all([tokenBalance(d.quoteMint, session.address), tokenBalance(d.baseMint, session.address)]).then(([coin, token]) => ({ coin, token })) : null,
   ])
   const m = x.markets
   const ends = m[1]?.endsAt || x.createdAt + x.lengthMinutes * 60
@@ -681,11 +683,11 @@ async function renderDecision(mint, id) {
         <nav class="tabs">${Object.entries(tabs).map(([k, v]) => `<button type="button" data-tab="${k}" class="${ui.tab === k ? 'on' : ''}">${v}</button>`).join('')}</nav>
         <div class="tab-body">${tabBody[ui.tab]}</div>
       </div>
-      <aside class="panel">${tradePanel(x, q, symbol, position)}</aside>
+      <aside class="panel">${tradePanel(x, q, symbol, position, wallet)}</aside>
     </div>`
   wireBanner()
   for (const b of view.querySelectorAll('[data-tab]')) b.addEventListener('click', () => { ui.tab = b.dataset.tab; render() })
-  wireTrade(d, x, q, symbol, position)
+  wireTrade(d, x, q, symbol, position, wallet)
   wire($('#t-launch'), $('#t-launch-status'), async (say) => {
     const { accountIxs, launch } = await F.launchIxs(connection, d, id, (await ensureWallet()).address)
     await sendAll([accountIxs, [launch]], { say })
@@ -710,7 +712,16 @@ function setupNote(x) {
     ${mine ? '<p><button class="btn" type="button" id="t-prepare">Take the liquidity out</button></p><p class="status" id="t-prepare-status"></p>' : ''}</div>`
 }
 
-function tradePanel(x, q, symbol, position) {
+/**
+ * What a trade on side `i` can spend: on MetaDAO's terms, the coin to buy with and the
+ * DAO's token to sell, plus what the visitor already holds of that side's conditional
+ * coin or token, which is used first.
+ */
+const spendable = (action, i, position, wallet) => (action === 'buy'
+  ? { real: wallet?.coin ?? 0n, held: position?.[i]?.coin ?? 0n }
+  : { real: wallet?.token ?? 0n, held: position?.[i]?.token ?? 0n })
+
+function tradePanel(x, q, symbol, position, wallet) {
   if (x.state === 'resolved') {
     return `<div class="panel-box"><span class="lab">Decided</span><div class="result ${x.winner ? 'pass' : 'fail'}">${LABELS[x.winner]}</div>
       <p class="hint">The ${LABELS[x.winner]} side redeems one for one into ${esc(q.symbol)} and ${esc(symbol)}; the other side is worth nothing now.
@@ -718,25 +729,30 @@ function tradePanel(x, q, symbol, position) {
   }
   if (x.state !== 'pending') return `<div class="panel-box"><p class="hint">Trading opens with its markets.</p></div>`
   const m = x.markets
-  const held = position?.[ui.outcome]?.token ?? 0n
+  const side = LABELS[ui.outcome]
+  const other = LABELS[1 - ui.outcome]
+  const buying = ui.action === 'buy'
+  const unit = buying ? q.symbol : symbol
+  const { real, held } = spendable(ui.action, ui.outcome, position, wallet)
+  const amount = (units) => (buying ? coins(units) : tokensM(units))
   return `<div class="panel-box">
     <span class="lab">Outcome market</span>
-    <div class="seg">${[1, 0].map((i) => `<button type="button" data-outcome="${i}" class="${ui.outcome === i ? `on ${i ? 'pass' : 'fail'}` : ''}"><b class="${i ? 'pass' : 'fail'}-sq"></b>${LABELS[i]} ${dollars(m[i]?.spot ?? 0, q)}</button>`).join('')}</div>
+    <div class="seg">${[1, 0].map((i) => `<button type="button" data-outcome="${i}" class="${ui.outcome === i ? 'on' : ''}"><b class="${i ? 'pass' : 'fail'}-sq"></b>${LABELS[i]} ${dollars(m[i]?.spot ?? 0, q)}</button>`).join('')}</div>
     <span class="lab">Action</span>
     <div class="seg">${['buy', 'sell'].map((a) => `<button type="button" data-action="${a}" class="${ui.action === a ? 'on' : ''}">${a === 'buy' ? 'Buy' : 'Sell'}</button>`).join('')}</div>
     <span class="lab">You spend</span>
-    <label class="spend"><input id="t-amount" inputmode="decimal" placeholder="0" value="${esc(ui.amount)}">
-      <span>${ui.action === 'buy' ? esc(q.symbol) : `${LABELS[ui.outcome]} ${esc(symbol)}`}</span></label>
-    ${ui.action === 'sell' ? `<p class="hint">You hold ${tokensM(held)} ${LABELS[ui.outcome]} ${esc(symbol)}${held ? ' · <button class="link" type="button" id="t-max">max</button>' : ''}</p>` : ''}
+    <label class="spend"><input id="t-amount" inputmode="decimal" placeholder="0" value="${esc(ui.amount)}"><span>${esc(unit)}</span></label>
+    ${session ? `<p class="hint">You have ${amount(real)} ${esc(unit)}${held ? ` and ${amount(held)} ${side} ${esc(unit)} already split` : ''}${real + held ? ' · <button class="link" type="button" id="t-max">max</button>' : ''}</p>` : ''}
     <div class="recv"><span>You receive, estimated</span><b id="t-recv">—</b></div>
-    <p class="hint">A trade is exposure to an outcome, not a vote. Buying ${LABELS[ui.outcome]} splits your ${esc(q.symbol)} into a Pass and a Fail claim and
-      swaps the ${LABELS[ui.outcome]} one for ${LABELS[ui.outcome]} ${esc(symbol)}: if ${LABELS[ui.outcome]} wins you keep the ${esc(symbol)}, if not, the other claim's ${esc(q.symbol)} comes back.</p>
-    <button class="btn wide" type="button" id="t-go">${session ? `${ui.action === 'buy' ? 'Buy' : 'Sell'} ${LABELS[ui.outcome]}` : 'Connect wallet'}</button>
+    <p class="hint">A trade is exposure to an outcome, not a vote. ${buying
+      ? `Your ${esc(q.symbol)} is split into a Pass and a Fail ${esc(q.symbol)}, and the ${side} one buys ${side} ${esc(symbol)}: if ${side} wins you keep the ${esc(symbol)}; if ${other} wins, your ${other} ${esc(q.symbol)} redeems for ${esc(q.symbol)}.`
+      : `Your ${esc(symbol)} is split into a Pass and a Fail ${esc(symbol)}, and the ${side} one is sold for ${side} ${esc(q.symbol)}: if ${side} wins you have ${esc(q.symbol)} instead of ${esc(symbol)}; if ${other} wins, your ${other} ${esc(symbol)} redeems for ${esc(symbol)}.`}</p>
+    <button class="btn wide" type="button" id="t-go">${session ? `${buying ? 'Buy' : 'Sell'} ${side}` : 'Connect wallet'}</button>
     <p class="status" id="t-status"></p>
   </div>`
 }
 
-function wireTrade(d, x, q, symbol, position) {
+function wireTrade(d, x, q, symbol, position, wallet) {
   for (const b of view.querySelectorAll('[data-outcome]')) b.addEventListener('click', () => { ui.outcome = Number(b.dataset.outcome); render() })
   for (const b of view.querySelectorAll('[data-action]')) b.addEventListener('click', () => { ui.action = b.dataset.action; ui.amount = ''; render() })
   const input = $('#t-amount')
@@ -752,11 +768,18 @@ function wireTrade(d, x, q, symbol, position) {
   }
   input.addEventListener('input', estimate)
   estimate()
-  $('#t-max')?.addEventListener('click', () => { input.value = String(Number(position[ui.outcome].token) / 1e6); estimate() })
+  $('#t-max')?.addEventListener('click', () => {
+    const { real, held } = spendable(ui.action, ui.outcome, position, wallet)
+    input.value = String(Number(real + held) / 1e6)
+    estimate()
+  })
   wire($('#t-go'), $('#t-status'), async (say) => {
     await ensureWallet()
     const units = BigInt(Math.round(Number(input.value) * 1e6))
-    if (!(units > 0n)) throw new Error(`Enter an amount of ${ui.action === 'buy' ? q.symbol : `${LABELS[ui.outcome]} ${symbol}`}.`)
+    const unit = ui.action === 'buy' ? q.symbol : symbol
+    if (!(units > 0n)) throw new Error(`Enter an amount of ${unit}.`)
+    const { real, held } = spendable(ui.action, ui.outcome, position, wallet)
+    if (wallet && units > real + held) throw new Error(`You have ${Number(real + held) / 1e6} ${unit} to spend.`)
     const ixs = ui.action === 'buy'
       ? await F.backOptionIxs(connection, d, x.id, session.address, ui.outcome, units)
       : await F.sellOptionIxs(connection, d, x.id, session.address, ui.outcome, units)

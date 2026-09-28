@@ -3273,295 +3273,263 @@
   "errors": [
     {
       "code": 6000,
-      "name": "MathOverflow"
+      "name": "InvalidVault",
+      "msg": "Vault account mismatch"
     },
     {
       "code": 6001,
-      "name": "InvalidFee"
+      "name": "InvalidPools",
+      "msg": "Pool account mismatch"
     },
     {
       "code": 6002,
-      "name": "ExceededSlippage"
+      "name": "InvalidMint",
+      "msg": "Mint mismatch"
     },
     {
       "code": 6003,
-      "name": "PoolDisabled"
+      "name": "InvalidPoolProgram",
+      "msg": "Invalid Pool Program"
     },
     {
       "code": 6004,
-      "name": "ExceedMaxFeeBps"
+      "name": "NotEnoughOptions",
+      "msg": "Minimum 2 options required"
     },
     {
       "code": 6005,
-      "name": "InvalidAdmin"
+      "name": "TooManyOptions",
+      "msg": "Too many options"
     },
     {
       "code": 6006,
-      "name": "AmountIsZero"
+      "name": "InvalidRemainingAccounts",
+      "msg": "Invalid remaining accounts"
     },
     {
       "code": 6007,
-      "name": "TypeCastFailed"
+      "name": "InvalidState",
+      "msg": "Invalid proposal state"
     },
     {
       "code": 6008,
-      "name": "UnableToModifyActivationPoint"
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
     },
     {
       "code": 6009,
-      "name": "InvalidAuthorityToCreateThePool"
+      "name": "ProposalNotExpired",
+      "msg": "Proposal has not expired yet"
     },
     {
       "code": 6010,
-      "name": "InvalidActivationType"
+      "name": "TwapNotReady",
+      "msg": "TWAP not ready"
     },
     {
       "code": 6011,
-      "name": "InvalidActivationPoint"
+      "name": "CounterOverflow",
+      "msg": "Counter overflow"
     },
     {
       "code": 6012,
-      "name": "InvalidQuoteMint"
+      "name": "InvalidWinningIndex",
+      "msg": "Winning index exceeds number of options"
     },
     {
       "code": 6013,
-      "name": "InvalidFeeCurve"
+      "name": "InvalidVersion",
+      "msg": "Invalid account version"
     },
     {
       "code": 6014,
-      "name": "InvalidPriceRange"
+      "name": "NameTooLong",
+      "msg": "Name exceeds 32 bytes"
     },
     {
       "code": 6015,
-      "name": "PriceRangeViolation"
+      "name": "MetadataTooLong",
+      "msg": "Metadata CID exceeds 64 bytes"
     },
     {
       "code": 6016,
-      "name": "InvalidParameters"
+      "name": "InvalidDAO",
+      "msg": "Invalid DAO account"
     },
     {
       "code": 6017,
-      "name": "InvalidCollectFeeMode"
+      "name": "MathOverflow",
+      "msg": "Math overflow"
     },
     {
       "code": 6018,
-      "name": "InvalidInput"
+      "name": "InvalidProposalParams",
+      "msg": "Invalid proposal parameters"
     },
     {
       "code": 6019,
-      "name": "CannotCreateTokenBadgeOnSupportedMint"
+      "name": "MintNotControlled",
+      "msg": "The DAO does not hold its token's mint authority"
     },
     {
       "code": 6020,
-      "name": "InvalidTokenBadge"
+      "name": "NoActionsOnStatusQuo",
+      "msg": "Option 0 is the status quo and cannot carry actions"
     },
     {
       "code": 6021,
-      "name": "InvalidMinimumLiquidity"
+      "name": "InvalidOptionIndex",
+      "msg": "Option index out of range"
     },
     {
       "code": 6022,
-      "name": "InvalidVestingInfo"
+      "name": "TooManyActions",
+      "msg": "Too many actions for one option"
     },
     {
       "code": 6023,
-      "name": "InsufficientLiquidity"
+      "name": "InvalidAction",
+      "msg": "Invalid action"
     },
     {
       "code": 6024,
-      "name": "InvalidVestingAccount"
+      "name": "ProposalNotResolved",
+      "msg": "The proposal has not been resolved"
     },
     {
       "code": 6025,
-      "name": "InvalidPoolStatus"
+      "name": "OptionDidNotWin",
+      "msg": "This option did not win"
     },
     {
       "code": 6026,
-      "name": "UnsupportNativeMintToken2022"
+      "name": "ActionAlreadyExecuted",
+      "msg": "This action has already been executed"
     },
     {
       "code": 6027,
-      "name": "InvalidRewardIndex"
+      "name": "InvalidWithdrawal",
+      "msg": "Withdrawal share must be between 1 and 9900 basis points"
     },
     {
       "code": 6028,
-      "name": "InvalidRewardDuration"
+      "name": "PositionAlreadyAttached",
+      "msg": "The DAO already has a position"
     },
     {
       "code": 6029,
-      "name": "RewardInitialized"
+      "name": "PositionNotAttached",
+      "msg": "The DAO has no position attached"
     },
     {
       "code": 6030,
-      "name": "RewardUninitialized"
+      "name": "InvalidPosition",
+      "msg": "The position does not belong to the DAO's pool, or the DAO does not hold it"
     },
     {
       "code": 6031,
-      "name": "InvalidRewardVault"
+      "name": "InvalidPool",
+      "msg": "The pool does not pair the DAO's token with its quote token"
     },
     {
       "code": 6032,
-      "name": "MustWithdrawnIneligibleReward"
+      "name": "ProposalAlreadyActive",
+      "msg": "Another proposal holds the DAO's liquidity"
     },
     {
       "code": 6033,
-      "name": "IdenticalRewardDuration"
+      "name": "LiquidityAlreadyPrepared",
+      "msg": "Liquidity has already been prepared for this proposal"
     },
     {
       "code": 6034,
-      "name": "RewardCampaignInProgress"
+      "name": "LiquidityNotPrepared",
+      "msg": "No liquidity has been prepared for this proposal"
     },
     {
       "code": 6035,
-      "name": "IdenticalFunder"
+      "name": "NothingToWithdraw",
+      "msg": "Nothing to withdraw from the position"
     },
     {
       "code": 6036,
-      "name": "InvalidFunder"
+      "name": "NothingToReturn",
+      "msg": "Nothing to return to the pool"
     },
     {
       "code": 6037,
-      "name": "RewardNotEnded"
+      "name": "RaiseNotSucceeded",
+      "msg": "The raise has not succeeded"
     },
     {
       "code": 6038,
-      "name": "FeeInverseIsIncorrect"
+      "name": "RaiseNotForThisDao",
+      "msg": "The raise did not pay this DAO's treasury and liquidity authority"
     },
     {
       "code": 6039,
-      "name": "PositionIsNotEmpty"
+      "name": "InvalidGovernance",
+      "msg": "Invalid governance configuration"
     },
     {
       "code": 6040,
-      "name": "InvalidPoolCreatorAuthority"
+      "name": "NoPriceCheckpoint",
+      "msg": "No usable price checkpoint: record the pool price, then wait a minute"
     },
     {
       "code": 6041,
-      "name": "InvalidConfigType"
+      "name": "CheckpointTooRecent",
+      "msg": "The price checkpoint is too recent to replace"
     },
     {
       "code": 6042,
-      "name": "InvalidPoolCreator"
+      "name": "PriceMovedTooFar",
+      "msg": "The pool price has moved too far from the recorded checkpoint"
     },
     {
       "code": 6043,
-      "name": "RewardVaultFrozenSkipRequired"
+      "name": "InsufficientStake",
+      "msg": "The proposer does not hold enough DAO tokens to stake"
     },
     {
       "code": 6044,
-      "name": "InvalidSplitPositionParameters"
+      "name": "StakeAlreadyReturned",
+      "msg": "The stake has already been returned"
     },
     {
       "code": 6045,
-      "name": "UnsupportPositionHasVestingLock"
+      "name": "DaoCommitmentMismatch",
+      "msg": "This is not the DAO the raise committed to"
     },
     {
       "code": 6046,
-      "name": "SamePosition"
+      "name": "InvalidAccount",
+      "msg": "An account is not the one this instruction requires"
     },
     {
       "code": 6047,
-      "name": "InvalidBaseFeeMode"
+      "name": "DuplicateAction",
+      "msg": "An option pays each coin once and mints once at most"
     },
     {
       "code": 6048,
-      "name": "InvalidFeeRateLimiter"
+      "name": "LiquidityNotReturned",
+      "msg": "The last proposal's liquidity must go back into the pool first"
     },
     {
       "code": 6049,
-      "name": "FailToValidateSingleSwapInstruction"
+      "name": "ActionOverLimit",
+      "msg": "This action exceeds the DAO's limit for one proposal"
     },
     {
       "code": 6050,
-      "name": "InvalidFeeTimeScheduler"
+      "name": "ExecutionDelay",
+      "msg": "The winning actions cannot run yet: the execution delay has not passed"
     },
     {
       "code": 6051,
-      "name": "UndeterminedError"
-    },
-    {
-      "code": 6052,
-      "name": "InvalidPoolVersion"
-    },
-    {
-      "code": 6053,
-      "name": "InvalidAuthority"
-    },
-    {
-      "code": 6054,
-      "name": "InvalidPermission"
-    },
-    {
-      "code": 6055,
-      "name": "InvalidFeeMarketCapScheduler"
-    },
-    {
-      "code": 6056,
-      "name": "CannotUpdateBaseFee"
-    },
-    {
-      "code": 6057,
-      "name": "InvalidDynamicFeeParameters"
-    },
-    {
-      "code": 6058,
-      "name": "InvalidUpdatePoolFeesParameters"
-    },
-    {
-      "code": 6059,
-      "name": "MissingOperatorAccount"
-    },
-    {
-      "code": 6060,
-      "name": "IncorrectATA"
-    },
-    {
-      "code": 6061,
-      "name": "InvalidZapOutParameters"
-    },
-    {
-      "code": 6062,
-      "name": "InvalidWithdrawProtocolFeeZapAccounts"
-    },
-    {
-      "code": 6063,
-      "name": "MintRestrictedFromZap"
-    },
-    {
-      "code": 6064,
-      "name": "CpiDisabled"
-    },
-    {
-      "code": 6065,
-      "name": "MissingZapOutInstruction"
-    },
-    {
-      "code": 6066,
-      "name": "InvalidZapAccounts"
-    },
-    {
-      "code": 6067,
-      "name": "InvalidCompoundingFeeBps"
-    },
-    {
-      "code": 6068,
-      "name": "InvalidClaimProtocolFeeAccounts"
-    },
-    {
-      "code": 6069,
-      "name": "TransferFeeExcludedAmountIsZero"
-    },
-    {
-      "code": 6070,
-      "name": "DelegatedAmountNonZero"
-    },
-    {
-      "code": 6071,
-      "name": "DeprecatedBaseFeeMode"
-    },
-    {
-      "code": 6072,
-      "name": "InvalidConfigPermission"
+      "name": "ExecutionExpired",
+      "msg": "The winning actions can no longer run: their window has closed"
     }
   ],
   "types": [
