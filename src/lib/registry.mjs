@@ -44,6 +44,33 @@ async function resolvedPage(path, key, page) {
   }
 }
 
+/**
+ * 01Resolved's figures, read at most every RESOLVED_REFRESH_MS through `cache` (async
+ * get/set; KV in the Worker). The plan allows 500 requests a month, and a read is six:
+ * every ten minutes spent the month in a day (28 Sep 2026). When a read fails the last
+ * good copy is kept, however old: last month's treasury beats MetaDAO's zero.
+ */
+const RESOLVED_REFRESH_MS = 12 * 60 * 60 * 1000
+
+async function resolvedData(key, cache) {
+  const stored = cache ? await cache.get().catch(() => null) : null
+  if (stored && Date.now() - stored.at < RESOLVED_REFRESH_MS) return stored
+  try {
+    const projects = await resolvedPages('projects-launch', key)
+    await pause(1_200)
+    const launches = await resolvedPages('completed-launches/info', key)
+    const fresh = { at: Date.now(), projects, launches }
+    await cache?.set(fresh).catch(() => {})
+    return fresh
+  } catch (e) {
+    if (stored) {
+      console.error(`01resolved unavailable (${e.message}); using its figures from ${new Date(stored.at).toISOString()}`)
+      return stored
+    }
+    throw e
+  }
+}
+
 async function resolvedPages(path, key) {
   const rows = []
   for (let page = 1; page <= RESOLVED_MAX_PAGES; page++) {
@@ -161,7 +188,11 @@ export function extraCoin(q, found) {
  * not offered as a backing asset — that is the one exclusion, and it is about
  * backing, not size. Exit costs are priced separately, on demand.
  */
-export async function buildRegistry(_endpoint, { withExits = false, resolvedKey } = {}) {
+/**
+ * `keep`: mints LFOwn has already paired memes with. They stay listed below the treasury
+ * floor, since MetaDAO's treasury figure can be wrong and dropping a coin drops its memes.
+ */
+export async function buildRegistry(_endpoint, { withExits = false, resolvedKey, resolvedCache, keep = new Set() } = {}) {
   const res = await fetch(MARKET_API, { headers: { 'user-agent': UA, accept: 'application/json' } })
   if (!res.ok) throw new Error(`metadao market api ${res.status}`)
   const tickers = await res.json()
@@ -180,7 +211,10 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey 
       pool: t.pool_id,
       since: t.startDate ?? null,
     }))
-    .filter((d) => d.treasury >= MIN_TREASURY_USD && d.usdPrice > 0)
+    // The treasury floor is applied at the end, once 01Resolved has had its say: MetaDAO's
+    // own figure can be wrong (SOLO, 29 Sep 2026: $0.05 for a coin with $1.8M of liquidity),
+    // and a coin dropped here takes every meme launched against it off the site.
+    .filter((d) => d.usdPrice > 0)
 
   // Icons and holder counts only exist on Jupiter's side.
   const extra = new Map()
@@ -220,16 +254,14 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey 
   let listed = coins
   if (resolvedKey) {
     try {
-      // One after the other: side by side they tripped the plan's pace limit.
-      const projects = await resolvedPages('projects-launch', resolvedKey)
-      await pause(1_200)
-      const launches = await resolvedPages('completed-launches/info', resolvedKey)
+      const { projects, launches } = await resolvedData(resolvedKey, resolvedCache)
       listed = withFinancials(coins, projects, launches)
     } catch (e) {
       console.error(`01resolved unavailable, keeping MetaDAO's treasuries: ${e.message}`)
     }
   }
 
+  listed = listed.filter((d) => d.treasury >= MIN_TREASURY_USD || keep.has(d.mint))
   // Featured coins lead; the rest by what backs them.
   listed.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
   return { updatedAt: new Date().toISOString(), count: listed.length, coins: listed }
