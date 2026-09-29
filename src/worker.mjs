@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, USDC as USDC_MINT } from './lib/config.mjs'
+import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, USDC as USDC_MINT } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -137,9 +137,40 @@ async function readCatalogue(env) {
     const cached = await env.REGISTRY.get(CATALOGUE_KEY, 'json')
     if (cached) return cached
   }
-  const fresh = await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY })
+  const fresh = await buildCatalogue(env)
   await writeCatalogue(env, fresh)
   return fresh
+}
+
+/** 01Resolved's figures, kept in KV between reads (see resolvedData in registry.mjs). */
+const RESOLVED_KEY = 'resolved:v1'
+
+/**
+ * The catalogue, with 01Resolved read through its KV copy, and every coin LFOwn has
+ * paired memes with kept listed.
+ */
+async function buildCatalogue(env) {
+  const resolvedCache = env.REGISTRY && {
+    get: () => env.REGISTRY.get(RESOLVED_KEY, 'json'),
+    set: (value) => env.REGISTRY.put(RESOLVED_KEY, JSON.stringify(value)),
+  }
+  const keep = new Set((await configKeyNames(env)).map((name) => name.split(':')[1]))
+  return buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY, resolvedCache, keep })
+}
+
+/** Every config LFOwn ever opened, live and retired, as its KV key names. */
+async function configKeyNames(env) {
+  if (!env.REGISTRY) return []
+  const names = []
+  for (const prefix of ['config:', 'retired:']) {
+    let cursor
+    do {
+      const page = await env.REGISTRY.list({ prefix, cursor })
+      names.push(...page.keys.map((k) => k.name))
+      cursor = page.list_complete ? undefined : page.cursor
+    } while (cursor)
+  }
+  return names
 }
 
 async function writeCatalogue(env, catalogue) {
@@ -1002,20 +1033,28 @@ function rewriteCard(page, card) {
 async function ourConfigs(env) {
   const { coins } = await readCatalogue(env)
   if (!env.REGISTRY) return []
-  const wanted = []
-  for (const coin of coins) {
-    for (const tier of TIERS) {
-      // Retired configs are read too: a coin launched on one still trades, and a
-      // fee change should not make it disappear from the site.
-      for (const prefix of ['config', 'retired']) wanted.push({ coin, tier, key: `${prefix}:${coin.mint}:${tier.id}` })
-    }
+  // Every config LFOwn ever opened, read from KV itself rather than from the catalogue:
+  // a coin that leaves the catalogue (MetaDAO misreporting its treasury, say) must not
+  // take the memes launched against it off the site. Retired configs are read too: a
+  // coin launched on one still trades, and a fee change should not make it disappear.
+  const names = await configKeyNames(env)
+  const byMint = new Map(coins.map((c) => [c.mint, c]))
+  // A coin outside the catalogue is named and priced from Jupiter instead.
+  const missing = [...new Set(names.map((n) => n.split(':')[1]))].filter((m) => !byMint.has(m))
+  if (missing.length) {
+    const found = await fetch(`${JUP.tokens}?query=${missing.join(',')}`, { headers: { accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : [])).catch(() => [])
+    for (const t of found) byMint.set(t.id, { mint: t.id, symbol: t.symbol, usdPrice: Number(t.usdPrice) || 0 })
   }
-  const values = await Promise.all(wanted.map(({ key }) => env.REGISTRY.get(key)))
+  const tiers = new Set(TIERS.map((t) => t.id))
+  const values = await Promise.all(names.map((name) => env.REGISTRY.get(name)))
   const configs = []
-  wanted.forEach(({ coin, tier }, i) => {
-    if (!values[i]) return
+  names.forEach((name, i) => {
+    const [, mint, tier] = name.split(':')
+    const coin = byMint.get(mint)
+    if (!values[i] || !tiers.has(tier) || !coin) return
     const { config, threshold } = JSON.parse(values[i])
-    configs.push({ config, threshold, mint: coin.mint, symbol: coin.symbol, usdPrice: coin.usdPrice, tier: tier.id })
+    configs.push({ config, threshold, mint, symbol: coin.symbol, usdPrice: coin.usdPrice, tier })
   })
   return configs
 }
@@ -2010,7 +2049,7 @@ export default {
       console.warn(`unrecognised cron ${event.cron}: running the catalogue job. Does it match FEE_SWEEP, WATCH or CATALOGUE in worker.mjs?`)
     }
     ctx.waitUntil((async () => {
-      const catalogue = await buildRegistry(env.HELIUS_RPC, { resolvedKey: env.RESOLVED_API_KEY })
+      const catalogue = await buildCatalogue(env)
       await writeCatalogue(env, catalogue)
       await announcePumps(env, catalogue).catch((e) => console.error('pump posts failed:', e.message))
       if (env.REGISTRY) {
