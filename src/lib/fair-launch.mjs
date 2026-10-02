@@ -22,13 +22,10 @@
 // on whatever cluster FAIR_RPC names — a local validator (npm run localnet in onchain/) or
 // devnet — and the site says so.
 
+import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction } from '@solana/web3.js'
 import {
-  PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY, Transaction, TransactionInstruction,
-} from '@solana/web3.js'
-import {
-  ASSOCIATED_TOKEN_PROGRAM_ID, AuthorityType, MINT_SIZE, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
-  createAssociatedTokenAccountIdempotentInstruction, createInitializeMint2Instruction,
-  createSetAuthorityInstruction, getAssociatedTokenAddressSync,
+  ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync,
 } from '@solana/spl-token'
 import * as anchorModule from '@coral-xyz/anchor'
 import {
@@ -267,44 +264,12 @@ export function goalInCoin(usdPrice, goalUsd = TERMS.goalUsd) {
 }
 
 /**
- * Metaplex `CreateMetadataAccountV3`, written out rather than pulled in with Metaplex's
- * SDK for one instruction. The update authority is the DAO's mint authority, a PDA that
- * signs nothing but winning proposals: nobody can rename the token or swap its picture.
- */
-function createMetadataIx({ mint, mintAuthority, payer, updateAuthority, name, symbol, uri }) {
-  const str = (s) => { const b = new TextEncoder().encode(s); return [...new Uint8Array(new Uint32Array([b.length]).buffer), ...b] }
-  const data = new Uint8Array([
-    33, // CreateMetadataAccountV3
-    ...str(name), ...str(symbol), ...str(uri),
-    0, 0, // seller fee basis points
-    0, 0, 0, // creators, collection, uses: none
-    1, // mutable, through the DAO
-    0, // collection details: none
-  ])
-  const metadata = pda(METADATA_PROGRAM, ['metadata', METADATA_PROGRAM, mint])
-  return new TransactionInstruction({
-    programId: METADATA_PROGRAM,
-    keys: [
-      { pubkey: metadata, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: mintAuthority, isSigner: true, isWritable: false },
-      { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: updateAuthority, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: SYSVAR_RENT_PUBKEY, isSigner: false, isWritable: false },
-    ],
-    data: Buffer.from(data),
-  })
-}
-
-/**
- * The two transactions that open a fair launch, in order: the token (mint, name and
- * picture, then its mint authority handed to the raise), then the raise itself.
+ * The transaction that opens a fair launch. `initialize_raise` creates the token itself —
+ * its mint, with the raise as mint authority and no freeze authority, and its name and
+ * picture, under the DAO — so the creator never holds anything a DAO depends on.
  *
- * `mint` is a Keypair the caller keeps until both land; it signs both, so only whoever
- * created the token can open its raise, and on nothing but this DAO's addresses. The
- * creator signs both too. The goal, supply split and DAO rules are this file's TERMS and GOVERNANCE,
- * so every fair launch is the same deal.
+ * `mint` is a fresh Keypair; it signs, with the creator. The goal, supply split and DAO
+ * rules are this file's TERMS and GOVERNANCE, so every fair launch is the same deal.
  */
 export async function buildOpenRaise(connection, { creator, mint, quoteMint, usdPrice, name, symbol, uri, terms = TERMS, governance = GOVERNANCE }) {
   const p = programs(connection)
@@ -313,14 +278,6 @@ export async function buildOpenRaise(connection, { creator, mint, quoteMint, usd
   const d = daoAddresses(mint.publicKey, quoteMint)
   const goal = goalInCoin(usdPrice, terms.goalUsd)
   const quoteToPool = (goal * BigInt(terms.poolShareBps)) / 10_000n
-  const rent = await connection.getMinimumBalanceForRentExemption(MINT_SIZE)
-
-  const token = new Transaction().add(
-    SystemProgram.createAccount({ fromPubkey: owner, newAccountPubkey: mint.publicKey, lamports: rent, space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
-    createInitializeMint2Instruction(mint.publicKey, 6, owner, null),
-    createMetadataIx({ mint: mint.publicKey, mintAuthority: owner, payer: owner, updateAuthority: d.mintAuthority, name, symbol, uri }),
-    createSetAuthorityInstruction(mint.publicKey, owner, AuthorityType.MintTokens, r.raise),
-  )
   const open = new Transaction().add(await p.raise.methods.initializeRaise({
     goal: new BN(goal.toString()),
     tokensForInvestors: new BN(terms.tokensForInvestors.toString()),
@@ -329,12 +286,16 @@ export async function buildOpenRaise(connection, { creator, mint, quoteMint, usd
     durationSeconds: new BN(terms.durationSeconds),
     claimDelaySeconds: new BN(terms.claimDelaySeconds),
     daoCommitment: await daoCommitment(p, d.name, terms.withdrawalBps, governance),
+    name, symbol, uri,
   }).accountsStrict({
     baseMint: mint.publicKey, quoteMint: r.quoteMint, raise: r.raise, baseVault: r.baseVault, quoteVault: r.quoteVault,
-    treasury: d.treasury, poolOperator: d.liquidityAuthority, authority: owner,
+    treasury: d.treasury, poolOperator: d.liquidityAuthority,
+    metadata: pda(METADATA_PROGRAM, ['metadata', METADATA_PROGRAM, mint.publicKey]), updateAuthority: d.mintAuthority,
+    authority: owner,
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+    tokenMetadataProgram: METADATA_PROGRAM, rent: SYSVAR_RENT_PUBKEY,
   }).instruction())
-  return { transactions: [token, open], raise: r.raise, dao: d.dao, goal, quoteToPool }
+  return { transactions: [open], raise: r.raise, dao: d.dao, goal, quoteToPool }
 }
 
 // ── backing a raise ──────────────────────────────────────────────────────────
@@ -385,8 +346,24 @@ export async function settleIx(connection, raise, cranker) {
 }
 
 /**
+ * The three associated accounts the settlement pays, opened ahead of `bootstrapIx`, in a
+ * transaction of their own. Anyone may; it also works on an address someone funded, which
+ * would otherwise run the bootstrap past Solana's 64-instruction trace (4th audit M2).
+ */
+export function bootstrapAccountIxs(raise, payer) {
+  const d = daoAddresses(raise.baseMint, raise.quoteMint)
+  const who = new PublicKey(payer)
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(who, ata(d.quoteMint, d.treasury), d.treasury, d.quoteMint),
+    createAssociatedTokenAccountIdempotentInstruction(who, d.liquidityQuote, d.liquidityAuthority, d.quoteMint),
+    createAssociatedTokenAccountIdempotentInstruction(who, d.liquidityBase, d.liquidityAuthority, d.baseMint),
+  ]
+}
+
+/**
  * Anyone, once a raise has ended above its goal and before its deadline: settles it and
- * opens exactly the DAO and the pool it committed to, in one instruction.
+ * opens exactly the DAO and the pool it committed to, in one instruction. Send
+ * `bootstrapAccountIxs` first.
  */
 export async function bootstrapIx(connection, raise, payer, { terms = TERMS, governance = GOVERNANCE } = {}) {
   const p = programs(connection)
@@ -417,22 +394,35 @@ const cpiPrograms = {
 }
 const meta = (pubkey, isWritable = true) => ({ pubkey, isSigner: false, isWritable })
 
+/**
+ * Whether the DAO pool's price is within the price guard's band (5%) of the DAO's
+ * checkpoint: what moving its liquidity needs. Compared squared, as the program does.
+ */
+export async function withinPriceBand(connection, d) {
+  const pool = await programs(connection).cpAmm.account.pool.fetch(d.pool)
+  const spot = num(pool.sqrtPrice)
+  const check = d.checkpoint.sqrtPrice
+  if (!check) return false
+  const ratio = (spot * spot * 10_000n) / (check * check)
+  return ratio >= 9_500n && ratio <= 10_500n
+}
+
 export async function recordPriceIx(connection, d) {
   return programs(connection).futarchy.methods.recordPrice().accountsStrict({ dao: d.dao, pool: d.pool }).instruction()
 }
 
 /**
- * Opening a proposal: the creator's stake account, then the proposal and its two markets.
- * Its options' actions, and taking the liquidity out, come after (`setActionsIx`,
- * `prepareIx`); anyone launches it once prepared.
+ * Opening a proposal: the proposal, its stake and its vault. Its two markets come next, in
+ * a transaction of their own (`marketsIx`): together they ran past Solana's 64-instruction
+ * trace once someone funded their addresses beforehand (4th audit M3). Then its option's
+ * actions and taking the liquidity out (`setActionsIx`, `prepareIx`); anyone launches it.
  */
 export async function proposeIxs(connection, d, id, creator, metadata = null) {
   const p = programs(connection)
   const q = proposalAddresses(d, id)
   const [o0, o1] = q.options
   const who = new PublicKey(creator)
-  // No instruction opening the proposer's token account: whoever can stake already has
-  // one, and the transaction is within a few bytes of Solana's limit as it is.
+  // No instruction opening the proposer's token account: whoever can stake already has one.
   return [
     await p.futarchy.methods.initializeProposal(metadata).accountsStrict({
       creator: who, moderator: d.moderator, dao: d.dao, proposal: q.proposal,
@@ -441,10 +431,33 @@ export async function proposeIxs(connection, d, id, creator, metadata = null) {
     }).remainingAccounts([
       meta(d.baseMint, false), meta(d.quoteMint, false), meta(q.vault), meta(ata(d.baseMint, q.vault)), meta(ata(d.quoteMint, q.vault)),
       meta(o0.condBase), meta(o1.condBase), meta(o0.condQuote), meta(o1.condQuote),
-      meta(o0.pool), meta(o0.reserveA), meta(o0.reserveB), meta(FEE_AUTHORITY, false), meta(o0.feeVault),
-      meta(o1.pool), meta(o1.reserveA), meta(o1.reserveB), meta(o1.feeVault),
     ]).instruction(),
   ]
+}
+
+/** Anyone: a proposal's two markets, once it is open and before its liquidity comes out. */
+export async function marketsIx(connection, d, id, payer) {
+  const q = proposalAddresses(d, id)
+  return programs(connection).futarchy.methods.createProposalMarkets().accountsStrict({
+    payer: new PublicKey(payer), proposal: q.proposal, dao: d.dao,
+    systemProgram: SystemProgram.programId, ammProgram: PROGRAM_IDS.amm, tokenProgram: TOKEN_PROGRAM_ID,
+  }).remainingAccounts([
+    ...q.options.flatMap((o) => [meta(o.condQuote), meta(o.condBase), meta(o.pool), meta(o.reserveA), meta(o.reserveB), meta(o.feeVault)]),
+    meta(FEE_AUTHORITY, false),
+  ]).instruction()
+}
+
+/**
+ * Withdraws a proposal whose liquidity never came out, its stake back whole to its creator:
+ * the creator any time, anyone after a day (4th audit M9).
+ */
+export async function cancelProposalIx(connection, d, id, signer, creator) {
+  const q = proposalAddresses(d, id)
+  return programs(connection).futarchy.methods.cancelProposal().accountsStrict({
+    signer: new PublicKey(signer), proposal: q.proposal, stakeEscrow: q.stakeEscrow, creator: new PublicKey(creator),
+    tokenMint: d.baseMint, creatorToken: ata(d.baseMint, creator),
+    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+  }).instruction()
 }
 
 /** `actions`: [{ transfer: { mint, amount, recipient } } | { mintTo: { amount, recipient } }] */
@@ -541,10 +554,12 @@ export async function returnStakeIx(connection, d, id, payer, creator) {
 
 export async function claimPoolFeesIx(connection, d, payer) {
   return programs(connection).futarchy.methods.claimPoolFees().accountsStrict({
-    payer: new PublicKey(payer), dao: d.dao, liquidityAuthority: d.liquidityAuthority, treasury: d.treasury, protocol: FEE_AUTHORITY,
+    payer: new PublicKey(payer), dao: d.dao, liquidityAuthority: d.liquidityAuthority, treasury: d.treasury,
+    // LFOwn's half waits in escrows of the program until the fee wallet withdraws it.
+    protocol: pda(PROGRAM_IDS.futarchy, ['protocol_fees']),
     baseMint: d.baseMint, quoteMint: d.quoteMint, liquidityBase: d.liquidityBase, liquidityQuote: d.liquidityQuote,
     treasuryBase: ata(d.baseMint, d.treasury), treasuryQuote: ata(d.quoteMint, d.treasury),
-    protocolBase: ata(d.baseMint, FEE_AUTHORITY), protocolQuote: ata(d.quoteMint, FEE_AUTHORITY),
+    protocolBase: pda(PROGRAM_IDS.futarchy, ['protocol_fees', d.baseMint]), protocolQuote: pda(PROGRAM_IDS.futarchy, ['protocol_fees', d.quoteMint]),
     poolAuthority: DAMM_POOL_AUTHORITY, ...dammAccounts(d),
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).instruction()
@@ -820,6 +835,21 @@ export async function readDao(connection, mint, quoteMint) {
   }
 }
 
+/** Accounts of `name`, decoded one by one: null where missing or not that account. */
+async function decodeEach(connection, program, name, addresses) {
+  const wanted = addresses.map((a, i) => [a, i]).filter(([a]) => a)
+  const out = addresses.map(() => null)
+  for (let k = 0; k < wanted.length; k += 100) {
+    const slice = wanted.slice(k, k + 100)
+    const infos = await connection.getMultipleAccountsInfo(slice.map(([a]) => a))
+    infos.forEach((info, j) => {
+      if (!info || !info.owner.equals(program.programId)) return
+      try { out[slice[j][1]] = program.coder.accounts.decode(name, info.data) } catch { /* not that account */ }
+    })
+  }
+  return out
+}
+
 /**
  * A DAO's proposals, newest first — every one below `count`, or only `ids`. Read in three
  * requests whatever their number: the proposals, their markets, their options' actions.
@@ -828,10 +858,13 @@ export async function readProposals(connection, d, count, { ids } = {}) {
   const p = programs(connection)
   const wanted = (ids ?? Array.from({ length: count }, (_, i) => i)).filter((id) => id >= 0 && id < count).sort((x, y) => y - x)
   const qs = wanted.map((id) => proposalAddresses(d, id))
+  // Decoded one by one, and only option 1's actions: anyone can send lamports to any
+  // address, and one account that is not what it should be must not break the whole read
+  // (4th audit M5: an empty account at option 0's actions address broke every page).
   const [accounts, markets, actions] = await Promise.all([
-    p.futarchy.account.proposalAccount.fetchMultiple(qs.map((q) => q.proposal)),
-    p.amm.account.poolAccount.fetchMultiple(qs.flatMap((q) => q.options.map((o) => o.pool))),
-    p.futarchy.account.optionActions.fetchMultiple(qs.flatMap((q) => q.options.map((_, i) => q.actions(i)))),
+    decodeEach(connection, p.futarchy, 'proposalAccount', qs.map((q) => q.proposal)),
+    decodeEach(connection, p.amm, 'poolAccount', qs.flatMap((q) => q.options.map((o) => o.pool))),
+    decodeEach(connection, p.futarchy, 'optionActions', qs.flatMap((q) => q.options.map((_, i) => (i ? q.actions(i) : null)))),
   ])
   const out = []
   qs.forEach((q, k) => {
@@ -847,7 +880,7 @@ export async function readProposals(connection, d, count, { ids } = {}) {
       winner: state === 'resolved' ? Number(Object.values(a.state.resolved)[0]) : null,
       createdAt: Number(a.createdAt), resolvedAt: Number(a.resolvedAt), lengthMinutes: a.config.length, warmupSeconds: a.config.warmupDuration,
       marketBiasBps: a.config.marketBias, startingObservation: num(a.config.startingObservation),
-      prepared: num(a.baseLiquidity) > 0n, stake: num(a.stake),
+      prepared: num(a.baseLiquidity) > 0n, stake: num(a.stake), marketsOpen: a.marketsOpen, openedAt: Number(a.openedAt),
       metadata: a.metadata,
       markets: mine.map((m, i) => (m ? {
         index: i, twap: twapOf(m.oracle), lastPrice: num(m.oracle.lastPrice), lastUpdate: Number(m.oracle.lastUpdateUnixTime),

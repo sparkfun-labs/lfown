@@ -117,6 +117,9 @@ pub fn initialize_dao_handler(
         price_anchor: 0,
         price_anchor_at: 0,
         pending_return: false,
+        limit_window_start: 0,
+        transferred_bps: 0,
+        minted_bps: 0,
     });
 
     // The mint goes to the DAO in the same instruction that opens it.

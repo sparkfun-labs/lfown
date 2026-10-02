@@ -149,6 +149,34 @@ pub struct DAOAccount {
     /// proposal may take liquidity out in between, or each would take a share of what was
     /// left in the pool while the rest sat outside it, and the position would melt away.
     pub pending_return: bool,
+
+    /// What winners have taken in the current LIMIT_WINDOW_SECONDS, in basis points of
+    /// what was there each time: of the treasury's holding for transfers, of the supply for
+    /// mints. The governance limits cap these sums, not each action, so ten proposals
+    /// cannot take ten times the limit (4th audit M1).
+    pub limit_window_start: i64,
+    pub transferred_bps: u32,
+    pub minted_bps: u32,
+}
+
+impl DAOAccount {
+    /// Opens a new limit window, both sums back to zero, once the current one is over.
+    pub fn roll_limit_window(&mut self, now: i64) {
+        if now >= self.limit_window_start.saturating_add(crate::constants::LIMIT_WINDOW_SECONDS) {
+            self.limit_window_start = now;
+            self.transferred_bps = 0;
+            self.minted_bps = 0;
+        }
+    }
+}
+
+/// Adds `amount` of `base`, in basis points rounded up, to `used`, refusing a sum past `max`.
+/// Rounded up: a run of small actions cannot slip under the limit.
+pub fn spend_allowance(used: u32, max: u16, amount: u64, base: u64) -> Result<u32> {
+    require!(base > 0, FutarchyError::ActionOverLimit);
+    let total = (used as u128).saturating_add(((amount as u128) * 10_000).div_ceil(base as u128));
+    require!(total <= max as u128, FutarchyError::ActionOverLimit);
+    Ok(total as u32)
 }
 
 #[event]

@@ -616,6 +616,13 @@
           "name": "pool_operator"
         },
         {
+          "name": "metadata",
+          "writable": true
+        },
+        {
+          "name": "update_authority"
+        },
+        {
           "name": "authority",
           "writable": true,
           "signer": true
@@ -631,6 +638,14 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "token_metadata_program",
+          "address": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+        },
+        {
+          "name": "rent",
+          "address": "SysvarRent111111111111111111111111111111111"
         }
       ],
       "args": [
@@ -1211,6 +1226,22 @@
                 32
               ]
             }
+          },
+          {
+            "name": "name",
+            "docs": [
+              "The token's name, symbol and metadata URI, written by the raise when it creates the",
+              "token: the creator never holds its mint, its metadata, or its freeze authority."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "symbol",
+            "type": "string"
+          },
+          {
+            "name": "uri",
+            "type": "string"
           }
         ]
       }

@@ -148,6 +148,18 @@ pub enum FutarchyError {
     #[msg("An option pays each coin once and mints once at most")]
     DuplicateAction,
 
+    #[msg("This proposal's markets are not created yet")]
+    MarketsNotOpen,
+
+    #[msg("This proposal's markets are already created")]
+    MarketsAlreadyOpen,
+
+    #[msg("Only its creator may cancel this proposal yet")]
+    CancelTooEarly,
+
+    #[msg("No price checkpoint while a proposal's markets hold the DAO's liquidity")]
+    MarketsRunning,
+
     #[msg("The last proposal's liquidity must go back into the pool first")]
     LiquidityNotReturned,
 

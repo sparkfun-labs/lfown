@@ -34,7 +34,6 @@
 //! windows are bounded.
 
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program_option::COption;
 use anchor_spl::{
     associated_token::{self as ata, get_associated_token_address, AssociatedToken},
     token::{self, spl_token::instruction::AuthorityType, Mint, MintTo, SetAuthority, Token, TokenAccount, Transfer},
@@ -61,6 +60,20 @@ pub const MAX_DEADLINE_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 /// The DAO a raise's mint derives in the futarchy program, and its two accounts that a
 /// raise pays: (treasury, liquidity authority).
+/// Metaplex's token metadata program, which names the token and shows its picture.
+pub const METADATA_PROGRAM: Pubkey = pubkey!("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
+/// Metaplex's limits on a token's name, symbol and metadata URI.
+pub const MAX_NAME_LEN: usize = 32;
+pub const MAX_SYMBOL_LEN: usize = 10;
+pub const MAX_URI_LEN: usize = 200;
+
+/// The futarchy DAO's mint authority for this mint: the only key that may rename the token
+/// or change its picture, and only through a winning proposal.
+pub fn dao_mint_authority(base_mint: &Pubkey) -> Pubkey {
+    let (dao, _) = Pubkey::find_program_address(&[b"dao", base_mint.as_ref()], &FUTARCHY_PROGRAM);
+    Pubkey::find_program_address(&[b"mint_authority", dao.as_ref()], &FUTARCHY_PROGRAM).0
+}
+
 pub fn dao_recipients(base_mint: &Pubkey) -> (Pubkey, Pubkey) {
     let (dao, _) = Pubkey::find_program_address(&[b"dao", base_mint.as_ref()], &FUTARCHY_PROGRAM);
     let (treasury, _) = Pubkey::find_program_address(&[b"treasury", dao.as_ref()], &FUTARCHY_PROGRAM);
@@ -83,6 +96,11 @@ pub struct InitializeRaiseArgs {
     /// so backers know the rules they are buying into, and so opening the DAO needs no one's
     /// permission: whoever calls it can only open exactly this one.
     pub dao_commitment: [u8; 32],
+    /// The token's name, symbol and metadata URI, written by the raise when it creates the
+    /// token: the creator never holds its mint, its metadata, or its freeze authority.
+    pub name: String,
+    pub symbol: String,
+    pub uri: String,
 }
 
 #[program]
@@ -109,8 +127,8 @@ pub mod lfown_raise {
         require_keys_eq!(ctx.accounts.treasury.key(), treasury, RaiseError::NotTheDao);
         require_keys_eq!(ctx.accounts.pool_operator.key(), liquidity, RaiseError::NotTheDao);
         require!(
-            ctx.accounts.base_mint.mint_authority == COption::Some(ctx.accounts.raise.key()),
-            RaiseError::InvalidMint
+            args.name.len() <= MAX_NAME_LEN && args.symbol.len() <= MAX_SYMBOL_LEN && args.uri.len() <= MAX_URI_LEN,
+            RaiseError::InvalidParams
         );
         let supply = args
             .tokens_for_investors
@@ -133,6 +151,7 @@ pub mod lfown_raise {
             ),
             supply,
         )?;
+        create_metadata(&ctx.accounts, seeds, &args)?;
 
         let now = Clock::get()?.unix_timestamp;
         ctx.accounts.raise.set_inner(Raise {
@@ -328,17 +347,44 @@ fn transfer_signed<'info>(
     )
 }
 
+/// Metaplex `CreateMetadataAccountV3`, signed by the raise as the token's mint authority.
+/// The update authority is the DAO's mint authority: nobody renames the token or swaps its
+/// picture but a winning proposal.
+#[inline(never)]
+fn create_metadata(a: &InitializeRaise, seeds: &[&[u8]], args: &InitializeRaiseArgs) -> Result<()> {
+    let mut data = vec![33u8]; // CreateMetadataAccountV3
+    for text in [&args.name, &args.symbol, &args.uri] {
+        data.extend_from_slice(&(text.len() as u32).to_le_bytes());
+        data.extend_from_slice(text.as_bytes());
+    }
+    data.extend_from_slice(&[0, 0, 0, 0, 0, 1, 0]); // no fee, creators, collection or uses; mutable; no details
+    let metas = vec![
+        AccountMeta::new(a.metadata.key(), false),
+        AccountMeta::new_readonly(a.base_mint.key(), false),
+        AccountMeta::new_readonly(a.raise.key(), true),
+        AccountMeta::new(a.authority.key(), true),
+        AccountMeta::new_readonly(a.update_authority.key(), false),
+        AccountMeta::new_readonly(a.system_program.key(), false),
+        AccountMeta::new_readonly(a.rent.key(), false),
+    ];
+    anchor_lang::solana_program::program::invoke_signed(
+        &anchor_lang::solana_program::instruction::Instruction { program_id: METADATA_PROGRAM, accounts: metas, data },
+        &[
+            a.metadata.to_account_info(), a.base_mint.to_account_info(), a.raise.to_account_info(),
+            a.authority.to_account_info(), a.update_authority.to_account_info(), a.system_program.to_account_info(),
+            a.rent.to_account_info(), a.token_metadata_program.to_account_info(),
+        ],
+        &[seeds],
+    )?;
+    Ok(())
+}
+
 #[derive(Accounts)]
 pub struct InitializeRaise<'info> {
-    // Only the mint's own keypair opens a raise on it: the site creates the mint in one
-    // transaction and the raise in the next, and nobody may slip theirs in between.
-    #[account(
-        mut,
-        signer @ RaiseError::MintMustSign,
-        constraint = base_mint.decimals == 6 @ RaiseError::InvalidMint,
-        constraint = base_mint.supply == 0 @ RaiseError::InvalidMint,
-        constraint = base_mint.freeze_authority.is_none() @ RaiseError::InvalidMint,
-    )]
+    // The raise creates the token itself: six decimals, the raise as its mint authority,
+    // and no freeze authority, ever. A mint made beforehand could have had accounts the DAO
+    // will use frozen in advance, its freeze authority revoked afterwards, and looked clean.
+    #[account(init, payer = authority, mint::decimals = 6, mint::authority = raise)]
     pub base_mint: Box<Account<'info, Mint>>,
     // A coin someone can freeze could freeze the raise's vault, and with it every refund.
     // No ownership coin has a freeze authority (checked 25 Sep 2026: none of 23).
@@ -365,11 +411,21 @@ pub struct InitializeRaise<'info> {
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: must be the liquidity authority of that DAO (checked in the handler).
     pub pool_operator: UncheckedAccount<'info>,
+    /// CHECK: the token's Metaplex metadata account, created by the CPI.
+    #[account(mut, address = Pubkey::find_program_address(&[b"metadata", METADATA_PROGRAM.as_ref(), base_mint.key().as_ref()], &METADATA_PROGRAM).0 @ RaiseError::InvalidMint)]
+    pub metadata: UncheckedAccount<'info>,
+    /// CHECK: the DAO's mint authority, the metadata's update authority.
+    #[account(address = dao_mint_authority(&base_mint.key()) @ RaiseError::NotTheDao)]
+    pub update_authority: UncheckedAccount<'info>,
     #[account(mut)]
     pub authority: Signer<'info>,
     pub token_program: Program<'info, Token>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
+    /// CHECK: Metaplex's program, by address.
+    #[account(address = METADATA_PROGRAM)]
+    pub token_metadata_program: UncheckedAccount<'info>,
+    pub rent: Sysvar<'info, Rent>,
 }
 
 #[derive(Accounts)]

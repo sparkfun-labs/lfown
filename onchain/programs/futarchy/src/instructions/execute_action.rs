@@ -56,6 +56,7 @@ pub struct ExecuteTransfer<'info> {
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     #[account(
+        mut,
         seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
@@ -97,9 +98,12 @@ pub fn execute_transfer_handler(ctx: Context<ExecuteTransfer>, action_index: u8)
     };
     require_keys_eq!(mint, ctx.accounts.mint.key(), FutarchyError::InvalidAction);
     require_keys_eq!(recipient, ctx.accounts.recipient.key(), FutarchyError::InvalidAction);
-    // No more than the DAO allows one action to take of what the treasury holds now.
-    let cap = (ctx.accounts.treasury_token.amount as u128) * (ctx.accounts.dao.governance.max_transfer_bps as u128) / 10_000;
-    require!((amount as u128) <= cap, FutarchyError::ActionOverLimit);
+    // No more than the DAO allows its winners to take, together, in the window.
+    let now = Clock::get()?.unix_timestamp;
+    let held = ctx.accounts.treasury_token.amount;
+    let dao = &mut ctx.accounts.dao;
+    dao.roll_limit_window(now);
+    dao.transferred_bps = spend_allowance(dao.transferred_bps, dao.governance.max_transfer_bps, amount, held)?;
 
     let dao_key = ctx.accounts.dao.key();
     let seeds: &[&[u8]] = &[TREASURY_SEED, dao_key.as_ref(), &[ctx.accounts.dao.treasury_bump]];
@@ -140,6 +144,7 @@ pub struct ExecuteMint<'info> {
     pub moderator: Box<Account<'info, ModeratorAccount>>,
 
     #[account(
+        mut,
         seeds = [DAO_SEED, moderator.base_mint.as_ref()],
         bump = dao.bump,
         constraint = dao.moderator == moderator.key() @ FutarchyError::InvalidDAO,
@@ -178,9 +183,12 @@ pub fn execute_mint_handler(ctx: Context<ExecuteMint>, action_index: u8) -> Resu
         return err!(FutarchyError::InvalidAction);
     };
     require_keys_eq!(recipient, ctx.accounts.recipient.key(), FutarchyError::InvalidAction);
-    // No more than the DAO allows one action to issue, against the supply now.
-    let cap = (ctx.accounts.mint.supply as u128) * (ctx.accounts.dao.governance.max_mint_bps as u128) / 10_000;
-    require!((amount as u128) <= cap, FutarchyError::ActionOverLimit);
+    // No more than the DAO allows its winners to issue, together, in the window.
+    let now = Clock::get()?.unix_timestamp;
+    let supply = ctx.accounts.mint.supply;
+    let dao = &mut ctx.accounts.dao;
+    dao.roll_limit_window(now);
+    dao.minted_bps = spend_allowance(dao.minted_bps, dao.governance.max_mint_bps, amount, supply)?;
 
     let dao_key = ctx.accounts.dao.key();
     let seeds: &[&[u8]] = &[MINT_AUTHORITY_SEED, dao_key.as_ref(), &[ctx.accounts.dao.mint_authority_bump]];

@@ -85,6 +85,13 @@ pub fn observation_for(sqrt_price: u128) -> u128 {
     if observation > U256::from(u128::MAX) { u128::MAX } else { observation.low_u128() }
 }
 
+/// The square-root price, Q64.64, for an amm observation: the inverse of `observation_for`.
+pub fn sqrt_price_for(observation: u128) -> u128 {
+    let scaled = (U256::from(observation) << 128) / U256::from(OBSERVATION_SCALE);
+    let root = scaled.integer_sqrt();
+    if root > U256::from(u128::MAX) { u128::MAX } else { root.low_u128() }
+}
+
 /// How far an observation may move per update: `bps` of where the market opened, and
 /// never less than one unit, or the TWAP could not move at all.
 pub fn max_observation_delta(starting_observation: u128, bps: u16) -> u128 {
@@ -124,6 +131,14 @@ mod tests {
         assert!((price(down) - 0.99).abs() < 0.0002, "{}", price(down));
         assert_eq!(next_checkpoint(ONE, ONE + 5), ONE + 5, "a small move is taken whole");
         assert_eq!(next_checkpoint(0, ONE), ONE, "the first one is the price");
+    }
+
+    #[test]
+    fn a_sqrt_price_and_its_observation_round_trip() {
+        for sqrt in [ONE, ONE / 3, ONE * 7] {
+            let back = sqrt_price_for(observation_for(sqrt));
+            assert!(back.abs_diff(sqrt) * 1_000_000 < sqrt, "{sqrt} -> {back}");
+        }
     }
 
     #[test]

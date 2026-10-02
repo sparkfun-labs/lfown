@@ -41,6 +41,10 @@ const CHECKPOINT_REFRESH = 60
 const MAX_SENDS_PER_PASS = 40
 /** DAOs opened per pass: each costs the keeper about 0.06 SOL of rent. */
 const MAX_BOOTSTRAPS_PER_PASS = 2
+/** Transactions one DAO may take in a pass, so one busy DAO cannot starve the others. */
+const MAX_SENDS_PER_DAO = 8
+/** A proposal left in Setup this long, its liquidity never out, is cancelled (the program's CANCEL_AFTER_SECONDS). */
+const CANCEL_AFTER = 24 * 60 * 60
 /** Pool fees are claimed at most this often per DAO. */
 const FEE_CLAIM_EVERY = 60 * 60
 /** The TWAP takes one observation a minute at most. */
@@ -98,39 +102,61 @@ export async function runFairKeeper({ config, keeperSecret, memory = new Map(), 
   const raises = []
   for (const r of await F.listRaises(connection)) if (await F.isStandardRaise(connection, config, r)) raises.push(r)
 
-  // The DAOs first, oldest first: their checkpoints expire if nobody refreshes them, and a
-  // flood of new raises must not starve them.
-  for (const r of [...raises].reverse()) {
-    if (budget <= 0) break
-    if (r.state !== 'succeeded') continue
-    const dao = await F.readDao(connection, r.baseMint, r.quoteMint)
-    if (dao) await tendDao({ connection, me, dao, now, step, memory, tag: r.baseMint.slice(0, 6) })
-  }
-
+  // Raises that ended first, a couple of DAOs opened per pass: a raise has a deadline, and
+  // one that misses it is refunded instead of becoming its DAO.
   let bootstraps = MAX_BOOTSTRAPS_PER_PASS
   for (const r of raises) {
     if (budget <= 0) break
     if (r.state !== 'live' || now < r.endsAt) continue
     const tag = r.baseMint.slice(0, 6)
-    // Met its goal in time: settling it *is* opening its DAO, in one instruction.
-    // Otherwise it failed, and settling it lets its backers take their coins back.
+    // Met its goal in time: settling it *is* opening its DAO, in one instruction, after its
+    // three associated accounts are opened on their own (4th audit M2). Otherwise it
+    // failed, and settling it lets its backers take their coins back.
     const opens = r.totalCommitted >= r.goal && now < r.endsAt + r.claimDelaySeconds
     if (opens && bootstraps-- <= 0) continue
+    if (opens && !(await step(`${tag} accounts for the DAO`, async () => F.bootstrapAccountIxs(r, me)))) continue
     await step(opens ? `${tag} open the DAO` : `${tag} settle as failed`, async () => [opens
       ? await F.bootstrapIx(connection, r, me, { terms: config.terms, governance: config.governance })
       : await F.settleIx(connection, r, me)])
+  }
+
+  // Then every DAO, a share each, starting one further along every pass: with a fixed
+  // order, the first DAOs took the whole budget and the last ones' checkpoints went stale
+  // (4th audit M6).
+  const daos = raises.filter((r) => r.state === 'succeeded')
+  const start = Number(await memory.get('cursor') ?? 0) % Math.max(1, daos.length)
+  await memory.set('cursor', String(start + 1))
+  for (const r of [...daos.slice(start), ...daos.slice(0, start)]) {
+    if (budget <= 0) break
+    const dao = await F.readDao(connection, r.baseMint, r.quoteMint).catch(() => null)
+    if (!dao) continue
+    let share = MAX_SENDS_PER_DAO
+    const daoStep = async (label, build) => (share-- > 0 ? step(label, build) : false)
+    await tendDao({ connection, me, dao, now, step: daoStep, memory, tag: r.baseMint.slice(0, 6) })
   }
   if (budget <= 0) log('pass stopped at its transaction budget; the rest waits for the next one')
 }
 
 async function tendDao({ connection, me, dao: d, now, step, memory, tag }) {
-  if (now - d.checkpoint.at >= CHECKPOINT_REFRESH) {
+  // Not while a proposal's markets hold the liquidity: the program refuses it then, and the
+  // winning market's TWAP sets the checkpoint when the liquidity comes home.
+  if (!d.activeProposal && now - d.checkpoint.at >= CHECKPOINT_REFRESH) {
     await step(`${tag} record price`, async () => [await F.recordPriceIx(connection, d)])
   }
 
   const proposals = await F.readProposals(connection, d, d.proposalCount)
   for (const p of proposals) {
     const ptag = `${tag} #${p.id}`
+    if (p.state === 'setup' && !p.marketsOpen) {
+      // Opened, its markets never created (the proposer's next transaction failed): anyone may.
+      await step(`${ptag} markets`, async () => [await F.marketsIx(connection, d, p.id, me)])
+      continue
+    }
+    if (p.state === 'setup' && !p.prepared && now >= p.openedAt + CANCEL_AFTER) {
+      // Left a day without its liquidity out: cancelled, its whole stake back to its creator.
+      await step(`${ptag} cancel`, async () => [await F.cancelProposalIx(connection, d, p.id, me, p.creator)])
+      continue
+    }
     if (p.state === 'setup' && p.prepared) {
       // Prepared and left: anyone may launch it, so the liquidity is never stranded.
       const { accountIxs, launch } = await F.launchIxs(connection, d, p.id, me)
@@ -168,7 +194,12 @@ async function tendDao({ connection, me, dao: d, now, step, memory, tag }) {
   const fresh = await F.readDao(connection, d.baseMint, d.quoteMint)
   if (!fresh.activeProposal) {
     const [b, q] = await Promise.all([tokenBalance(connection, d.liquidityBase), tokenBalance(connection, d.liquidityQuote)])
-    if (b > 1_000n && q > 1_000n) await step(`${tag} return liquidity`, async () => [await F.returnLiquidityIx(connection, d, me)])
+    // Only within the guard's band: right after a decision the checkpoint is the winning
+    // market's TWAP, and until the pool's price is near it the refresh above walks the
+    // checkpoint over, a step a minute; trying the return meanwhile would only fail.
+    if (b > 1_000n && q > 1_000n && await F.withinPriceBand(connection, fresh)) {
+      await step(`${tag} return liquidity`, async () => [await F.returnLiquidityIx(connection, d, me)])
+    }
   }
 
   const last = Number(await memory.get(`fees:${d.dao.toBase58()}`) ?? 0)

@@ -461,6 +461,189 @@
       ]
     },
     {
+      "name": "cancel_proposal",
+      "discriminator": [
+        106,
+        74,
+        128,
+        146,
+        19,
+        65,
+        39,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "signer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.moderator",
+                "account": "ProposalAccount"
+              },
+              {
+                "kind": "account",
+                "path": "proposal.id",
+                "account": "ProposalAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true
+        },
+        {
+          "name": "token_mint"
+        },
+        {
+          "name": "creator_token",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "creator"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "token_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "claim_pool_fees",
       "discriminator": [
         33,
@@ -549,7 +732,28 @@
         },
         {
           "name": "protocol",
-          "address": "jAhdFe6VNgggjtLxG7eMgsLwx21Sx3ZpgxG1P6qj1rg"
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  102,
+                  101,
+                  101,
+                  115
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "base_mint"
@@ -751,88 +955,28 @@
           "pda": {
             "seeds": [
               {
-                "kind": "account",
-                "path": "protocol"
-              },
-              {
                 "kind": "const",
                 "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
                   95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
+                  102,
+                  101,
+                  101,
+                  115
                 ]
               },
               {
                 "kind": "account",
                 "path": "base_mint"
               }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
+            ]
           }
         },
         {
@@ -841,88 +985,28 @@
           "pda": {
             "seeds": [
               {
-                "kind": "account",
-                "path": "protocol"
-              },
-              {
                 "kind": "const",
                 "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
                   95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
+                  102,
+                  101,
+                  101,
+                  115
                 ]
               },
               {
                 "kind": "account",
                 "path": "quote_mint"
               }
-            ],
-            "program": {
-              "kind": "const",
-              "value": [
-                140,
-                151,
-                37,
-                143,
-                78,
-                36,
-                137,
-                241,
-                187,
-                61,
-                16,
-                41,
-                20,
-                142,
-                13,
-                131,
-                11,
-                90,
-                19,
-                153,
-                218,
-                255,
-                16,
-                132,
-                4,
-                142,
-                123,
-                216,
-                219,
-                233,
-                248,
-                89
-              ]
-            }
+            ]
           }
         },
         {
@@ -965,6 +1049,90 @@
         {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "create_proposal_markets",
+      "discriminator": [
+        183,
+        22,
+        232,
+        31,
+        59,
+        108,
+        237,
+        24
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "proposal",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  112,
+                  111,
+                  115,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.moderator",
+                "account": "ProposalAccount"
+              },
+              {
+                "kind": "account",
+                "path": "proposal.id",
+                "account": "ProposalAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dao",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  100,
+                  97,
+                  111
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "proposal.base_mint",
+                "account": "ProposalAccount"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        },
+        {
+          "name": "amm_program",
+          "address": "8j3m29b1U422kh6pptzvbpAUfTRyqJ74ZCQZq9AJxvyZ"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         }
       ],
       "args": []
@@ -1025,6 +1193,7 @@
         },
         {
           "name": "dao",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -1250,6 +1419,7 @@
         },
         {
           "name": "dao",
+          "writable": true,
           "pda": {
             "seeds": [
               {
@@ -2952,6 +3122,93 @@
           "type": "pubkey"
         }
       ]
+    },
+    {
+      "name": "withdraw_protocol_fees",
+      "discriminator": [
+        11,
+        68,
+        165,
+        98,
+        18,
+        208,
+        134,
+        73
+      ],
+      "accounts": [
+        {
+          "name": "fee_authority",
+          "signer": true,
+          "address": "jAhdFe6VNgggjtLxG7eMgsLwx21Sx3ZpgxG1P6qj1rg"
+        },
+        {
+          "name": "mint"
+        },
+        {
+          "name": "protocol",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  102,
+                  101,
+                  101,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  116,
+                  111,
+                  99,
+                  111,
+                  108,
+                  95,
+                  102,
+                  101,
+                  101,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "mint"
+              }
+            ]
+          }
+        },
+        {
+          "name": "destination",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -3202,6 +3459,19 @@
         231,
         5,
         164
+      ]
+    },
+    {
+      "name": "ProposalCancelled",
+      "discriminator": [
+        253,
+        59,
+        104,
+        46,
+        129,
+        78,
+        9,
+        14
       ]
     },
     {
@@ -3513,21 +3783,41 @@
     },
     {
       "code": 6048,
+      "name": "MarketsNotOpen",
+      "msg": "This proposal's markets are not created yet"
+    },
+    {
+      "code": 6049,
+      "name": "MarketsAlreadyOpen",
+      "msg": "This proposal's markets are already created"
+    },
+    {
+      "code": 6050,
+      "name": "CancelTooEarly",
+      "msg": "Only its creator may cancel this proposal yet"
+    },
+    {
+      "code": 6051,
+      "name": "MarketsRunning",
+      "msg": "No price checkpoint while a proposal's markets hold the DAO's liquidity"
+    },
+    {
+      "code": 6052,
       "name": "LiquidityNotReturned",
       "msg": "The last proposal's liquidity must go back into the pool first"
     },
     {
-      "code": 6049,
+      "code": 6053,
       "name": "ActionOverLimit",
       "msg": "This action exceeds the DAO's limit for one proposal"
     },
     {
-      "code": 6050,
+      "code": 6054,
       "name": "ExecutionDelay",
       "msg": "The winning actions cannot run yet: the execution delay has not passed"
     },
     {
-      "code": 6051,
+      "code": 6055,
       "name": "ExecutionExpired",
       "msg": "The winning actions can no longer run: their window has closed"
     }
@@ -3821,6 +4111,24 @@
               "left in the pool while the rest sat outside it, and the position would melt away."
             ],
             "type": "bool"
+          },
+          {
+            "name": "limit_window_start",
+            "docs": [
+              "What winners have taken in the current LIMIT_WINDOW_SECONDS, in basis points of",
+              "what was there each time: of the treasury's holding for transfers, of the supply for",
+              "mints. The governance limits cap these sums, not each action, so ten proposals",
+              "cannot take ten times the limit (4th audit M1)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "transferred_bps",
+            "type": "u32"
+          },
+          {
+            "name": "minted_bps",
+            "type": "u32"
           }
         ]
       }
@@ -4935,10 +5243,38 @@
             "type": "i64"
           },
           {
+            "name": "markets_open",
+            "type": "bool"
+          },
+          {
+            "name": "opened_at",
+            "type": "i64"
+          },
+          {
             "name": "metadata",
             "type": {
               "option": "string"
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ProposalCancelled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "proposal",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake",
+            "type": "u64"
           }
         ]
       }
@@ -5103,6 +5439,9 @@
             "fields": [
               "u8"
             ]
+          },
+          {
+            "name": "Cancelled"
           }
         ]
       }
@@ -5386,6 +5725,15 @@
       "value": "[97, 99, 116, 105, 111, 110, 115]"
     },
     {
+      "name": "CANCEL_AFTER_SECONDS",
+      "docs": [
+        "A proposal left in Setup this long, its liquidity never taken out, may be cancelled by",
+        "anyone; its creator may cancel it any time before."
+      ],
+      "type": "i64",
+      "value": "86400"
+    },
+    {
       "name": "CHECKPOINT_INTERVAL",
       "type": "i64",
       "value": "60"
@@ -5421,6 +5769,14 @@
       ],
       "type": "u8",
       "value": "2"
+    },
+    {
+      "name": "LIMIT_WINDOW_SECONDS",
+      "docs": [
+        "The DAO's transfer and mint limits hold over this window, every winner in it together."
+      ],
+      "type": "i64",
+      "value": "2592000"
     },
     {
       "name": "LIQUIDITY_SEED",
@@ -5513,6 +5869,16 @@
       "name": "PROPOSAL_SEED",
       "type": "bytes",
       "value": "[112, 114, 111, 112, 111, 115, 97, 108]"
+    },
+    {
+      "name": "PROTOCOL_FEES_SEED",
+      "docs": [
+        "LFOwn's share of pool fees waits in token accounts of this program, one per mint, until",
+        "the fee wallet withdraws it: paid straight to the wallet's own accounts, the wallet",
+        "could break every DAO's claim by changing who owns them (4th audit M8)."
+      ],
+      "type": "bytes",
+      "value": "[112, 114, 111, 116, 111, 99, 111, 108, 95, 102, 101, 101, 115]"
     },
     {
       "name": "PROTOCOL_FEE_SHARE_BPS",

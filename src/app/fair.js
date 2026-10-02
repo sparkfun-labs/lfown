@@ -315,7 +315,8 @@ async function renderIndex() {
       creator: wallet.address, mint, quoteMint: quote.mint, usdPrice: quote.usdPrice,
       name, symbol, uri: '', terms: config.terms, governance: config.governance,
     })
-    await sendAll(built.transactions.map((t) => t.instructions), { extra: [[mint], [mint]], say })
+    // One transaction now: the raise creates its token itself, signed by the new mint.
+    await sendAll(built.transactions.map((t) => t.instructions), { extra: [[mint]], say })
     history.pushState(null, '', `/raise/${mint.publicKey.toBase58()}`)
   }, 'Raise open.')
 }
@@ -433,7 +434,11 @@ function wirePosition(raise, q) {
     await sendAll([[await F.commitIx(connection, raise, session.address, BigInt(amount))]], { say })
   }, 'Committed.')
   wire($('#p-settle'), status, async (say) => sendAll([[await F.settleIx(connection, raise, session.address)]], { say }), 'Settled.')
-  wire($('#p-bootstrap'), status, async (say) => sendAll([[await F.bootstrapIx(connection, raise, session.address, { terms: config.terms, governance: config.governance })]], { say }), 'The DAO is open.')
+  // Its three associated accounts first, on their own, then the DAO (4th audit M2).
+  wire($('#p-bootstrap'), status, async (say) => sendAll([
+    F.bootstrapAccountIxs(raise, session.address),
+    [await F.bootstrapIx(connection, raise, session.address, { terms: config.terms, governance: config.governance })],
+  ], { say }), 'The DAO is open.')
   wire($('#p-claim'), status, async (say) => sendAll([[await F.claimIx(connection, raise, session.address)]], { say }), 'Claimed.')
   wire($('#p-refund'), status, async (say) => sendAll([[await F.refundIx(connection, raise, session.address)]], { say }), 'Refunded.')
 }
@@ -448,6 +453,8 @@ function wirePosition(raise, q) {
 /** What the page remembers across its redraws: the tab, the side, the amount typed. */
 const ui = { tab: 'summary', outcome: 1, action: 'buy', amount: '' }
 const LABELS = ['Fail', 'Pass']
+/** A proposal whose markets never opened: still being set up, or withdrawn. */
+const notOpened = (x) => x.state === 'setup' || x.state === 'cancelled'
 /** A coin amount in dollars, at the coin's configured price. */
 const dollars = (coinPerToken, q) => {
   const v = coinPerToken * (q.usdPrice || 0)
@@ -567,11 +574,12 @@ function decisionRow(x, mint, q, symbol) {
   const lead = x.state === 'resolved' ? x.winner : twaps[1] > twaps[0] * (1 + x.marketBiasBps / 10_000) ? 1 : 0
   const state = x.state === 'resolved' ? `<span class="badge ${x.winner ? 'won' : ''}">${x.winner ? 'Passed' : 'Failed'}</span>`
     : x.state === 'pending' ? `<span class="pill"><b class="dot"></b>${live(ends)}</span>`
+    : x.state === 'cancelled' ? '<span class="badge">Cancelled</span>'
     : `<span class="badge">${x.prepared ? 'Opening' : 'Being written'}</span>`
   return `<a class="decision-row" href="/dao/${esc(mint)}/${x.id}">
     <div class="meta"><span class="tag">${esc(symbol)}-${String(x.id).padStart(3, '0')}</span>${state}</div>
     <div class="title">${esc(x.metadata || `Proposal ${x.id}`)}</div>
-    ${x.state === 'setup' ? '' : `<div class="meta"><span class="${lead === 1 ? 'pass' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="${lead === 0 ? 'fail' : ''}">Fail ${dollars(twaps[0], q)}</span></div>`}
+    ${notOpened(x) ? '' : `<div class="meta"><span class="${lead === 1 ? 'pass' : ''}">Pass ${dollars(twaps[1], q)}</span><span class="${lead === 0 ? 'fail' : ''}">Fail ${dollars(twaps[0], q)}</span></div>`}
   </a>`
 }
 
@@ -694,8 +702,8 @@ async function renderDecision(mint, id) {
     return
   }
   const [history, position, wallet, poolSpot] = await Promise.all([
-    x.state === 'setup' ? { points: [[], []], trades: [] } : historyOf(d, id),
-    session && x.state !== 'setup' ? F.readPosition(connection, d, id, session.address) : null,
+    notOpened(x) ? { points: [[], []], trades: [] } : historyOf(d, id),
+    session && !notOpened(x) ? F.readPosition(connection, d, id, session.address) : null,
     // What the visitor can spend: the coin to buy with, the token to sell.
     session ? Promise.all([tokenBalance(d.quoteMint, session.address), tokenBalance(d.baseMint, session.address)]).then(([coin, token]) => ({ coin, token })) : null,
     // The DAO pool's price now, the chart's dotted spot line.
@@ -711,6 +719,7 @@ async function renderDecision(mint, id) {
   document.title = `${x.metadata || tag} — LFOwn`
   const status = x.state === 'resolved' ? `<span class="badge ${x.winner ? 'won' : ''}">${x.winner ? 'Passed' : 'Failed'}</span>`
     : x.state === 'pending' ? `<span class="pill"><b class="dot"></b>${live(ends)}</span>`
+    : x.state === 'cancelled' ? '<span class="badge">Cancelled</span>'
     : `<span class="badge">${x.prepared ? 'Its markets open within a minute' : 'Being written'}</span>`
   const actions = x.actions[1] ?? []
   const executed = x.executed?.[1] ?? 0
@@ -749,9 +758,9 @@ async function renderDecision(mint, id) {
             <div class="meta head-meta"><span class="tag">${esc(tag)}</span>${status}</div>
             <h1 class="decision-title">${esc(x.metadata || `Proposal ${id}`)}</h1>
           </div>
-          ${x.state === 'setup' ? '' : twapBlock(x, q, twaps, history.trades)}
+          ${notOpened(x) ? '' : twapBlock(x, q, twaps, history.trades)}
         </div>
-        ${x.state === 'setup' ? setupNote(x)
+        ${notOpened(x) ? setupNote(x)
           : chart(history.points, q, { start: m[1]?.startedAt, end: ends, warmupEnd: counting, opening: m.map((k) => k?.starting), spots: m.map((k) => k?.spot), poolSpot })}
         ${x.state === 'pending' && nowS() < counting
           ? `<p class="hint warmup-note">Warmup: the TWAP starts counting in ${live(counting)}; the first ${minutes(x.warmupSeconds / 60)}, left of the dashed line, is not counted.</p>` : ''}
@@ -781,6 +790,8 @@ async function renderDecision(mint, id) {
     await sendAll([accountIxs, [launch]], { say })
   }, 'Launched: the markets are open.')
   wire($('#t-prepare'), $('#t-prepare-status'), async (say) => sendAll([[await F.prepareIx(connection, d, id, session.address)]], { say }), 'The liquidity is out.')
+  wire($('#t-markets'), $('#t-prepare-status'), async (say) => sendAll([[await F.marketsIx(connection, d, id, session.address)]], { say }), 'Its markets are created.')
+  wire($('#t-cancel'), $('#t-prepare-status'), async (say) => sendAll([[await F.cancelProposalIx(connection, d, id, session.address, x.creator)]], { say }), 'Withdrawn: the stake is back.')
   wireRedeem()
 }
 
@@ -790,14 +801,19 @@ async function renderDecision(mint, id) {
  * has yet to take the liquidity out, which fixes its options.
  */
 function setupNote(x) {
+  if (x.state === 'cancelled') return '<div class="empty"><p>Withdrawn before its liquidity came out of the pool; its stake went back to its creator.</p></div>'
   if (x.prepared) {
     return `<div class="empty"><p><b>The liquidity is out of the pool.</b> Its markets open as soon as someone launches them: LFOwn's
       keeper does within a minute, and anyone can, now.</p>
       <p><button class="btn" type="button" id="t-launch">Launch the markets now</button></p><p class="status" id="t-launch-status"></p></div>`
   }
   const mine = session && session.address === x.creator
-  return `<div class="empty"><p>Its creator has yet to take the liquidity out of the pool, which fixes its options; its markets open after that.</p>
-    ${mine ? '<p><button class="btn" type="button" id="t-prepare">Take the liquidity out</button></p><p class="status" id="t-prepare-status"></p>' : ''}</div>`
+  // Withdrawn by its creator any time, by anyone once left a day (4th audit M9).
+  const cancellable = session && (mine || nowS() >= x.openedAt + 24 * 60 * 60)
+  return `<div class="empty"><p>Its creator has yet to ${x.marketsOpen ? '' : 'create its markets and '}take the liquidity out of the pool, which fixes
+    its options; its markets open after that. If that never happens, it can be withdrawn and the stake goes back whole.</p>
+    <p>${mine && x.marketsOpen ? '<button class="btn" type="button" id="t-prepare">Take the liquidity out</button> ' : ''}${mine && !x.marketsOpen ? '<button class="btn" type="button" id="t-markets">Create its markets</button> ' : ''}${cancellable ? '<button class="btn ghost" type="button" id="t-cancel">Withdraw it, stake back</button>' : ''}</p>
+    <p class="status" id="t-prepare-status"></p></div>`
 }
 
 /**
@@ -815,6 +831,7 @@ function tradePanel(x, q, symbol, position, wallet) {
       <p class="hint">The ${LABELS[x.winner]} side redeems one for one into ${esc(q.symbol)} and ${esc(symbol)}; the other side is worth nothing now.
       Your position and the redeem button are under Position.</p></div>`
   }
+  if (x.state === 'cancelled') return `<div class="panel-box"><span class="lab">Withdrawn</span><p class="hint">No market opened.</p></div>`
   if (x.state !== 'pending') return `<div class="panel-box"><p class="hint">Trading opens with its markets.</p></div>`
   const m = x.markets
   const side = LABELS[ui.outcome]
@@ -907,13 +924,14 @@ function wirePropose(d, q) {
       ? { mintTo: { amount: units, recipient: to } }
       : { transfer: { mint: d.quoteMint, amount: units, recipient: to } }
     const id = d.proposalCount
-    // One approval, four transactions, each near Solana's size limit: the proposal and its
-    // markets; its option and the liquidity it takes out of the pool; the markets' token
-    // accounts; the markets opened with that liquidity. The keeper would launch them
-    // within a minute; the proposer does it now. Should the last ones fail, anyone can.
+    // One approval, five transactions, each kept well inside Solana's limits: the proposal
+    // and its stake; its two markets; its option and the liquidity it takes out of the
+    // pool; the markets' token accounts; the markets opened with that liquidity. Should one
+    // after the first fail, the page offers to finish it or withdraw it, stake back.
     const { accountIxs, launch } = await F.launchIxs(connection, d, id, wallet.address)
     await sendAll([
       await F.proposeIxs(connection, d, id, wallet.address, title),
+      [await F.marketsIx(connection, d, id, wallet.address)],
       [await F.setActionsIx(connection, d, id, wallet.address, 1, [action]), await F.prepareIx(connection, d, id, wallet.address)],
       accountIxs,
       [launch],

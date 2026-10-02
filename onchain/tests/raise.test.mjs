@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import { LiteSVM, Clock, FailedTransactionMetadata } from 'litesvm'
 import anchor from '@coral-xyz/anchor'
 import {
-  Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction,
+  Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction,
 } from '@solana/web3.js'
 import {
   ASSOCIATED_TOKEN_PROGRAM_ID, MINT_SIZE, TOKEN_PROGRAM_ID, AccountLayout, MintLayout,
@@ -31,6 +31,8 @@ const FUTARCHY_ID = new PublicKey(JSON.parse(readFileSync(new URL('../target/idl
 const futarchyPda = (...seeds) => PublicKey.findProgramAddressSync(seeds.map((x) => (typeof x === 'string' ? Buffer.from(x) : x.toBuffer())), FUTARCHY_ID)[0]
 const daoOf = (mint) => { const dao = futarchyPda('dao', mint); return { dao, treasury: futarchyPda('treasury', dao), operator: futarchyPda('liquidity', dao) } }
 const SO = new URL('../target/deploy/lfown_raise.so', import.meta.url).pathname
+const METADATA_PROGRAM = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
+const metadataOf = (mint) => PublicKey.findProgramAddressSync([Buffer.from('metadata'), METADATA_PROGRAM.toBuffer(), mint.toBuffer()], METADATA_PROGRAM)[0]
 
 // Building instructions needs no network; the connection is never called.
 const program = new anchor.Program(IDL, new anchor.AnchorProvider(new Connection('http://127.0.0.1:1'), new anchor.Wallet(Keypair.generate()), {}))
@@ -42,6 +44,7 @@ const SPEC = { goal: USDC(5_000), tokensForInvestors: TOKENS(10_000_000), tokens
 function world() {
   const svm = new LiteSVM()
   svm.addProgramFromFile(PROGRAM_ID, SO)
+  svm.addProgramFromFile(METADATA_PROGRAM, new URL('fixtures/mpl_token_metadata.so', import.meta.url).pathname)
   const payer = Keypair.generate()
   svm.airdrop(payer.publicKey, BigInt(100 * LAMPORTS_PER_SOL))
 
@@ -100,16 +103,18 @@ function world() {
 }
 
 /** A raise opened on fresh mints, with its addresses and one call per instruction. */
-function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintAuthority, recipients, mintSigns = true, freezableCoin = false } = {}) {
+function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, recipients, mintSigns = true, freezableCoin = false, premade } = {}) {
   const usdcMint = w.createMint(w.payer.publicKey, freezableCoin ? w.payer.publicKey : null)
   const baseMintKp = Keypair.generate()
   const [raise] = PublicKey.findProgramAddressSync([Buffer.from('raise'), baseMintKp.publicKey.toBuffer()], PROGRAM_ID)
-  // The mint is created with the raise as its authority, which is only possible because the
-  // raise's address is derived from the mint's.
-  w.must(w.send([
-    SystemProgram.createAccount({ fromPubkey: w.payer.publicKey, newAccountPubkey: baseMintKp.publicKey, lamports: Number(w.svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE))), space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
-    createInitializeMint2Instruction(baseMintKp.publicKey, 6, mintAuthority ?? raise, null),
-  ], [w.payer, baseMintKp]), 'create base mint')
+  // The raise creates its token itself. `premade`: an attacker's mint made beforehand at the
+  // same address, with whatever authorities they liked.
+  if (premade) {
+    w.must(w.send([
+      SystemProgram.createAccount({ fromPubkey: w.payer.publicKey, newAccountPubkey: baseMintKp.publicKey, lamports: Number(w.svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE))), space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
+      createInitializeMint2Instruction(baseMintKp.publicKey, 6, raise, w.payer.publicKey),
+    ], [w.payer, baseMintKp]), 'an attacker makes the mint first')
+  }
   const baseMint = baseMintKp.publicKey
   const { treasury, operator } = recipients ?? daoOf(baseMint)
 
@@ -117,11 +122,13 @@ function openRaise(w, { duration = 3600, claimDelay = 86_400, spec = SPEC, mintA
   const initIx = (over = {}) => program.instruction.initializeRaise({
     goal: bn(spec.goal), tokensForInvestors: bn(spec.tokensForInvestors), tokensForPool: bn(spec.tokensForPool),
     quoteToPool: bn(spec.quoteToPool), durationSeconds: bn(duration), claimDelaySeconds: bn(claimDelay),
-    daoCommitment: Array(32).fill(0), ...over,
+    daoCommitment: Array(32).fill(0), name: 'Fair Coin', symbol: 'FAIR', uri: 'https://letsfuckingown.fun/i/fair.json', ...over,
   }, { accounts: {
     baseMint, quoteMint: usdcMint, raise, baseVault: w.ata(baseMint, raise), quoteVault: w.ata(usdcMint, raise),
-    treasury, poolOperator: operator, authority: w.payer.publicKey,
+    treasury, poolOperator: operator, metadata: metadataOf(baseMint), updateAuthority: futarchyPda('mint_authority', daoOf(baseMint).dao),
+    authority: w.payer.publicKey,
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+    tokenMetadataProgram: METADATA_PROGRAM, rent: SYSVAR_RENT_PUBKEY,
   } })
   // The new mint signs its own raise: that is what keeps anyone else from opening one on it.
   const init = (over) => {
@@ -205,10 +212,9 @@ test('a raise that met its goal succeeds only through its DAO, and without one b
 
 test('only the new mint opens a raise on itself, and only for the DAO it derives', () => {
   const w = world()
-  // Between the site's two transactions the mint already belongs to the raise's address;
-  // without the mint's signature anyone could open the raise first, on their own terms.
+  // The raise creates the mint, which takes the mint keypair's signature.
   const r = openRaise(w, { mintSigns: false })
-  w.refused(r.init(), 'MintMustSign', 'opening a raise on a mint without its signature')
+  w.refused(r.init(), null, 'opening a raise on a mint without its signature')
   const intruder = Keypair.generate().publicKey
   const s = openRaise(w, { recipients: { treasury: intruder, operator: daoOf(PublicKey.default).operator } })
   w.refused(s.init(), 'NotTheDao', 'a raise paying someone other than its DAO')
@@ -227,18 +233,24 @@ test("a raise's terms are checked: the pool opens at the backers' price, and its
   w.must(openRaise(w).init(), 'the standard terms pass')
 })
 
-test('an escrow account opened ahead of time does not stop the raise', () => {
+test('the raise creates its token: no freeze authority ever, no account of it before the raise, metadata under the DAO', () => {
   const w = world()
+  // 4th audit H2: a mint made beforehand with a freeze authority could have the DAO's
+  // future accounts frozen, the authority revoked, and pass as clean. Now no mint may exist.
+  w.refused(openRaise(w, { premade: true }).init(), null, 'a raise on a mint someone made beforehand')
   const r = openRaise(w)
-  // Anyone can open an associated token account for any owner, the raise included.
-  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(w.payer.publicKey, w.ata(r.baseMint, r.raise), r.raise, r.baseMint)], [w.payer]), 'someone opens the raise’s escrow first')
-  w.must(r.init(), 'the raise still opens')
+  w.must(r.init(), 'the raise opens and creates its token')
+  const mint = MintLayout.decode(Buffer.from(w.svm.getAccount(r.baseMint).data))
+  assert.equal(mint.freezeAuthorityOption, 0, 'no freeze authority')
+  assert.equal(new PublicKey(mint.mintAuthority).toBase58(), r.raise.toBase58(), 'the raise mints it')
+  const meta = Buffer.from(w.svm.getAccount(metadataOf(r.baseMint)).data)
+  assert.equal(new PublicKey(meta.subarray(1, 33)).toBase58(), futarchyPda('mint_authority', daoOf(r.baseMint).dao).toBase58(), 'the DAO’s mint authority updates its metadata')
+  assert.ok(meta.includes(Buffer.from('Fair Coin')), 'named by the raise')
+  w.refused(openRaise(w).init({ name: 'x'.repeat(33) }), 'InvalidParams', 'a name longer than Metaplex allows')
 })
 
-test('a mint the raise does not control is refused', () => {
+test('a coin someone could freeze is refused', () => {
   const w = world()
-  const r = openRaise(w, { mintAuthority: Keypair.generate().publicKey })
-  w.refused(r.init(), 'InvalidMint', 'opening a raise on a mint someone else can still mint')
   // Nor a coin someone could freeze the raise's vault in.
   w.refused(openRaise(w, { freezableCoin: true }).init(), 'InvalidMint', 'a raise priced in a freezable coin')
 })

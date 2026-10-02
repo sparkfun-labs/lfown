@@ -133,6 +133,9 @@ pub struct PrepareProposalLiquidity<'info> {
         bump = proposal.bump,
         constraint = proposal.state == ProposalState::Setup @ FutarchyError::InvalidState,
         constraint = proposal.base_liquidity == 0 && proposal.quote_liquidity == 0 @ FutarchyError::LiquidityAlreadyPrepared,
+        // The markets the liquidity goes into must exist: taken out with nowhere to go, it
+        // would sit outside the pool until a launch that could never happen.
+        constraint = proposal.markets_open @ FutarchyError::MarketsNotOpen,
     )]
     pub proposal: Box<Account<'info, ProposalAccount>>,
 
@@ -372,8 +375,8 @@ pub struct ClaimPoolFees<'info> {
     /// CHECK: the DAO's treasury, checked by seeds.
     #[account(seeds = [TREASURY_SEED, dao.key().as_ref()], bump = dao.treasury_bump)]
     pub treasury: UncheckedAccount<'info>,
-    /// CHECK: LFOwn's fee wallet, fixed.
-    #[account(address = PROTOCOL_FEE_RECIPIENT)]
+    /// CHECK: the authority of LFOwn's fee escrows, a PDA that signs only their withdrawal.
+    #[account(seeds = [PROTOCOL_FEES_SEED], bump)]
     pub protocol: UncheckedAccount<'info>,
 
     #[account(address = dao.token_mint @ FutarchyError::InvalidMint)]
@@ -391,9 +394,9 @@ pub struct ClaimPoolFees<'info> {
     pub treasury_base: Box<Account<'info, TokenAccount>>,
     #[account(init_if_needed, payer = payer, associated_token::mint = quote_mint, associated_token::authority = treasury)]
     pub treasury_quote: Box<Account<'info, TokenAccount>>,
-    #[account(init_if_needed, payer = payer, associated_token::mint = base_mint, associated_token::authority = protocol)]
+    #[account(init_if_needed, payer = payer, seeds = [PROTOCOL_FEES_SEED, base_mint.key().as_ref()], bump, token::mint = base_mint, token::authority = protocol)]
     pub protocol_base: Box<Account<'info, TokenAccount>>,
-    #[account(init_if_needed, payer = payer, associated_token::mint = quote_mint, associated_token::authority = protocol)]
+    #[account(init_if_needed, payer = payer, seeds = [PROTOCOL_FEES_SEED, quote_mint.key().as_ref()], bump, token::mint = quote_mint, token::authority = protocol)]
     pub protocol_quote: Box<Account<'info, TokenAccount>>,
 
     /// CHECK: Meteora's pool authority, fixed.
@@ -485,4 +488,48 @@ pub fn claim_pool_fees_handler(ctx: Context<ClaimPoolFees>) -> Result<()> {
 
     emit!(PoolFeesClaimed { dao: dao_key, base_to_treasury, quote_to_treasury, base_to_protocol, quote_to_protocol });
     Ok(())
+}
+
+// ── withdraw_protocol_fees ──────────────────────────────────────────────────
+
+/// LFOwn's fee wallet takes what its escrow for `mint` holds, to an account of its choice.
+#[derive(Accounts)]
+pub struct WithdrawProtocolFees<'info> {
+    #[account(address = PROTOCOL_FEE_RECIPIENT @ FutarchyError::Unauthorized)]
+    pub fee_authority: Signer<'info>,
+
+    pub mint: Box<Account<'info, Mint>>,
+
+    /// CHECK: the escrows' authority, checked by seeds.
+    #[account(seeds = [PROTOCOL_FEES_SEED], bump)]
+    pub protocol: UncheckedAccount<'info>,
+
+    #[account(mut, seeds = [PROTOCOL_FEES_SEED, mint.key().as_ref()], bump, token::mint = mint, token::authority = protocol)]
+    pub escrow: Box<Account<'info, TokenAccount>>,
+
+    #[account(mut, token::mint = mint)]
+    pub destination: Box<Account<'info, TokenAccount>>,
+
+    pub token_program: Program<'info, Token>,
+}
+
+pub fn withdraw_protocol_fees_handler(ctx: Context<WithdrawProtocolFees>) -> Result<()> {
+    let amount = ctx.accounts.escrow.amount;
+    if amount == 0 {
+        return Ok(());
+    }
+    let bump = [ctx.bumps.protocol];
+    let seeds: &[&[u8]] = &[PROTOCOL_FEES_SEED, &bump];
+    token::transfer(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.escrow.to_account_info(),
+                to: ctx.accounts.destination.to_account_info(),
+                authority: ctx.accounts.protocol.to_account_info(),
+            },
+            &[seeds],
+        ),
+        amount,
+    )
 }

@@ -12,12 +12,12 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { LiteSVM, Clock, FailedTransactionMetadata } from 'litesvm'
 import anchor from '@coral-xyz/anchor'
 import {
-  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction,
+  ComputeBudgetProgram, Connection, Keypair, LAMPORTS_PER_SOL, PublicKey, SYSVAR_RENT_PUBKEY, SystemProgram, Transaction,
 } from '@solana/web3.js'
 import {
   ACCOUNT_SIZE, ASSOCIATED_TOKEN_PROGRAM_ID, AccountLayout, AuthorityType, MINT_SIZE, MintLayout, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
@@ -37,6 +37,7 @@ const amm = new anchor.Program(idl('amm'), provider)
 const vault = new anchor.Program(idl('vault'), provider)
 const damm = new anchor.Program(JSON.parse(readFileSync(here('../idls/cp_amm.json'), 'utf8')), provider)
 const raiseP = new anchor.Program(idl('lfown_raise'), provider)
+const METADATA_PROGRAM = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
 const FEE_AUTHORITY = new PublicKey(idl('amm').constants.find((c) => c.name === 'FEE_AUTHORITY').value)
 const DAMM_POOL_AUTHORITY = new PublicKey('HLnpSz9h2S4hiLQ43rnSD9XkcUThA7B8hQMKmDaiTLcC')
 const DAMM_EVENT_AUTHORITY = PublicKey.findProgramAddressSync([Buffer.from('__event_authority')], damm.programId)[0]
@@ -64,7 +65,7 @@ const liquidityFor = (a, b, p) => { const fromA = a * ((p * MAX_SQRT) / (MAX_SQR
 
 function world() {
   const svm = new LiteSVM()
-  for (const [p, file] of [[fut, '../target/deploy/futarchy.so'], [amm, '../target/deploy/amm.so'], [vault, '../target/deploy/vault.so'], [raiseP, '../target/deploy/lfown_raise.so'], [damm, 'fixtures/cp_amm.so']]) {
+  for (const [p, file] of [[fut, '../target/deploy/futarchy.so'], [amm, '../target/deploy/amm.so'], [vault, '../target/deploy/vault.so'], [raiseP, '../target/deploy/lfown_raise.so'], [damm, 'fixtures/cp_amm.so'], [{ programId: METADATA_PROGRAM }, 'fixtures/mpl_token_metadata.so']]) {
     svm.addProgramFromFile(p.programId, here(file).pathname)
   }
   const payer = Keypair.generate()
@@ -82,7 +83,8 @@ function world() {
       const logs = res.meta().logs()
       return { ok: false, code: logs.map((l) => /Error Code: (\w+)/.exec(l)?.[1]).find(Boolean), logs }
     }
-    return { ok: true, logs: res.logs() }
+    // The instruction trace: top-level instructions and every CPI. Solana caps it at 64.
+    return { ok: true, logs: res.logs(), trace: tx.instructions.length + res.innerInstructions().reduce((n, x) => n + x.length, 0) }
   }
   const must = (r, what) => { assert.ok(r.ok, `${what} failed: ${r.code ?? ''}\n${r.logs?.slice(-25).join('\n')}`); return r }
   const refused = (r, code, what) => {
@@ -237,10 +239,15 @@ const proposeIx = async (d, p, creator) => {
     .remainingAccounts([
       meta(d.baseMint, false), meta(d.quoteMint, false), meta(p.vault), meta(ata(d.baseMint, p.vault)), meta(ata(d.quoteMint, p.vault)),
       meta(o0.condBase), meta(o1.condBase), meta(o0.condQuote), meta(o1.condQuote),
-      meta(o0.pool), meta(o0.reserveA), meta(o0.reserveB), meta(FEE_AUTHORITY, false), meta(o0.feeVault),
-      meta(o1.pool), meta(o1.reserveA), meta(o1.reserveB), meta(o1.feeVault),
     ]).instruction()
 }
+/** The proposal's two markets, a step of their own (4th audit M3). */
+const marketsIx = async (d, p, payer) => fut.methods.createProposalMarkets()
+  .accountsStrict({ payer: payer.publicKey, proposal: p.proposal, dao: d.dao, systemProgram: SystemProgram.programId, ammProgram: amm.programId, tokenProgram: TOKEN_PROGRAM_ID })
+  .remainingAccounts([
+    ...p.options.flatMap((o) => [meta(o.condQuote), meta(o.condBase), meta(o.pool), meta(o.reserveA), meta(o.reserveB), meta(o.feeVault)]),
+    meta(FEE_AUTHORITY, false),
+  ]).instruction()
 
 /** Proposes as `creator` (the admin by default), who needs a DAO-token account for the stake. */
 async function tryPropose(w, d, id, creator = d.admin) {
@@ -249,7 +256,9 @@ async function tryPropose(w, d, id, creator = d.admin) {
     createAssociatedTokenAccountIdempotentInstruction(creator.publicKey, ata(d.baseMint, creator.publicKey), creator.publicKey, d.baseMint),
     await proposeIx(d, p, creator),
   ]
-  return { p, result: w.send(ixs, [creator]) }
+  const result = w.send(ixs, [creator])
+  // Then its markets, in a transaction of their own, as the site sends them.
+  return { p, result: result.ok ? w.send([await marketsIx(d, p, creator)], [creator]) : result, opened: result }
 }
 async function createProposal(w, d, id, creator = d.admin) {
   const { p, result } = await tryPropose(w, d, id, creator)
@@ -330,10 +339,10 @@ const returnLiquidity = async (d, caller) => fut.methods.returnLiquidity()
 
 const claimFees = async (d, caller) => fut.methods.claimPoolFees()
   .accountsStrict({
-    payer: caller.publicKey, dao: d.dao, liquidityAuthority: d.liquidityAuthority, treasury: d.treasury, protocol: FEE_AUTHORITY,
+    payer: caller.publicKey, dao: d.dao, liquidityAuthority: d.liquidityAuthority, treasury: d.treasury, protocol: pda(fut, ['protocol_fees']),
     baseMint: d.baseMint, quoteMint: d.quoteMint, liquidityBase: d.liquidityBase, liquidityQuote: d.liquidityQuote,
     treasuryBase: ata(d.baseMint, d.treasury), treasuryQuote: ata(d.quoteMint, d.treasury),
-    protocolBase: ata(d.baseMint, FEE_AUTHORITY), protocolQuote: ata(d.quoteMint, FEE_AUTHORITY),
+    protocolBase: pda(fut, ['protocol_fees', d.baseMint]), protocolQuote: pda(fut, ['protocol_fees', d.quoteMint]),
     poolAuthority: DAMM_POOL_AUTHORITY, ...dammAccounts(d),
     tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
   }).instruction()
@@ -483,6 +492,15 @@ test('the pool funds a proposal, the winner runs on-chain, the liquidity goes ho
   const homeBase = w.balance(d.liquidityBase)
   const homeQuote = w.balance(d.liquidityQuote)
   assert.ok(homeBase > 0n && homeQuote > 0n, 'the authority holds what came back')
+  // The liquidity goes back at the price the decision settled on: the winning market's TWAP
+  // (4th audit M4). Option 1's buyers bid it far above the pool, which nobody arbitraged
+  // here, so the return waits while the checkpoint walks from that TWAP to the pool's price.
+  const checkpoint = BigInt(w.decode(fut, 'daoAccount', d.dao).priceCheckpoint.toString())
+  const winning = w.decode(amm, 'poolAccount', p.options[1].pool).oracle
+  const twap = BigInt(winning.cumulativeObservations.toString()) / BigInt(Number(winning.lastUpdateUnixTime) - Number(winning.createdAtUnixTime) - Number(winning.warmupDuration))
+  assert.ok(Math.abs(Number(isqrt((twap << 128n) / 1_000_000_000_000n) - checkpoint)) / Number(checkpoint) < 1e-6, 'the checkpoint is the winning TWAP')
+  w.refused(w.send([await returnLiquidity(d, stranger)], [stranger]), 'PriceMovedTooFar', 'returning at a pool price far from what the market decided')
+  await followPrice(w, d)
   const beforeReturn = positionLiquidity(w, d)
   const poolPrice = BigInt(w.decode(damm, 'pool', d.pool).sqrtPrice.toString())
   w.must(w.send([await returnLiquidity(d, stranger)], [stranger]), 'a stranger returns it to the pool')
@@ -500,13 +518,31 @@ test('the pool funds a proposal, the winner runs on-chain, the liquidity goes ho
   w.fund(d.quoteMint, swapper.publicKey, 5_000n * UNIT)
   for (let i = 0; i < 3; i++) w.must(await dammSwap(w, d, swapper, 1_000n * UNIT), 'someone trades on the pool')
   const treasuryBefore = w.balance(ata(d.quoteMint, d.treasury))
-  const protocolBefore = w.balance(ata(d.quoteMint, FEE_AUTHORITY))
+  // LFOwn's half waits in an escrow of the program, not in the fee wallet's own account,
+  // which that wallet could re-own and break every claim with (4th audit M8).
+  const escrow = pda(fut, ['protocol_fees', d.quoteMint])
+  const protocolBefore = w.svm.getAccount(escrow) ? w.balance(escrow) : 0n
   w.must(w.send([await claimFees(d, stranger)], [stranger]), 'a stranger claims the pool fees')
   const toTreasury = w.balance(ata(d.quoteMint, d.treasury)) - treasuryBefore
-  const toProtocol = w.balance(ata(d.quoteMint, FEE_AUTHORITY)) - protocolBefore
+  const toProtocol = w.balance(escrow) - protocolBefore
   assert.ok(toProtocol > 0n, 'LFOwn was paid')
   assert.ok(toTreasury - toProtocol <= 1n && toTreasury >= toProtocol, `split 50/50: treasury ${toTreasury}, LFOwn ${toProtocol}`)
   assert.ok(toTreasury + toProtocol > 20n * UNIT, `roughly 1% of 3,000 traded, less Meteora's cut: ${toTreasury + toProtocol}`)
+  const withdrawIx = (signer, destination) => fut.methods.withdrawProtocolFees().accountsStrict({
+    feeAuthority: signer, mint: d.quoteMint, protocol: pda(fut, ['protocol_fees']), escrow, destination, tokenProgram: TOKEN_PROGRAM_ID,
+  }).instruction()
+  w.fund(d.quoteMint, stranger.publicKey, 1n)
+  const strangerIx = await withdrawIx(stranger.publicKey, ata(d.quoteMint, stranger.publicKey))
+  w.refused(w.send([strangerIx], [stranger]), 'Unauthorized', 'anyone but the fee wallet withdrawing it')
+  // The fee wallet's key is a local test key, kept out of git; with it, the withdrawal.
+  const keyFile = new URL('../.keys/fee-authority.json', import.meta.url)
+  if (existsSync(keyFile)) {
+    const feeKey = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(keyFile, 'utf8'))))
+    w.svm.airdrop(feeKey.publicKey, BigInt(LAMPORTS_PER_SOL))
+    w.fund(d.quoteMint, feeKey.publicKey, 1n)
+    w.must(w.send([await withdrawIx(feeKey.publicKey, ata(d.quoteMint, feeKey.publicKey))], [feeKey]), 'the fee wallet withdraws LFOwn’s half')
+    assert.equal(w.balance(escrow), 0n, 'the escrow is empty')
+  }
 
   // ── proposal 1, on the returned liquidity: nobody trades, the status quo wins ──
   // The swaps above moved the pool far past the checkpoint: nothing moves until a new
@@ -540,16 +576,18 @@ async function raiseFor(w, { name = 'fair', claimDelay = 86_400, gov = GOV, bps 
   const treasury = pda(fut, ['treasury', dao])
   const liquidityAuthority = pda(fut, ['liquidity', dao])
   const tokenPrograms = { tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }
+  // The raise creates the token itself (4th audit H2).
   w.must(w.send([
-    SystemProgram.createAccount({ fromPubkey: authority.publicKey, newAccountPubkey: baseMint, lamports: Number(w.svm.minimumBalanceForRentExemption(BigInt(MINT_SIZE))), space: MINT_SIZE, programId: TOKEN_PROGRAM_ID }),
-    createInitializeMint2Instruction(baseMint, 6, raise, null),
     await raiseP.methods.initializeRaise({
       goal: bn(1_000n * UNIT), tokensForInvestors: bn(10_000_000n * UNIT), tokensForPool: bn(8_000_000n * UNIT),
       quoteToPool: bn(800n * UNIT), durationSeconds: bn(60), claimDelaySeconds: bn(claimDelay),
-      daoCommitment: daoCommitment(name, bps, gov),
+      daoCommitment: daoCommitment(name, bps, gov), name: 'Fair Coin', symbol: 'FAIR', uri: '',
     }).accountsStrict({
       baseMint, quoteMint: coin, raise, baseVault: ata(baseMint, raise), quoteVault: ata(coin, raise),
-      treasury, poolOperator: liquidityAuthority, authority: authority.publicKey, ...tokenPrograms,
+      treasury, poolOperator: liquidityAuthority,
+      metadata: PublicKey.findProgramAddressSync([Buffer.from('metadata'), METADATA_PROGRAM.toBuffer(), baseMint.toBuffer()], METADATA_PROGRAM)[0],
+      updateAuthority: pda(fut, ['mint_authority', dao]), authority: authority.publicKey, ...tokenPrograms,
+      tokenMetadataProgram: METADATA_PROGRAM, rent: SYSVAR_RENT_PUBKEY,
     }).instruction(),
   ], [authority, baseKp]), 'open the raise')
 
@@ -1073,4 +1111,156 @@ test('re-audit M2: whoever wins every minute’s update drifts the checkpoint 5%
   // The pool's real price never moved: honest updates pull it back, as slowly.
   for (let minute = 0; minute < 100 && checkpoint() > 1.001; minute++) { w.warp(61); w.must(w.send([await d.record()], [w.payer]), 'an honest update') }
   assert.ok(checkpoint() < 1.001, `and it came back: ${checkpoint()}`)
+})
+
+// ── the fourth audit ────────────────────────────────────────────────────────
+
+const sellIx = async (o, who, amount) => amm.methods.swap(false, bn(amount), bn(0)).accountsStrict({
+  trader: who.publicKey, pool: o.pool, reserveA: o.reserveA, reserveB: o.reserveB, feeVault: o.feeVault,
+  traderAccountA: ata(o.condQuote, who.publicKey), traderAccountB: ata(o.condBase, who.publicKey), tokenProgram: TOKEN_PROGRAM_ID,
+}).instruction()
+
+test('4th audit H1: pump, crank once, dump and leave — the pumped observation counts one minute, not the rest of the market', async () => {
+  const w = world()
+  const d = await openDao(w, { name: 'leave', gov: LIVE_GOV })
+  const p = await createProposal(w, d, 0)
+  w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare')
+  w.must(await launch(w, d, p), 'launch')
+  const o1 = p.options[1]
+  const attacker = await splitter(w, d, p, 4_000n * UNIT)
+  w.must(w.send([createAssociatedTokenAccountIdempotentInstruction(attacker.publicKey, ata(o1.condBase, attacker.publicKey), attacker.publicKey, o1.condBase)], [attacker]), 'account')
+
+  w.warp(61)
+  w.must(w.send([await buyIx(o1, attacker, 2_000n * UNIT)], [attacker]), 'pump Pass')
+  w.warp(61)
+  w.must(w.send([await crankIx(o1)], [attacker]), 'crank on the pumped price: the observation steps up')
+  const bought = w.balance(ata(o1.condBase, attacker.publicKey))
+  w.must(w.send([await sellIx(o1, attacker, bought)], [attacker]), 'dump it back')
+  // Nobody cranks again: no keeper.
+  w.warp(LIVE_GOV.proposalLengthMinutes * 60)
+  w.must(await finalize(w, p), 'finalize')
+  assert.equal(winner(w, p), 0, 'the status quo wins: the gap is caught up toward the real price')
+})
+
+test('4th audit M2: funding the addresses bootstrap_dao will create does not push it past the trace limit', async () => {
+  const w = world()
+  const r = await raiseFor(w, { name: 'prefunded' })
+  const alice = w.person()
+  w.fund(r.coin, alice.publicKey, 2_000n * UNIT)
+  w.must(await r.commit(alice, 2_000n * UNIT), 'commit')
+  w.warp(61)
+  // Every address it creates is derivable from the mint: fund each with a rent-exempt
+  // empty account's worth, which turns its one creating CPI into three.
+  const d = r.d
+  const targets = [d.dao, d.moderator, d.pool, d.position, r.nftMint, d.positionNftAccount, d.tokenAVault, d.tokenBVault,
+    ata(r.coin, r.treasury), d.liquidityBase, d.liquidityQuote]
+  const rent = Number(w.svm.minimumBalanceForRentExemption(0n))
+  const griefer = w.person()
+  w.must(w.send(targets.map((t) => SystemProgram.transfer({ fromPubkey: griefer.publicKey, toPubkey: t, lamports: rent })), [griefer]), 'fund them all')
+  // Funded, bootstrap alone runs past the limit: its three associated accounts take a
+  // creating CPI each, inside the settlement. The site and the keeper open them first, in a
+  // transaction of their own — anyone can, on a funded address too.
+  w.refused(await r.bootstrap(w.payer), null, 'bootstrap alone, on funded addresses')
+  w.must(w.send([
+    createAssociatedTokenAccountIdempotentInstruction(griefer.publicKey, ata(r.coin, r.treasury), r.treasury, r.coin),
+    createAssociatedTokenAccountIdempotentInstruction(griefer.publicKey, d.liquidityQuote, r.liquidityAuthority, r.coin),
+    createAssociatedTokenAccountIdempotentInstruction(griefer.publicKey, d.liquidityBase, r.liquidityAuthority, r.baseMint),
+  ], [griefer]), 'open the three associated accounts first')
+  const res = w.must(await r.bootstrap(w.payer), 'then bootstrap_dao opens the DAO')
+  assert.ok(res.trace <= 56, `room to spare under 64: ${res.trace}`)
+})
+
+
+test('4th audit M3: funding the next proposal’s addresses does not stop it, split across two transactions', async () => {
+  const w = world()
+  const d = await openDao(w)
+  const p = proposalAddresses(d, 0)
+  // Every account the next proposal creates is derivable from its id.
+  const vaultAtas = [ata(d.baseMint, p.vault), ata(d.quoteMint, p.vault)]
+  const targets = [p.proposal, pda(fut, ['stake', p.proposal]), p.vault, ...vaultAtas,
+    ...p.options.flatMap((o) => [o.condBase, o.condQuote, o.pool, o.reserveA, o.reserveB, o.feeVault])]
+  const rent = Number(w.svm.minimumBalanceForRentExemption(0n))
+  const griefer = w.person()
+  w.must(w.send(targets.map((t) => SystemProgram.transfer({ fromPubkey: griefer.publicKey, toPubkey: t, lamports: rent })), [griefer]), `fund all ${targets.length}`)
+  const { result, opened } = await tryPropose(w, d, 0)
+  assert.ok(opened.ok && opened.trace <= 64, `the proposal opens: trace ${opened.trace}`)
+  w.must(result, 'and its markets are created')
+  assert.ok(result.trace <= 64, `markets: trace ${result.trace}`)
+})
+
+test('4th audit M9: a proposal whose liquidity never came out is cancelled, its stake back whole', async () => {
+  const w = world()
+  const STAKE = 100_000n * UNIT
+  const d = await openDao(w, { name: 'cancel', gov: { ...GOV, proposalStake: bn(STAKE) } })
+  const proposer = w.person()
+  const stranger = w.person()
+  give(w, d, proposer.publicKey, STAKE)
+  const p = await createProposal(w, d, 0, proposer)
+  assert.equal(w.balance(ata(d.baseMint, proposer.publicKey)), 0n, 'staked')
+  const cancelIx = async (signer) => fut.methods.cancelProposal().accountsStrict({
+    signer: signer.publicKey, proposal: p.proposal, stakeEscrow: pda(fut, ['stake', p.proposal]), creator: proposer.publicKey,
+    tokenMint: d.baseMint, creatorToken: ata(d.baseMint, proposer.publicKey),
+    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+  }).instruction()
+  w.refused(w.send([await cancelIx(stranger)], [stranger]), 'CancelTooEarly', 'a stranger cancelling a fresh proposal')
+  w.warp(24 * 60 * 60)
+  w.must(w.send([await cancelIx(stranger)], [stranger]), 'anyone, a day on')
+  assert.equal(w.balance(ata(d.baseMint, proposer.publicKey)), STAKE, 'the whole stake is back')
+  assert.ok(w.decode(fut, 'proposalAccount', p.proposal).state.cancelled !== undefined, 'cancelled')
+  // A prepared proposal is not cancelled: anyone launches it instead.
+  w.must(w.send([await d.record()], [w.payer]), 'a fresh checkpoint')
+  const q = await createProposal(w, d, 1, d.admin)
+  w.must(w.send([await prepare(d, q)], [d.admin]), 'prepare')
+  const cancelQ = await fut.methods.cancelProposal().accountsStrict({
+    signer: d.admin.publicKey, proposal: q.proposal, stakeEscrow: pda(fut, ['stake', q.proposal]), creator: d.admin.publicKey,
+    tokenMint: d.baseMint, creatorToken: ata(d.baseMint, d.admin.publicKey),
+    tokenProgram: TOKEN_PROGRAM_ID, associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId,
+  }).instruction()
+  w.refused(w.send([cancelQ], [d.admin]), 'LiquidityAlreadyPrepared', 'cancelling once the liquidity is out')
+})
+
+test('4th audit M4: no checkpoint walks the thin pool while a proposal holds the liquidity', async () => {
+  const w = world()
+  const d = await openDao(w)
+  const p = await createProposal(w, d, 0)
+  w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare: half the liquidity is out')
+  w.warp(61)
+  w.refused(w.send([await d.record()], [w.payer]), 'MarketsRunning', 'a checkpoint on the thin pool')
+  w.must(await launch(w, d, p), 'launch')
+  for (let i = 0; i < 5; i++) { w.warp(61); await crankAll(w, p) }
+  w.refused(w.send([await d.record()], [w.payer]), 'MarketsRunning', 'still, while the markets trade')
+  w.must(await finalize(w, p), 'finalize')
+  w.must(await redeem(w, d, p, winner(w, p), w.payer), 'redeem: the checkpoint is the winning TWAP')
+  w.warp(61)
+  w.must(w.send([await d.record()], [w.payer]), 'and walks again from there once the markets are done')
+})
+
+test('4th audit M1: the transfer limit holds across proposals, not per action', async () => {
+  const w = world()
+  const d = await openDao(w, { name: 'rolling', gov: { ...GOV, maxTransferBps: 2_000 } }) // 1,000 coins in the treasury
+  const grantee = Keypair.generate().publicKey
+  // Each winner is executed as soon as it is decided, inside its execution window.
+  const pass = async (id, amount, execute) => {
+    const p = await createProposal(w, d, id)
+    w.must(w.send([await setActions(d, p, 1, [{ transfer: { mint: d.quoteMint, amount: bn(amount), recipient: grantee } }])], [d.admin]), 'actions')
+    w.must(w.send([await prepare(d, p)], [d.admin]), 'prepare')
+    w.must(await launch(w, d, p), 'launch')
+    await backPass(w, d, p, 500n * UNIT)
+    for (let i = 0; i < 5; i++) { w.warp(61); await crankAll(w, p) }
+    w.must(await finalize(w, p), 'finalize')
+    assert.equal(winner(w, p), 1, 'passed')
+    await execute(p)
+    w.must(await redeem(w, d, p, 1, w.payer), 'redeem')
+    await followPrice(w, d)
+    w.must(w.send([await returnLiquidity(d, w.payer)], [w.payer]), 'return')
+    w.warp(61)
+    w.must(w.send([await d.record()], [w.payer]), 'checkpoint')
+    return p
+  }
+  const transfer = async (p) => w.send([await executeTransfer(w, d, p, 1, 0, { mint: d.quoteMint, recipient: grantee })], [w.payer])
+  let first, second
+  await pass(0, 150n * UNIT, async (p) => { first = await transfer(p) })
+  await pass(1, 100n * UNIT, async (p) => { second = await transfer(p) }) // 11.8% of what is left: under 20% on its own
+  w.must(first, '15% of the treasury')
+  w.refused(second, 'ActionOverLimit', 'past 20% in the window, together')
 })

@@ -8,6 +8,7 @@ use vault::program::Vault;
 use vault::VaultType;
 
 use crate::errors::FutarchyError;
+use crate::price_guard::sqrt_price_for;
 use crate::state::dao::*;
 use crate::state::moderator::*;
 use crate::state::proposal::*;
@@ -237,9 +238,26 @@ pub fn redeem_liquidity_handler<'info>(
         winning_idx,
     });
 
+    // The price the liquidity goes back into the pool at: the winning market's TWAP, over
+    // the whole decision, rather than a checkpoint walked along the thin pool the markets
+    // left behind (4th audit M4, M7). return_liquidity measures the pool against it.
+    let twap = {
+        let data = ctx.accounts.pool.try_borrow_data()?;
+        amm::state::PoolAccount::try_deserialize(&mut &data[..])?.oracle.fetch_twap()?
+    };
+    let dao = &mut ctx.accounts.dao;
+    if twap > 0 {
+        let now = Clock::get()?.unix_timestamp;
+        let sqrt_price = sqrt_price_for(twap);
+        dao.price_checkpoint = sqrt_price;
+        dao.price_checkpoint_at = now;
+        dao.price_anchor = sqrt_price;
+        dao.price_anchor_at = now;
+    }
+
     // The DAO's liquidity is home again, with its authority: ready to go back into the pool,
     // and it must, before another proposal takes a share out of what is left there.
-    ctx.accounts.dao.active_proposal = Pubkey::default();
-    ctx.accounts.dao.pending_return = true;
+    dao.active_proposal = Pubkey::default();
+    dao.pending_return = true;
     Ok(())
 }

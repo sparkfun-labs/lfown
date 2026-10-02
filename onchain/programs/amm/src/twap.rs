@@ -94,7 +94,18 @@ impl TwapOracle {
     /// out.
     pub fn start(&mut self, now: i64, reserves_a: u64, reserves_b: u64) {
         if reserves_b > 0 {
-            self.starting_observation = (reserves_a as u128).saturating_mul(PRICE_SCALE) / reserves_b as u128;
+            let opening = (reserves_a as u128).saturating_mul(PRICE_SCALE) / reserves_b as u128;
+            // The per-interval move was sized against the price the proposal was created at:
+            // keep it the same share of the price the market actually opens at.
+            if self.starting_observation > 0 && opening > 0 {
+                self.max_observation_delta = self
+                    .max_observation_delta
+                    .saturating_mul(opening)
+                    .checked_div(self.starting_observation)
+                    .unwrap_or(self.max_observation_delta)
+                    .max(1);
+            }
+            self.starting_observation = opening;
         }
         self.created_at_unix_time = now;
         self.last_update_unix_time = now;
@@ -134,27 +145,28 @@ impl TwapOracle {
 
         let prev_obs = self.last_observation;
         let delta = self.max_observation_delta;
+        let interval = self.min_recording_interval.max(1) as u128;
+        let last = self.last_update_unix_time;
+        let since_last: u128 = (now - last).try_into().map_err(|_| AmmError::MathOverflow)?;
 
-        // Clamp observation movement toward price
-        let new_obs = curr_price
-            .max(prev_obs.saturating_sub(delta))
-            .min(prev_obs.saturating_add(delta));
+        // LFOwn fork: the intervals nobody cranked are caught up. Across them the observation
+        // moves toward today's price by at most `delta` an interval, as if someone had cranked
+        // each one, and the TWAP is credited with that path. Upstream credited the whole gap
+        // at the last observation however old: pump, crank once, leave, and the pumped value
+        // counted until the market closed. A market's safety must not depend on a keeper.
+        let new_obs = observation_after(prev_obs, curr_price, delta, since_last / interval);
 
-        // Accumulate weighted observation after warmup
+        // Accumulate after warmup: the path's integral over the part of the gap past it.
         let warmup_end = self
             .created_at_unix_time
             .checked_add(self.warmup_duration as i64)
             .ok_or(AmmError::MathOverflow)?;
 
         if now > warmup_end {
-            let base_time = self.last_update_unix_time.max(warmup_end);
-
-            // Should never panic since now > warmup_end here
-            let elapsed: u128 = (now - base_time).try_into().unwrap();
-
-            self.cumulative_observations = self
-                .cumulative_observations
-                .wrapping_add(prev_obs.saturating_mul(elapsed));
+            let counted_from: u128 = (last.max(warmup_end) - last).try_into().map_err(|_| AmmError::MathOverflow)?;
+            let credited = path_integral(prev_obs, curr_price, delta, interval, since_last)
+                .saturating_sub(path_integral(prev_obs, curr_price, delta, interval, counted_from));
+            self.cumulative_observations = self.cumulative_observations.wrapping_add(credited);
         }
 
         // Commit state
@@ -211,9 +223,63 @@ impl TwapOracle {
     }
 }
 
+/// The observation `steps` intervals after one at `prev`, each moving toward `target` by
+/// `delta` at most.
+pub fn observation_after(prev: u128, target: u128, delta: u128, steps: u128) -> u128 {
+    let travel = delta.saturating_mul(steps);
+    if target >= prev {
+        prev.saturating_add(travel).min(target)
+    } else {
+        prev.saturating_sub(travel).max(target)
+    }
+}
+
+/// The integral, over its first `elapsed` seconds, of the observation path starting at
+/// `prev` and moving toward `target` by `delta` per `interval`: interval `j` holds
+/// `observation_after(prev, target, delta, j)`. In closed form, however long the gap.
+pub fn path_integral(prev: u128, target: u128, delta: u128, interval: u128, elapsed: u128) -> u128 {
+    let full = elapsed / interval;
+    let rest = elapsed % interval;
+    let gap = target.abs_diff(prev);
+    // Intervals spent moving before reaching the target; the rest sit on it.
+    let moving = if delta == 0 { full } else { full.min(gap.div_ceil(delta)) };
+    let ramp = delta.saturating_mul(moving.saturating_mul(moving.saturating_sub(1)) / 2);
+    let moving_sum = if target >= prev {
+        prev.saturating_mul(moving).saturating_add(ramp)
+    } else {
+        prev.saturating_mul(moving).saturating_sub(ramp)
+    };
+    let held = if delta == 0 { prev } else { target };
+    let sum = moving_sum.saturating_add(held.saturating_mul(full - moving));
+    sum.saturating_mul(interval)
+        .saturating_add(observation_after(prev, target, delta, full).saturating_mul(rest))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_gap_is_caught_up_toward_todays_price() {
+        // One interval: the old observation for the interval, a step toward the price after.
+        assert_eq!(path_integral(100, 200, 10, 60, 60), 100 * 60);
+        assert_eq!(observation_after(100, 200, 10, 1), 110);
+        // Ten quiet intervals: 100, 110, ... 190, then the price.
+        assert_eq!(path_integral(100, 200, 10, 60, 600), (100..200).step_by(10).sum::<u128>() * 60);
+        // A long gap: the walk reaches the price and holds there.
+        assert_eq!(path_integral(100, 200, 10, 60, 6000), (100..200).step_by(10).sum::<u128>() * 60 + 200 * 60 * 90);
+        // Downward, and a part interval at the end.
+        assert_eq!(path_integral(200, 100, 50, 60, 150), 200 * 60 + 150 * 60 + 100 * 30);
+    }
+
+    #[test]
+    fn a_pumped_observation_left_behind_counts_one_interval() {
+        // Left one step up at 105 while the price is back at 100: a day of silence credits
+        // the 105 for a single interval, not the day.
+        let day = 86_400u128;
+        let credited = path_integral(105, 100, 5, 60, day);
+        assert_eq!(credited, 105 * 60 + 100 * (day - 60));
+    }
 
     #[test]
     fn a_market_priced_at_zero_reads_a_twap_of_zero() {

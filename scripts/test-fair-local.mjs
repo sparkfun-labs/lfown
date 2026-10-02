@@ -67,8 +67,8 @@ const opened = await F.buildOpenRaise(connection, {
   creator: creator.publicKey, mint, quoteMint, usdPrice: coin.usdPrice,
   name: 'Fair Test', symbol: 'FAIR', uri: '', terms, governance: config.governance,
 })
-await send(opened.transactions[0].instructions, [creator, mint], 'token')
-await send(opened.transactions[1].instructions, [creator, mint], 'raise')
+// One transaction: the raise creates its token itself, signed by the new mint.
+await send(opened.transactions[0].instructions, [creator, mint], 'raise')
 const raise = await F.readRaise(connection, mint.publicKey)
 assert.equal(raise.state, 'live')
 assert.equal(raise.goal, F.goalInCoin(coin.usdPrice))
@@ -111,6 +111,7 @@ const d = await F.readDao(connection, mint.publicKey, quoteMint)
 // the page allows, which is what brushes the transaction size limit.
 const question = 'Pay alice 10 tMETA from the treasury, as a test'.padEnd(48, '.').slice(0, 48)
 await send(await F.proposeIxs(connection, d, 0, alice.publicKey, question), [alice], 'propose')
+await send([await F.marketsIx(connection, d, 0, alice.publicKey)], [alice], 'markets')
 await send([
   await F.setActionsIx(connection, d, 0, alice.publicKey, 1, [{ transfer: { mint: quoteMint, amount: 10n * F.UNIT, recipient: alice.publicKey } }]),
   await F.prepareIx(connection, d, 0, alice.publicKey),

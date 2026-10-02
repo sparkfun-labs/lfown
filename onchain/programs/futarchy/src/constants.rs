@@ -32,6 +32,11 @@ pub const PROTOCOL_FEE_RECIPIENT: Pubkey = amm::FEE_AUTHORITY;
 /// to the DAO's treasury.
 #[constant]
 pub const PROTOCOL_FEE_SHARE_BPS: u16 = 5_000;
+/// LFOwn's share of pool fees waits in token accounts of this program, one per mint, until
+/// the fee wallet withdraws it: paid straight to the wallet's own accounts, the wallet
+/// could break every DAO's claim by changing who owns them (4th audit M8).
+#[constant]
+pub const PROTOCOL_FEES_SEED: &[u8] = b"protocol_fees";
 
 /// The most of a position's liquidity one proposal may take into its markets. Never all
 /// of it: the pool keeps trading while a proposal runs.
@@ -71,6 +76,13 @@ pub const CHECKPOINT_INTERVAL: i64 = 60;
 pub const MAX_CHECKPOINT_STEP_BPS: u16 = 100;
 #[constant]
 pub const MAX_PRICE_MOVE_BPS: u16 = 500;
+/// A proposal left in Setup this long, its liquidity never taken out, may be cancelled by
+/// anyone; its creator may cancel it any time before.
+#[constant]
+pub const CANCEL_AFTER_SECONDS: i64 = 24 * 60 * 60;
+/// The DAO's transfer and mint limits hold over this window, every winner in it together.
+#[constant]
+pub const LIMIT_WINDOW_SECONDS: i64 = 30 * 24 * 60 * 60;
 #[constant]
 pub const CHECKPOINT_WINDOW: i64 = 30 * 60;
 #[constant]

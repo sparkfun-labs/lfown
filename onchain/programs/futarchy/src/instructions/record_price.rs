@@ -22,7 +22,15 @@ pub struct PriceRecorded {
 
 #[derive(Accounts)]
 pub struct RecordPrice<'info> {
-    #[account(mut, seeds = [DAO_SEED, dao.token_mint.as_ref()], bump = dao.bump)]
+    // Not while a proposal's markets hold half the liquidity: the pool left behind is thin,
+    // and a checkpoint walked along it would set the price the liquidity comes back at. The
+    // markets' own TWAP sets that instead (`redeem_liquidity`).
+    #[account(
+        mut,
+        seeds = [DAO_SEED, dao.token_mint.as_ref()],
+        bump = dao.bump,
+        constraint = dao.active_proposal == Pubkey::default() @ FutarchyError::MarketsRunning,
+    )]
     pub dao: Box<Account<'info, DAOAccount>>,
 
     #[account(address = dao.pool @ FutarchyError::InvalidPool)]

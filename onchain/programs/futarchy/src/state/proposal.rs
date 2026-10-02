@@ -16,6 +16,8 @@ pub enum ProposalState {
     Setup,        // Options being added
     Pending,      // Betting active
     Resolved(u8), // Index of the winning option
+    // LFOwn fork: withdrawn before its liquidity was taken out; its stake went back whole.
+    Cancelled,
 }
 
 #[derive(InitSpace, AnchorSerialize, AnchorDeserialize, Clone, Copy)]
@@ -79,6 +81,13 @@ pub struct ProposalAccount {
     // LFOwn fork: when the market decided. The winner's actions run from
     // `resolved_at + execution_delay_seconds`, for `execution_window_seconds`.
     pub resolved_at: i64,
+    // LFOwn fork: the markets are created in a step of their own (`create_proposal_markets`):
+    // with them, opening a proposal created too many accounts for one transaction once
+    // anyone had sent a few lamports to their addresses ahead of time.
+    pub markets_open: bool,
+    // LFOwn fork: when the proposal was opened; past CANCEL_AFTER_SECONDS in Setup without
+    // its liquidity out, anyone may cancel it and send its stake home.
+    pub opened_at: i64,
 
     #[max_len(64)] // Should cover v0 & most of v1
     pub metadata: Option<String>, // IPFS CID

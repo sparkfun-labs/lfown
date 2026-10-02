@@ -293,6 +293,9 @@ pub fn bootstrap_dao_handler(
         price_anchor: sqrt_price,
         price_anchor_at: Clock::get()?.unix_timestamp,
         pending_return: false,
+        limit_window_start: 0,
+        transferred_bps: 0,
+        minted_bps: 0,
     });
 
     emit!(DAOBootstrapped {

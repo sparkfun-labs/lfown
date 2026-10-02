@@ -67,11 +67,23 @@ pub mod futarchy {
         instructions::liquidity::claim_pool_fees_handler(ctx)
     }
 
+    pub fn withdraw_protocol_fees(ctx: Context<WithdrawProtocolFees>) -> Result<()> {
+        instructions::liquidity::withdraw_protocol_fees_handler(ctx)
+    }
+
     pub fn initialize_proposal<'info>(
         ctx: Context<'_, '_, 'info, 'info, InitializeProposal<'info>>,
         metadata: Option<String>,
     ) -> Result<u16> {
         instructions::initialize_proposal::initialize_proposal_handler(ctx, metadata)
+    }
+
+    pub fn create_proposal_markets<'info>(ctx: Context<'_, '_, 'info, 'info, CreateProposalMarkets<'info>>) -> Result<()> {
+        instructions::create_markets::create_proposal_markets_handler(ctx)
+    }
+
+    pub fn cancel_proposal(ctx: Context<CancelProposal>) -> Result<()> {
+        instructions::cancel_proposal::cancel_proposal_handler(ctx)
     }
 
     pub fn add_option<'info>(ctx: Context<'_, '_, 'info, 'info, AddOption<'info>>) -> Result<()> {
