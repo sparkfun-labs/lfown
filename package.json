@@ -20,9 +20,13 @@
     "@meteora-ag/cp-amm-sdk": "^1.4.8",
     "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.11",
     "@meteora-ag/dynamic-fee-sharing-sdk": "^1.1.0",
+    "@noble/curves": "^1.9.7",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4",
     "bn.js": "^5.2.5",
-    "buffer": "^6.0.3"
+    "buffer": "^6.0.3",
+    "satori": "^0.15.2",
+    "yoga-wasm-web": "^0.3.3"
   }
 }

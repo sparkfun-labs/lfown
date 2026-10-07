@@ -899,14 +899,10 @@ async function coinCard(env, mint, origin) {
   const coin = (cached?.launches ?? []).find((l) => l.baseMint === mint)
   if (!coin) return null
 
-  let image = null
-  if (coin.uri) {
-    try {
-      image = cardImage((await launchMetadata(env, coin.uri))?.image)
-    } catch (e) {
-      console.error(`card for ${mint}: metadata unreadable: ${e.message}`)
-    }
-  }
+  // The picture is drawn for the coin: its artwork, ticker and market cap (src/og.mjs).
+  // Ten-minute buckets in the address, so a platform that keeps an image per url still
+  // picks up a fresh market cap on a later share.
+  const image = `${origin}/og/coins/${mint}.png?t=${Math.floor(Date.now() / 600_000)}`
 
   const symbol = oneLine(coin.symbol || '?', 24)
   const name = oneLine(coin.name || symbol, 60)
@@ -922,6 +918,38 @@ async function coinCard(env, mint, origin) {
     description: `${name} is a memecoin on LFOwn, paired with ${quote}, ${backedBy(coin.quoteMint)}. ${progress}`,
     url: `${origin}/coins/${mint}`,
     image,
+    sized: true, // 1200×630, as drawn
+  }
+}
+
+/**
+ * What a coin's share card shows: its launches entry, artwork and market cap, at the last
+ * trade's price from the cached chart and the supply read from chain.
+ */
+async function shareCardInput(env, mint) {
+  const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
+  const coin = (cached?.launches ?? []).find((l) => l.baseMint === mint)
+  if (!coin) return null
+  const supplyOf = async () => {
+    const res = await fetch(env.HELIUS_RPC, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getTokenSupply', params: [mint] }),
+    })
+    return Number((await res.json())?.result?.value?.uiAmount ?? 0)
+  }
+  const [artwork, chart, supply, logo] = await Promise.all([
+    coinArtwork(env, coin).then((u) => imageBytes(env, u)),
+    chartFor(env, mint).catch(() => ({ points: [] })),
+    supplyOf().catch(() => 0),
+    env.ASSETS.fetch(new Request('https://assets.local/assets/logo-mark.png')).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null),
+  ])
+  const last = chart.points?.length ? chart.points[chart.points.length - 1].price : 0
+  const usd = Number(coin.quoteUsdPrice ?? 0)
+  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
+  return {
+    coin, artwork, logo,
+    marketCap: last && usd && supply ? last * usd * supply : null,
+    bonded: coin.threshold ? Math.min(100, (raised / coin.threshold) * 100) : 0,
   }
 }
 
@@ -1019,7 +1047,7 @@ function rewriteCard(page, card) {
         // its creator uploaded, and stating a size we have not measured is worse
         // than stating none.
         if (key === 'og:image:width' || key === 'og:image:height') {
-          if (card.image) el.remove()
+          if (card.image && !card.sized) el.remove()
           return
         }
         const value = CARD_TAGS[key]?.(card)
@@ -1998,6 +2026,12 @@ export default {
     }
 
     if (url.pathname.startsWith('/api/')) return handleApi(url, request, env, ctx)
+
+    // A coin's share card, drawn on demand (src/og.mjs).
+    if (url.pathname.startsWith('/og/coins/')) {
+      const { handleOg } = await import('./og.mjs')
+      return handleOg(url, request, env, ctx, (mint) => shareCardInput(env, mint))
+    }
 
     // Uploaded token images.
     if (url.pathname.startsWith('/i/') && env.IMAGES) {
