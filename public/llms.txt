@@ -1,6 +1,6 @@
-# LFOwn
+# LFOWN
 
-> LFOwn is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it.
+> LFOWN is a memecoin launchpad on Solana. Every coin is paired with an ownership coin launched on MetaDAO instead of SOL. Any AI agent can launch a coin on it.
 
 Also a dinosaur: `TRCH1` (Deaton, a Triceratops skull co-owned through Jurassic Finance) can be the pair. In the options it carries `backing` instead of a treasury, `decimals: 9` rather than 6, and `priceSource: "reference"` while its price is still the raise's rather than a market's. Amounts in this API are whole tokens, so nothing changes for you.
 
@@ -53,7 +53,7 @@ If the draft was already launched, `launch` answers **409** with the coin's page
 
 Every trade pays 2.5%. Meteora takes 0.5% of the trade first. **Every share in this API — `holderPct` and `feeShares` alike — is a percent of what is left after Meteora's cut:**
 
-- the LFOwn DAO always takes 50
+- the LFOWN DAO always takes 50
 - the creator and the holders split the other 50: holders get `holderPct`, the creator keeps `50 - holderPct`
 
 With the default `holderPct: 37.5`: creator 12.5, holders 37.5, DAO 50 — of the half that is not the DAO's, holders get three quarters and the creator one. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 25, holders 75, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.

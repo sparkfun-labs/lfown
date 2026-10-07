@@ -217,7 +217,7 @@ function wireShare(coin) {
   btn.addEventListener('click', async () => {
     // The native sheet only where it is the whole answer: touch devices.
     if (navigator.share && matchMedia('(pointer: coarse)').matches) {
-      try { await navigator.share({ title: `$${coin.symbol} on LFOwn`, text, url }); return } catch { /* dismissed: nothing to do */ return }
+      try { await navigator.share({ title: `$${coin.symbol} on LFOWN`, text, url }); return } catch { /* dismissed: nothing to do */ return }
     }
     open(menu.hidden)
   })
@@ -483,7 +483,7 @@ async function paintTotals() {
     <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(lfownUsd))}</span></div>
     <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(creatorUsd)}</span></div>
     ${holdersUsd ? `<div class="tot"><span class="lab">To holders</span><span class="big">${money.show(holdersUsd)}</span></div>` : ''}
-    <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOwn DAO ↗</span><span class="big">${money.show(lfownUsd)}</span></a>`
+    <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOWN DAO ↗</span><span class="big">${money.show(lfownUsd)}</span></a>`
 
   // The report lands after the cards are drawn, so fill in the lines it feeds.
   for (const [mint, earned] of feesByMint) {
@@ -623,7 +623,7 @@ async function renderCoin(mint) {
             <div class="m-only"><dt>Volume 24h</dt><dd id="f-vol">—</dd></div>
             <div class="m-only"><dt>${state.isMigrated ? 'Pool' : 'Liquidity'}</dt><dd id="f-liq">${state.isMigrated ? 'DAMM v2' : '—'}</dd></div>
             <div><dt>Paired with</dt><dd><a href="/launch?quote=${encodeURIComponent(coin.quoteSymbol)}">${esc(coin.quoteSymbol)}</a></dd></div>
-            <div><dt>Launchpad</dt><dd>LFOwn · Meteora DBC</dd></div>
+            <div><dt>Launchpad</dt><dd>LFOWN · Meteora DBC</dd></div>
             <div><dt>Status</dt><dd>${state.isMigrated ? 'Graduated to DAMM v2' : 'On the curve'}</dd></div>
             <div><dt>Supply</dt><dd id="f-supply">—</dd></div>
             <div><dt>Creator</dt><dd><a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a></dd></div>
@@ -1428,7 +1428,7 @@ function paintFees(coin, state, api) {
            <div><dt>Total</dt><dd>${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(report.lfownUsd))}</dd></div>
            <div><dt>To the creator</dt><dd>${money.show(creatorUsd)}</dd></div>
            ${holdersUsd ? `<div><dt>To holders</dt><dd>${money.show(holdersUsd)}</dd></div>` : ''}
-           <div><dt>To the LFOwn DAO</dt><dd>${money.show(report.lfownUsd)}</dd></div>
+           <div><dt>To the LFOWN DAO</dt><dd>${money.show(report.lfownUsd)}</dd></div>
          </dl>`
         })()
       : ''

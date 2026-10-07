@@ -88,7 +88,7 @@ export function pumpMessage(coin, change, launchUrl) {
   const symbol = esc(coin.symbol || '?')
   return `📈 <b>${symbol} +${Math.round(change)}%</b> today\n` +
     `Launch a meme against ${symbol} — every trade on it pays its creator.\n\n` +
-    `<a href="${esc(launchUrl)}">Launch on LFOwn ↗</a>`
+    `<a href="${esc(launchUrl)}">Launch on LFOWN ↗</a>`
 }
 
 /** A curve has filled and its liquidity has moved to Meteora. */

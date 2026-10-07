@@ -159,7 +159,7 @@ export async function agentOptions(env, { readCatalogue }) {
       default: DEFAULT_HOLDER_PCT,
       max: HOLDER_MAX_PCT,
       unit: SHARE_UNIT,
-      note: `The LFOwn DAO always takes 50. The creator splits the other 50 with holders: holderPct is the holders' part (0-${HOLDER_MAX_PCT}), the creator keeps the rest. Paid hourly, pro rata, in the ownership coin. Fixed at launch.`,
+      note: `The LFOWN DAO always takes 50. The creator splits the other 50 with holders: holderPct is the holders' part (0-${HOLDER_MAX_PCT}), the creator keeps the rest. Paid hourly, pro rata, in the ownership coin. Fixed at launch.`,
       example: feeShares(DEFAULT_HOLDER_PCT),
     },
     limits: LIMITS,
@@ -597,7 +597,7 @@ const LAUNCH_PROPERTIES = {
 const OPENAPI = (origin) => ({
   openapi: '3.1.0',
   info: {
-    title: 'LFOwn agent API',
+    title: 'LFOWN agent API',
     version: '1.1.0',
     description: `Launch a memecoin paired with a MetaDAO ownership coin on Solana. Nothing is signed for the creator: with a creator wallet you get transactions to sign, without one you get a link for a person to sign. Every fee share is a ${SHARE_UNIT}. MCP clients should use ${origin}/mcp instead; it exposes the same operations as tools.`,
   },
@@ -663,7 +663,7 @@ export async function handleAgent(url, request, env, ctx, deps) {
   try {
     if (path === '/api/agent' && request.method === 'GET') {
       return reply({
-        name: 'LFOwn agent API',
+        name: 'LFOWN agent API',
         about: 'Launch a memecoin paired with a MetaDAO ownership coin on Solana.',
         guide: `${origin}/llms.txt`,
         openapi: `${origin}/api/agent/openapi.json`,

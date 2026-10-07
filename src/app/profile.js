@@ -273,7 +273,7 @@ async function render() {
     <div class="mine">${data.rows.map(row).join('')}</div>
 
     <p class="foot-note">Fees generated is your half of every trade your coins have taken, claimed and
-      unclaimed, on the curve and in the graduated pool. The LFOwn DAO's half is published beside it on
+      unclaimed, on the curve and in the graduated pool. The LFOWN DAO's half is published beside it on
       the <a href="/leaderboard">leaderboard</a>.</p>`)
 
   for (const r of data.rows) {

@@ -574,7 +574,7 @@ async function handleApi(url, request, env, ctx) {
     if (hit) return hit
 
     const result = await crankOne(env, mint)
-    const keep = { 'no pool for that mint': 60, 'not a pool LFOwn opened': MISS_TTL }[result.reason]
+    const keep = { 'no pool for that mint': 60, 'not a pool LFOWN opened': MISS_TTL }[result.reason]
     if (keep) ctx.waitUntil(cache.put(cacheKey, json(result, { headers: { 'cache-control': `public, max-age=${keep}` } })))
     return json(result)
   }
@@ -914,8 +914,8 @@ async function coinCard(env, mint, origin) {
     : `${raised.toLocaleString('en-US', { maximumFractionDigits: 0 })} of ${Number(coin.threshold).toLocaleString('en-US')} ${quote} raised — ${pct.toFixed(1)}% of the way to graduation.`
 
   return {
-    title: `${symbol} — paired with ${quote} · LFOwn`,
-    description: `${name} is a memecoin on LFOwn, paired with ${quote}, ${backedBy(coin.quoteMint)}. ${progress}`,
+    title: `${symbol} — paired with ${quote} · LFOWN`,
+    description: `${name} is a memecoin on LFOWN, paired with ${quote}, ${backedBy(coin.quoteMint)}. ${progress}`,
     url: `${origin}/coins/${mint}`,
     image,
     sized: true, // 1200×630, as drawn
@@ -994,8 +994,8 @@ async function creatorCard(env, wallet, origin) {
   const grad = graduated ? `, ${graduated} graduated` : ''
 
   return {
-    title: `${wallet.slice(0, 4)}…${wallet.slice(-4)} — ${coins} on LFOwn`,
-    description: `This wallet has launched ${coins} on LFOwn${grad}. Together they have taken ${money} in trading fees, split between the creator and the LFOwn DAO.`,
+    title: `${wallet.slice(0, 4)}…${wallet.slice(-4)} — ${coins} on LFOWN`,
+    description: `This wallet has launched ${coins} on LFOWN${grad}. Together they have taken ${money} in trading fees, split between the creator and the LFOWN DAO.`,
     url: `${origin}/creator/${wallet}`,
     image,
   }
@@ -1372,7 +1372,7 @@ async function chartFor(env, mint) {
       const wrapper = await client.state.getPoolByBaseMint(new PublicKey(mint)).catch(() => null)
       if (!wrapper) return denyChart(env, mint, 'no pool for this mint')
       const ours = new Set((await ourConfigs(env)).map((c) => c.config))
-      if (!ours.has(wrapper.account.poolState.config.toBase58())) return denyChart(env, mint, 'not a pool LFOwn opened')
+      if (!ours.has(wrapper.account.poolState.config.toBase58())) return denyChart(env, mint, 'not a pool LFOWN opened')
       pool = wrapper.publicKey.toBase58()
       state = wrapper.account.poolState
       quoteMint = (await client.state.getPoolConfig(state.config)).quoteMint.toBase58()
@@ -1540,7 +1540,7 @@ async function sponsorLaunch(env, encoded) {
     // Logged: a refusal is either an attack or a wallet doing something new, and the
     // second is only fixed by someone reading why.
     console.log(`sponsored launch refused: ${e.message}`)
-    throw new HttpError(400, `This launch cannot be paid for by LFOwn: ${e.message}`)
+    throw new HttpError(400, `This launch cannot be paid for by LFOWN: ${e.message}`)
   }
 
   const dayKey = sponsorDayKey(launch.creator)
@@ -1611,7 +1611,7 @@ async function crankOne(env, mint) {
   if (pool.isMigrated) return { ok: false, reason: 'already migrated' }
 
   const cfg = (await ourConfigs(env)).find((c) => c.config === pool.config.toBase58())
-  if (!cfg) return { ok: false, reason: 'not a pool LFOwn opened' }
+  if (!cfg) return { ok: false, reason: 'not a pool LFOWN opened' }
 
   // A coin the cached list has never heard of cannot be followed by the watch, and a
   // coin launched a minute ago is exactly that. It is added to the list here, now

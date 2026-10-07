@@ -95,7 +95,7 @@ export async function renderCard({ coin, artwork, marketCap, logo }) {
       // The artwork, framed as the site frames a card: ink border, red block shadow.
       h('div', { display: 'flex', width: 412, height: 412, flexShrink: 0, border: `6px solid ${C.ink}`, boxShadow: `14px 14px 0 ${C.red}`, background: C.card }, art),
       h('div', { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, paddingTop: 4 },
-        label(quote ? `Paired with ${quote}` : 'On LFOwn', C.red),
+        label(quote ? `Paired with ${quote}` : 'On LFOWN', C.red),
         h('div', { fontFamily: 'Bricolage', fontSize: tickerSize, lineHeight: 1, letterSpacing: -4, marginTop: 14 }, `$${symbol}`),
         name && name.toUpperCase() !== symbol ? h('div', { fontSize: 22, color: C.soft, marginTop: 10 }, name) : null,
         h('div', { flexDirection: 'column', marginTop: 'auto', marginBottom: 6 },

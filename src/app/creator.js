@@ -117,7 +117,7 @@ async function render() {
   shell(`
     <h1>${esc(short(wallet))}</h1>
     <p class="who">${esc(wallet)} · <a href="https://solscan.io/account/${esc(wallet)}" target="_blank" rel="noopener">Solscan ↗</a></p>
-    <p class="lede">Everything this wallet has launched on LFOwn, and what those coins have taken in trading fees.</p>
+    <p class="lede">Everything this wallet has launched on LFOWN, and what those coins have taken in trading fees.</p>
 
     <div class="totals">
       <div class="tot"><span class="lab">Coins launched</span><span class="big">${mine.length}</span></div>
@@ -132,7 +132,7 @@ async function render() {
 
     <p class="foot-note">Fees generated is what each coin has taken, claimed and unclaimed, on the curve and in
       the graduated pool — split evenly between the creator and the
-      <a href="/leaderboard">LFOwn DAO</a>${holders ? ', with part of the creator\'s half given to holders' : ''}. Nothing here is private: it is all on chain.</p>`)
+      <a href="/leaderboard">LFOWN DAO</a>${holders ? ', with part of the creator\'s half given to holders' : ''}. Nothing here is private: it is all on chain.</p>`)
 
   const grid = document.querySelector('#grid')
   for (const c of mine) grid.appendChild(card(c, earned.get(c.baseMint)))

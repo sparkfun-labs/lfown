@@ -17,7 +17,7 @@ const authKey = (wallet) => `lfown-chat-auth:${wallet}`
 
 // The same text src/chat.mjs verifies, character for character.
 const signInMessage = (wallet, expires) =>
-  `Sign in to chat on LFOwn.\n\nWallet: ${wallet}\nExpires: ${new Date(expires).toISOString()}\n\nThis is not a transaction and costs nothing.`
+  `Sign in to chat on LFOWN.\n\nWallet: ${wallet}\nExpires: ${new Date(expires).toISOString()}\n\nThis is not a transaction and costs nothing.`
 
 function savedAuth(wallet) {
   try {

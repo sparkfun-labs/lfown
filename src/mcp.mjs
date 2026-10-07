@@ -22,14 +22,14 @@ import { TIERS } from './lib/config.mjs'
 
 const MODERN = ['2026-07-28']
 const LEGACY = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']
-const SERVER_INFO = { name: 'lfown', title: 'LFOwn', version: '1.0.0' }
+const SERVER_INFO = { name: 'lfown', title: 'LFOWN', version: '1.0.0' }
 
-const INSTRUCTIONS = `LFOwn launches memecoins on Solana, each paired with a MetaDAO ownership coin instead of SOL.
+const INSTRUCTIONS = `LFOWN launches memecoins on Solana, each paired with a MetaDAO ownership coin instead of SOL.
 To launch: call list_launch_options, pick an ownership coin with the user, optionally validate_launch (stores nothing), then prepare_launch.
 If you cannot sign Solana transactions (you have no wallet), call prepare_launch without "creator" and give the user the launchUrl it returns: they review and sign on the site. This is the recommended path whenever a person should approve the launch.
 If you control a wallet, pass it as "creator", sign every returned transaction unchanged and call submit_launch before expiresAt (about a minute). If they expire, call prepare_launch again with the same id and creator: same coin, same address, no new files.
 TRCH1 is also offered: Deaton, a Triceratops skull co-owned through Jurassic Finance. Its options row has "backing" instead of a treasury; amounts stay in whole tokens.
-Every fee share is a ${SHARE_UNIT}: the LFOwn DAO takes 50, the creator splits the other 50 with holders (holderPct).
+Every fee share is a ${SHARE_UNIT}: the LFOWN DAO takes 50, the creator splits the other 50 with holders (holderPct).
 Nothing is ever signed for the creator, and the creator's wallet is the one that earns the fees.`
 
 const LAUNCH_INPUT = {
@@ -300,7 +300,7 @@ function landingPage(origin) {
   const block = (text) => `<pre><code>${escapeHtml(text)}</code></pre>`
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LFOwn MCP server</title>
+<title>LFOWN MCP server</title>
 <meta name="robots" content="noindex">
 <style>
   :root{--ink:#141414;--paper:#f4efe6;--red:#e0342b;--mute:#5d5850}
@@ -315,8 +315,8 @@ function landingPage(origin) {
   pre{border:1.5px solid var(--ink);padding:12px 14px;overflow-x:auto;margin:8px 0 12px;font:13px/1.5 ui-monospace,monospace}
   a{color:var(--red)}
 </style></head><body><main>
-<h1>LFOwn MCP server</h1>
-<p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor, OpenClaw, Hermes or any MCP client and ask it to <b>launch a token on LFOwn</b>.</p>
+<h1>LFOWN MCP server</h1>
+<p>This URL is for AI agents, not browsers. Add it to Claude, ChatGPT, Cursor, OpenClaw, Hermes or any MCP client and ask it to <b>launch a token on LFOWN</b>.</p>
 <div class="url"><span>●</span>${endpoint}</div>
 <p class="mute">Remote MCP over Streamable HTTP · no key, no login · tools: list_launch_options, validate_launch, prepare_launch, submit_launch. Nothing is ever signed for you: the agent hands you a link, or a wallet you control signs.</p>
 

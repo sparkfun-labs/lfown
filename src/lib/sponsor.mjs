@@ -178,7 +178,7 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
   const last = transactions.length - 1
   if (pool.t !== last) refuse('the pool is opened by the last transaction')
   const config = ours.get(pool.config.toBase58())
-  if (!config) refuse('that pool is not on a config LFOwn opened')
+  if (!config) refuse('that pool is not on a config LFOWN opened')
   if (config.mint !== pool.quote.toBase58()) refuse('the pool pairs with a different coin than its config')
 
   // The creator and the new coin both signed the launch; the coin signed the vault too.

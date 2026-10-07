@@ -95,7 +95,7 @@ function seat(s, place) {
     <dl class="split">
       <div><dt class="lab">Kept</dt><dd>${money.show(s.keptUsd)}</dd></div>
       ${s.holdersUsd ? `<div><dt class="lab">To holders</dt><dd>${money.show(s.holdersUsd)}</dd></div>` : ''}
-      <div><dt class="lab">To the LFOwn DAO</dt><dd>${money.show(s.daoUsd)}</dd></div>
+      <div><dt class="lab">To the LFOWN DAO</dt><dd>${money.show(s.daoUsd)}</dd></div>
       <div><dt class="lab">Coins</dt><dd>${s.coins.length}${s.graduated ? ` · ${s.graduated} graduated` : ''}</dd></div>
     </dl>
   </li>`
@@ -136,14 +136,14 @@ function paint(report) {
 
   view.innerHTML = `<h1>Leaderboard</h1>
     <p class="lede">Every coin charges a trading fee, split between whoever launched it and the
-      LFOwn DAO. This is the same ledger as the coins page, gathered under the wallets that opened them.</p>
+      LFOWN DAO. This is the same ledger as the coins page, gathered under the wallets that opened them.</p>
 
     <div class="totals">
       <div class="tot"><span class="lab">Wallets ranked</span><span class="big">${seats.length}</span></div>
       <div class="tot"><span class="lab">Fees generated</span><span class="big">${money.show(money.round(t.creatorUsd) + money.round(t.holdersUsd) + money.round(t.lfownUsd))}</span></div>
       <div class="tot"><span class="lab">To creators</span><span class="big">${money.show(t.creatorUsd)}</span></div>
       ${t.holdersUsd ? `<div class="tot"><span class="lab">To holders</span><span class="big">${money.show(t.holdersUsd)}</span></div>` : ''}
-      <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOwn DAO ↗</span><span class="big">${money.show(t.lfownUsd)}</span></a>
+      <a class="tot link" href="${TREASURY}" target="_blank" rel="noopener"><span class="lab">To the LFOWN DAO ↗</span><span class="big">${money.show(t.lfownUsd)}</span></a>
     </div>
 
     ${top.length ? `<ol class="podium">${top.map((s, i) => seat(s, i + 1)).join('')}</ol>` : ''}

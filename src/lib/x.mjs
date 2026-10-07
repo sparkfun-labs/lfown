@@ -203,7 +203,7 @@ export function pumpMessage(coin, change, launchUrl) {
   const symbol = String(coin.symbol || '?').slice(0, 20)
   return fit([
     `📈 $${symbol} +${Math.round(change)}% today — launch a meme against ${symbol}`,
-    { text: `On LFOwn every meme is paired with an ownership coin instead of SOL, and its creator earns on every trade.`, drop: true },
+    { text: `On LFOWN every meme is paired with an ownership coin instead of SOL, and its creator earns on every trade.`, drop: true },
   ], launchUrl)
 }
 
@@ -215,6 +215,6 @@ export function graduatedMessage(coin, origin) {
   return fit([
     `🎓 ${symbol} graduated`,
     { text: `Raised ${money(raised)} ${quote} and moved to its Meteora pool.`, drop: true },
-    { text: 'Liquidity locked for good; fees keep flowing to the creator and the LFOwn DAO.', drop: true },
+    { text: 'Liquidity locked for good; fees keep flowing to the creator and the LFOWN DAO.', drop: true },
   ], coinUrl(coin, origin))
 }

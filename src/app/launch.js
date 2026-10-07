@@ -849,9 +849,9 @@ async function paintFree() {
   note.hidden = false
   const perDay = `${st.perDay} a day per wallet`
   note.innerHTML = !wallet
-    ? `<b>Free launch.</b> LFOwn pays the network fees, ${perDay}.`
+    ? `<b>Free launch.</b> LFOWN pays the network fees, ${perDay}.`
     : st.eligible
-      ? `<b>Free launch.</b> LFOwn pays the network fees for this one — ${st.leftToday} of ${st.perDay} left today.`
+      ? `<b>Free launch.</b> LFOWN pays the network fees for this one — ${st.leftToday} of ${st.perDay} left today.`
       : `This wallet has had its ${st.perDay} free launches today. This one costs about 0.03 SOL in network fees.`
 }
 
@@ -933,7 +933,7 @@ signBtn.addEventListener('click', async () => {
     say(`Checking that ${esc(sym())} is open for launches…`)
     const config = await configFor(a.mint, state.curve.tier)
     if (!config) {
-      say(`${esc(sym())} has no launch config yet. LFOwn has to open one for this coin before anyone can launch against it.`, 'warn-text')
+      say(`${esc(sym())} has no launch config yet. LFOWN has to open one for this coin before anyone can launch against it.`, 'warn-text')
       signBtn.disabled = false
       return
     }
@@ -1047,7 +1047,7 @@ signBtn.addEventListener('click', async () => {
       // Only the launch needs the creator's signature; the fee vault is signed by the
       // new coin and paid by LFOwn. The Worker checks both, signs as payer and sends them.
       const signedLaunch = await wallet.signOnly(transaction)
-      say('Free launch — LFOwn is sending it and paying the fees…')
+      say('Free launch — LFOWN is sending it and paying the fees…')
       try {
         const signatures = await sendSponsored(transactions, signedLaunch, mint)
         signature = signatures[signatures.length - 1]

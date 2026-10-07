@@ -26,7 +26,7 @@ const BURST = 12
 
 /** The exact text a wallet signs to chat. The page builds it the same way. */
 export function signInMessage(wallet, expires) {
-  return `Sign in to chat on LFOwn.\n\nWallet: ${wallet}\nExpires: ${new Date(expires).toISOString()}\n\nThis is not a transaction and costs nothing.`
+  return `Sign in to chat on LFOWN.\n\nWallet: ${wallet}\nExpires: ${new Date(expires).toISOString()}\n\nThis is not a transaction and costs nothing.`
 }
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
