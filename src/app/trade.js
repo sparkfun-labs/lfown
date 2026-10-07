@@ -15,6 +15,34 @@ import { COIN_DECIMALS, tokenDecimals, tokenUnit } from '../lib/config.mjs'
 // Every call goes through rpc.js, which sends them in batches and retries the ones the
 // rate limiter refuses — see the note at the top of that file for why.
 export const connection = new Connection(`${location.origin}/api/rpc`, { commitment: 'confirmed', fetch: rpcFetch })
+
+/** A coin's supply, in whole tokens. */
+export async function tokenSupply(mint) {
+  return Number((await connection.getTokenSupply(new PublicKey(mint))).value.uiAmount)
+}
+
+/**
+ * What each wallet holds of `mint` in its associated account, in whole tokens: one read
+ * per hundred wallets. Tokens kept in any other account are not counted.
+ */
+export async function tokenBalances(mint, wallets) {
+  const mintKey = new PublicKey(mint)
+  const info = await connection.getAccountInfo(mintKey)
+  // The mint's owner is its token program, classic or 2022; the associated address depends on it.
+  const program = info?.owner ?? new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA')
+  const ATA = new PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL')
+  const atas = wallets.map((w) => PublicKey.findProgramAddressSync([new PublicKey(w).toBuffer(), program.toBuffer(), mintKey.toBuffer()], ATA)[0])
+  const out = new Map()
+  for (let i = 0; i < atas.length; i += 100) {
+    const infos = await connection.getMultipleAccountsInfo(atas.slice(i, i + 100))
+    infos.forEach((a, j) => {
+      // A token account's amount is a u64 at byte 64, in either program.
+      const raw = a && a.data.length >= 72 ? new DataView(a.data.buffer, a.data.byteOffset + 64, 8).getBigUint64(0, true) : 0n
+      out.set(wallets[i + j], Number(raw) / 10 ** COIN_DECIMALS)
+    })
+  }
+  return out
+}
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 /**

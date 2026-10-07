@@ -7,6 +7,7 @@ import { TREASURY } from './treasury.js'
 import { tokenUnit } from '../lib/config.mjs'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
+import { mountChat } from './chat.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -68,6 +69,19 @@ const sessionChanged = () => {
   for (const fn of sessionHooks.values()) {
     try { fn() } catch (e) { console.error('session hook failed:', e.message) }
   }
+}
+
+// ── chat ──
+// Each coin's page has the coin's own room, beside its chart.
+let chat = null
+function openChat(el, room, title, extra = {}) {
+  chat?.close()
+  chat = mountChat(el, { room, title, getSession: () => session, ensureWallet, ...extra })
+  onSession('chat', () => chat?.sessionChanged())
+}
+function closeChat() {
+  chat?.close()
+  chat = null
 }
 
 const connectBtn = $('#connect')
@@ -147,6 +161,13 @@ menu.addEventListener('click', async (e) => {
 })
 document.addEventListener('click', (e) => { if (!e.target.closest('.wallet-slot')) menu.hidden = true })
 window.addEventListener('wallet-standard:register-wallet', () => setTimeout(paintConnect, 0))
+// Another account picked in the wallet itself: the page follows it (see wallet.js).
+window.addEventListener('lfown:wallet-change', (e) => {
+  if (e.detail.session !== session) return
+  if (!e.detail.address) session = null
+  paintConnect()
+  sessionChanged()
+})
 
 // ── data ─────────────────────────────────────────────────────────────────────
 let cache = null
@@ -385,6 +406,9 @@ function section(parent, title, coins) {
 
 async function renderList() {
   clearSessionHooks()
+  closeChat()
+  view.classList.remove('wide')
+  document.body.classList.remove('sheet-lock')
   view.innerHTML = `
     <section class="opener">
       <div>
@@ -477,6 +501,7 @@ let paintSections = null
 // ── detail ───────────────────────────────────────────────────────────────────
 async function renderCoin(mint) {
   clearSessionHooks()
+  closeChat()
   view.innerHTML = '<p class="skel">Loading coin…</p>'
 
   // Everything that does not depend on anything else is started at once, and only
@@ -507,7 +532,7 @@ async function renderCoin(mint) {
   }
 
   const { loadPool, quote, buildSwap, creatorFees, vaultFees, buildClaimAll,
-          graduatedFees, connection } = await code
+          graduatedFees, connection, tokenSupply, tokenBalances } = await code
   let state
   try { state = await loadPool(coin.pool) } catch (e) {
     view.innerHTML = `<p class="skel">Could not read the pool: ${esc(explain(e, 'loading pool'))}</p>`
@@ -516,71 +541,157 @@ async function renderCoin(mint) {
 
   const { PAY_WITH, payWith, quoteSwap, buildSwapTx, balanceOf,
           GAS_RESERVE, COIN_DECIMALS } = await money
+  // Laid out as traders expect a token page: the coin and its numbers across the top, the
+  // chart and the room under it, the trade and everything about the coin down the side.
+  view.classList.add('wide')
+  const created = coin.createdAt ?? null
   view.innerHTML = `
     <a class="back" href="/">← All coins</a>
-    <div class="detail">
-      <section class="panel">
-        <div class="coin-head">
-          <img alt="" hidden>
-          <div>
-            <h2>${esc(coin.symbol ?? '—')}</h2>
-            <div class="pair" style="font-family:var(--mono);font-size:.58rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);margin-top:6px">
-              ${esc(coin.name ?? '')} · paired with ${esc(coin.quoteSymbol)}
+    <header class="coin-bar">
+      <div class="coin-id">
+        <img alt="" hidden>
+        <div>
+          <h2>${esc(coin.symbol ?? '—')}</h2>
+          <div class="coin-sub">${esc(coin.name ?? '')} <span>· paired with ${esc(coin.quoteSymbol)}</span></div>
+        </div>
+        <div class="coin-tools">
+          <div class="coin-links" id="coin-links" hidden></div>
+          <div class="share">
+            <button class="share-btn" type="button" id="share-btn" aria-haspopup="menu" aria-expanded="false">${ICONS.share}<span>Share</span></button>
+            <div class="share-menu" id="share-menu" role="menu" hidden>
+              <a role="menuitem" id="share-x" target="_blank" rel="noopener">${ICONS.x}<span>Post on X</span></a>
+              <button role="menuitem" type="button" id="share-copy">${ICONS.link}<span>Copy link</span></button>
             </div>
-          </div>
-          <div class="coin-side">
-            <div class="share">
-              <button class="share-btn" type="button" id="share-btn" aria-haspopup="menu" aria-expanded="false">${ICONS.share}<span>Share</span></button>
-              <div class="share-menu" id="share-menu" role="menu" hidden>
-                <a role="menuitem" id="share-x" target="_blank" rel="noopener">${ICONS.x}<span>Post on X</span></a>
-                <button role="menuitem" type="button" id="share-copy">${ICONS.link}<span>Copy link</span></button>
-              </div>
-            </div>
-            <div class="coin-links" id="coin-links" hidden></div>
           </div>
         </div>
-        <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div>
-        <dl class="stats">
-          <div><dt>Raised</dt><dd id="stat-raised">${fmt(state.raised)} / ${fmt(state.threshold)} ${esc(coin.quoteSymbol)}</dd></div>
-          <div><dt>Progress</dt><dd id="stat-progress">${(state.progress * 100).toFixed(1)}%</dd></div>
-          <div><dt>Price</dt><dd id="stat-price">${state.price.toPrecision(4)} ${esc(coin.quoteSymbol)}</dd></div>
-          <div><dt>Status</dt><dd>${state.isMigrated ? 'graduated to DAMM v2' : 'on the curve'}</dd></div>
-        </dl>
-        <p class="addr">mint ${esc(coin.baseMint)}<br>pool ${esc(coin.pool)}</p>
-        <div id="creator-fees"></div>
-      </section>
+      </div>
+      <div class="coin-hero">
+        <div><b id="h-price">—</b><span id="h-change"></span></div>
+        <div class="hero-cap"><b id="h-mcap">—</b><span>Market cap</span></div>
+      </div>
+      <dl class="tiles">
+        <div><dt>Market cap</dt><dd id="t-mcap">—</dd></div>
+        <div><dt>Price</dt><dd id="t-price">—</dd><span class="tile-sub" id="stat-price">${esc(priceLabel(state.price))} ${esc(coin.quoteSymbol)}</span></div>
+        <div><dt>24h</dt><dd id="t-change">—</dd></div>
+        <div><dt>Volume 24h</dt><dd id="t-vol">—</dd></div>
+        <div><dt>${state.isMigrated ? 'Pool' : 'Liquidity'}</dt><dd id="t-liq">${state.isMigrated ? 'DAMM v2' : '—'}</dd></div>
+        <div><dt>Bonding</dt><dd id="stat-progress">${state.isMigrated ? '100%' : `${(state.progress * 100).toFixed(1)}%`}</dd>${state.isMigrated ? '<span class="tile-sub">graduated</span>' : ''}</div>
+      </dl>
+    </header>
 
-      <section class="panel accent trade">
-        <div class="tabs">
-          <button type="button" data-side="buy" aria-pressed="true">Buy</button>
-          <button type="button" data-side="sell" aria-pressed="false">Sell</button>
-        </div>
-        <span class="lab pay-lab" id="pay-lab" hidden>Receive in</span>
-        <div class="pay" id="pay-with" hidden></div>
-        <div class="amount-head">
-          <label class="lab" id="amount-label" for="amount">Amount in ${esc(coin.quoteSymbol)}</label>
-          <span class="held" id="pay-line" hidden></span>
-        </div>
-        <div class="amount-field">
-          <input id="amount" type="number" min="0" step="any" placeholder="0.0">
-          <button class="max" type="button" id="amount-max" hidden>Max</button>
-        </div>
-        <div class="quote" id="quote-out">Enter an amount.</div>
-        <button class="btn" id="do-trade" disabled>Buy ${esc(coin.symbol)}</button>
-        <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
-        <!-- The coin's own page on Jupiter, where both sides can be traded. A swap link with
-             a pair Jupiter does not recognise yet falls back to its default, USDC into SOL. -->
-        <div class="open-in-wallet" id="open-in-wallet" hidden></div>
-        <a class="btn ghost jup" id="jup-link" href="https://jup.ag/tokens/${esc(coin.baseMint)}" target="_blank" rel="noopener">Trade on Jupiter ↗</a>
-      </section>
+    <div class="coin-grid" data-pane="chat">
+      <section class="panel chart" id="chart"></section>
+      <nav class="coin-tabs" aria-label="Coin sections">
+        <button type="button" data-pane="chat" aria-pressed="true">Chat</button>
+        <button type="button" data-pane="about" aria-pressed="false">About</button>
+      </nav>
+
+      <aside class="coin-side">
+        <section class="panel accent trade" id="trade-panel">
+          <button type="button" class="sheet-close" aria-label="Close">×</button>
+          <div class="tabs">
+            <button type="button" data-side="buy" aria-pressed="true">Buy</button>
+            <button type="button" data-side="sell" aria-pressed="false">Sell</button>
+          </div>
+          <span class="lab pay-lab" id="pay-lab" hidden>Receive in</span>
+          <div class="pay" id="pay-with" hidden></div>
+          <div class="amount-head">
+            <label class="lab" id="amount-label" for="amount">Amount in ${esc(coin.quoteSymbol)}</label>
+            <span class="held" id="pay-line" hidden></span>
+          </div>
+          <div class="amount-field">
+            <input id="amount" type="number" min="0" step="any" placeholder="0.0">
+            <button class="max" type="button" id="amount-max" hidden>Max</button>
+          </div>
+          <div class="quote" id="quote-out">Enter an amount.</div>
+          <button class="btn" id="do-trade" disabled>Buy ${esc(coin.symbol)}</button>
+          <p class="hint" id="trade-status" style="margin-top:12px;font-size:.85rem;color:var(--ink-soft)"></p>
+          <!-- The coin's own page on Jupiter, where both sides can be traded. A swap link with
+               a pair Jupiter does not recognise yet falls back to its default, USDC into SOL. -->
+          <div class="open-in-wallet" id="open-in-wallet" hidden></div>
+          <a class="btn ghost jup" id="jup-link" href="https://jup.ag/tokens/${esc(coin.baseMint)}" target="_blank" rel="noopener">Trade on Jupiter ↗</a>
+        </section>
+
+        <section class="panel about">
+          <h3>About ${esc(coin.symbol ?? '')}</h3>
+          <p class="about-text" id="about-text">…</p>
+          <div class="moves" id="moves">${['5m', '1h', '6h', '24h'].map((k) => `<div data-k="${k}"><span>${k.toUpperCase()}</span><b>—</b></div>`).join('')}</div>
+          <div class="flow" id="flow"></div>
+          ${state.isMigrated ? '' : `<div class="bond"><div class="bond-head"><span>Bonding curve</span><span id="stat-raised">${fmt(state.raised)} / ${fmt(state.threshold)} ${esc(coin.quoteSymbol)}</span></div>
+            <div class="progress"><i id="bar-fill" style="width:${(state.progress * 100).toFixed(1)}%"></i></div></div>`}
+          <dl class="facts">
+            <div class="m-only"><dt>Volume 24h</dt><dd id="f-vol">—</dd></div>
+            <div class="m-only"><dt>${state.isMigrated ? 'Pool' : 'Liquidity'}</dt><dd id="f-liq">${state.isMigrated ? 'DAMM v2' : '—'}</dd></div>
+            <div><dt>Paired with</dt><dd><a href="/launch?quote=${encodeURIComponent(coin.quoteSymbol)}">${esc(coin.quoteSymbol)}</a></dd></div>
+            <div><dt>Launchpad</dt><dd>LFOwn · Meteora DBC</dd></div>
+            <div><dt>Status</dt><dd>${state.isMigrated ? 'Graduated to DAMM v2' : 'On the curve'}</dd></div>
+            <div><dt>Supply</dt><dd id="f-supply">—</dd></div>
+            <div><dt>Creator</dt><dd><a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a></dd></div>
+            ${coin.feeWallet && coin.feeWallet !== coin.creator ? `<div><dt>Fees go to</dt><dd><a href="/creator/${esc(coin.feeWallet)}">${esc(short(coin.feeWallet))}</a></dd></div>` : ''}
+            ${created ? `<div><dt>Created</dt><dd>${esc(new Date(created * 1000).toLocaleDateString())}</dd></div>` : ''}
+            <div><dt>Mint</dt><dd><button type="button" class="copy" data-copy="${esc(coin.baseMint)}">${esc(short(coin.baseMint))}</button></dd></div>
+            <div><dt>Pool</dt><dd><a href="https://solscan.io/account/${esc(coin.pool)}" target="_blank" rel="noopener">${esc(short(coin.pool))} ↗</a></dd></div>
+          </dl>
+          <div id="creator-fees"></div>
+        </section>
+      </aside>
+
+      <section class="panel chat-room" id="coin-chat"></section>
     </div>
+    <div class="buy-bar">
+      <button type="button" class="btn" data-open="buy">Buy</button>
+      <button type="button" class="btn ghost" data-open="sell">Sell</button>
+    </div>
+    <div class="sheet-scrim" hidden></div>`
+  // Phones: the chat and About share the space under the chart as two tabs, and the trade
+  // panel is a sheet that the bar at the bottom opens.
+  const grid = view.querySelector('.coin-grid')
+  view.querySelectorAll('.coin-tabs button').forEach((b) => b.addEventListener('click', () => {
+    grid.dataset.pane = b.dataset.pane
+    view.querySelectorAll('.coin-tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+  }))
+  const scrim = view.querySelector('.sheet-scrim')
+  const sheet = (open) => {
+    grid.classList.toggle('sheet-open', open)
+    scrim.hidden = !open
+    document.body.classList.toggle('sheet-lock', open)
+  }
+  view.querySelectorAll('[data-open]').forEach((b) => b.addEventListener('click', () => {
+    view.querySelector(`#trade-panel .tabs [data-side="${b.dataset.open}"]`)?.click()
+    sheet(true)
+    setTimeout(() => view.querySelector('#amount')?.focus(), 250)
+  }))
+  scrim.addEventListener('click', () => sheet(false))
+  view.querySelector('.sheet-close').addEventListener('click', () => sheet(false))
+  view.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'Copied' } catch { b.textContent = 'Copy failed' }
+    setTimeout(() => { b.textContent = short(b.dataset.copy) }, 1200)
+  }))
 
-    <section class="panel chart" id="chart"></section>`
+  // What each wallet in the room holds of this coin, in dollars, at today's price: the last
+  // trade's, once the chart has read them. Never the curve's own price on a graduated coin,
+  // which stopped at the migration while the coin went on trading on its Meteora pool.
+  let chartReady = null
+  const priceNow = () => (chartCache.mint === coin.baseMint && chartCache.points.length
+    ? chartCache.points[chartCache.points.length - 1].price
+    : state.isMigrated ? 0 : state.price)
+  const holdings = async (wallets) => {
+    const [amounts] = await Promise.all([tokenBalances(coin.baseMint, wallets), chartReady])
+    return new Map([...amounts].map(([w, n]) => [w, n * priceNow() * (coin.quoteUsdPrice ?? 0)]))
+  }
+  const tags = (wallet) => [
+    ...(wallet === coin.creator ? ['creator'] : []),
+    ...(coin.feeWallet && coin.feeWallet !== coin.creator && wallet === coin.feeWallet ? ['fee wallet'] : []),
+  ]
+  openChat(view.querySelector('#coin-chat'), coin.baseMint, `${coin.symbol ?? 'Coin'} chat`, { tags, holdings })
+  tokenSupply(coin.baseMint)
+    .then((n) => { coin.supply = n; paintMarket(coin, state) })
+    .catch((e) => console.error('supply unavailable:', e.message))
 
   // The picture lives behind another request. The panel is drawn with the slot
   // empty and the image dropped in when it lands, rather than holding the page back.
   artwork(coin).then((src) => {
-    const slot = view.querySelector('.coin-head img')
+    const slot = view.querySelector('.coin-id img')
     if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
   })
   wireShare(coin)
@@ -591,6 +702,8 @@ async function renderCoin(mint) {
     onOpen: () => track('open_in_wallet'),
   })
   metadata(coin).then((meta) => {
+    const about = view.querySelector('#about-text')
+    if (about) about.textContent = String(meta?.description ?? '').trim() || 'No description.'
     const box = view.querySelector('#coin-links')
     const links = socialLinks(meta)
     if (!box || !links.length) return
@@ -599,7 +712,7 @@ async function renderCoin(mint) {
     box.hidden = false
   })
 
-  paintChart(coin, state)
+  chartReady = paintChart(coin, state).then(() => paintMarket(coin, state))
 
   // The fee report is the slowest thing on this page by a wide margin, so the panel
   // is drawn from what the pool already knows and redrawn once the report lands.
@@ -618,12 +731,12 @@ async function renderCoin(mint) {
     try {
       const next = await loadPool(coin.pool)
       Object.assign(state, next)
-      $('#bar-fill').style.width = `${(next.progress * 100).toFixed(1)}%`
-      $('#stat-raised').textContent = `${fmt(next.raised)} / ${fmt(next.threshold)} ${coin.quoteSymbol}`
-      $('#stat-progress').textContent = `${(next.progress * 100).toFixed(1)}%`
-      $('#stat-price').textContent = `${next.price.toPrecision(4)} ${coin.quoteSymbol}`
+      if ($('#bar-fill')) $('#bar-fill').style.width = `${(next.progress * 100).toFixed(1)}%`
+      if ($('#stat-raised')) $('#stat-raised').textContent = `${fmt(next.raised)} / ${fmt(next.threshold)} ${coin.quoteSymbol}`
+      $('#stat-progress').textContent = next.isMigrated ? '100%' : `${(next.progress * 100).toFixed(1)}%`
       paintFees(coin, next, { creatorFees, vaultFees, buildClaimAll, graduatedFees, connection })
-      paintChart(coin, next, { refetch: true })
+      await paintChart(coin, next, { refetch: true })
+      paintMarket(coin, next)
     } catch { /* the numbers stay as they were, which is better than a broken page */ }
   }
 
@@ -660,11 +773,6 @@ async function renderCoin(mint) {
     await refreshStats()
   }
 
-  if (state.isMigrated) {
-    $('#quote-out').innerHTML = 'This coin has graduated — trade it on its Meteora pool.'
-    $('#do-trade').disabled = true
-    return
-  }
 
   let side = 'buy'
   // What the buyer is spending. The ownership coin by default; SOL or USDC gets
@@ -767,9 +875,9 @@ async function renderCoin(mint) {
   paintPay()
   onSession('pay', paintPay)
 
-  document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('#trade-panel .tabs button').forEach((b) => b.addEventListener('click', () => {
     side = b.dataset.side
-    document.querySelectorAll('.tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+    document.querySelectorAll('#trade-panel .tabs button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
     jupPlan = null
     paintPay()
     syncLabels()
@@ -787,7 +895,9 @@ async function renderCoin(mint) {
       try {
         jupPlan = null
         latest = null
-        const via = payWith(payVia)
+        // A graduated coin no longer trades on its curve: every trade goes through Jupiter,
+        // which routes it over the coin's Meteora pool, paying in its own pair included.
+        const via = payWith(payVia) ?? (state.isMigrated ? { mint: coin.quoteMint, decimals: state.quoteDecimals, symbol: coin.quoteSymbol } : null)
         let receiving, symbol
 
         if (via) {
@@ -898,9 +1008,11 @@ function geometry() {
   // authored at 800 units wide and shown in a 335-pixel column renders its 9-unit
   // axis text at under 4 pixels. Narrow screens get their own geometry.
   const narrow = matchMedia('(max-width: 640px)').matches
+  // On a phone the chart is the line alone, edge to edge, with its last price pinned to the
+  // right as a label: axis numbers at that size are noise nobody can read.
   return narrow
-    ? { W: 360, H: 210, PAD: { top: 12, right: 62, bottom: 18, left: 4 }, slices: 50, tick: 8 }
-    : { W: 800, H: 220, PAD: { top: 14, right: 92, bottom: 20, left: 6 }, slices: 90, tick: 9 }
+    ? { W: 360, H: 250, PAD: { top: 16, right: 12, bottom: 8, left: 8 }, slices: 60, tick: 8, bare: true }
+    : { W: 800, H: 300, PAD: { top: 14, right: 92, bottom: 20, left: 6 }, slices: 90, tick: 9 }
 }
 
 /**
@@ -989,7 +1101,7 @@ async function paintChart(coin, state, { refetch = false } = {}) {
   if (refetch || chartCache.mint !== coin.baseMint) {
     if (chartCache.mint !== coin.baseMint) {
       chartRange = 'all'
-      box.innerHTML = '<div class="lab"><span>Price</span></div><p class="empty">Loading the chart…</p>'
+      box.innerHTML = '<div class="lab"><span>Price</span></div><div class="chart-loading" role="status" aria-label="Loading the chart"><i></i></div>'
     }
     let points = []
     try {
@@ -1004,12 +1116,105 @@ async function paintChart(coin, state, { refetch = false } = {}) {
   drawChart(box, coin)
 }
 
+/**
+ * A dollar price, readable however small: $0.0₆674 says "six zeros, then 674", which a
+ * tile has room for and $0.000000674 does not.
+ */
+const priceUsd = (n) => {
+  if (!isFinite(n) || n <= 0) return '$0'
+  if (n >= 0.01) return compact(n)
+  // The zeros between the point and the first digit: 6 for 0.000000674, 4 for 0.00001.
+  const zeros = Math.ceil(-Math.log10(n)) - 1
+  if (zeros < 4) return `$${priceLabel(n, 3)}`
+  const digits = Math.round(n * 10 ** (zeros + 3)).toString().slice(0, 3).replace(/0+$/, '')
+  return `$0.0<sub>${zeros}</sub>${digits}`
+}
+
+/** Dollars, short: $45.4K. */
+const compact = (n) => {
+  if (!isFinite(n) || n <= 0) return '$0'
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(n >= 1e7 ? 1 : 2)}M`
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(n >= 1e4 ? 1 : 2)}K`
+  return n >= 0.01 ? `$${n.toFixed(2)}` : '$0'
+}
+
+/**
+ * The numbers across the top and in About, from the pool and the trades the chart
+ * already read: the price, the market cap, how it moved over 5 minutes to a day, and
+ * who bought and sold in the last day.
+ */
+function paintMarket(coin, state) {
+  const usd = coin.quoteUsdPrice ?? 0
+  const points = chartCache.mint === coin.baseMint ? chartCache.points : []
+  const last = points.length ? points[points.length - 1].price : state.price
+  const now = Date.now() / 1000
+  const set = (id, html) => { const el = document.getElementById(id); if (el) el.innerHTML = html }
+  const pct = (v) => (v == null ? '—' : `<span class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '▲' : '▼'} ${Math.abs(v).toFixed(2)}%</span>`)
+  // The change since `seconds` ago: against the last trade before then, or the first one inside.
+  const since = (seconds) => {
+    if (!points.length) return null
+    const cut = now - seconds
+    let ref = null
+    for (const p of points) { if (p.t <= cut) ref = p.price; else break }
+    if (ref == null) ref = points[0].t > cut ? points[0].price : null
+    return ref ? (last / ref - 1) * 100 : null
+  }
+
+  set('t-price', usd ? priceUsd(last * usd) : '—')
+  set('h-price', usd ? priceUsd(last * usd) : `${esc(priceLabel(last))} ${esc(coin.quoteSymbol)}`)
+  set('stat-price', `${esc(priceLabel(last))} ${esc(coin.quoteSymbol)}`)
+  if (coin.supply) {
+    set('t-mcap', usd ? compact(last * coin.supply * usd) : '—')
+    set('h-mcap', usd ? compact(last * coin.supply * usd) : '—')
+    set('f-supply', fmt(coin.supply, 0))
+  }
+  set('t-change', pct(since(86400)))
+  // The hero's change is over the coin's whole life, as the chart beneath it shows by default.
+  set('h-change', points.length > 1 ? pct((last / points[0].price - 1) * 100) : '')
+  if (!state.isMigrated) {
+    const liq = usd ? compact(state.raised * usd) : `${fmt(state.raised)} ${esc(coin.quoteSymbol)}`
+    set('t-liq', liq)
+    set('f-liq', liq)
+  }
+
+  const day = points.filter((p) => p.t >= now - 86400)
+  const buys = day.filter((p) => p.buy)
+  const sells = day.filter((p) => !p.buy)
+  const vol = (list) => list.reduce((s, p) => s + (p.quote ?? 0), 0) * usd
+  set('t-vol', compact(vol(day)))
+  set('f-vol', compact(vol(day)))
+
+  for (const [k, sec] of [['5m', 300], ['1h', 3600], ['6h', 21600], ['24h', 86400]]) {
+    const cell = document.querySelector(`#moves [data-k="${k}"] b`)
+    if (cell) cell.innerHTML = pct(since(sec))
+  }
+  const bar = (a, b, left, right) => {
+    const total = a + b
+    const share = total ? (a / total) * 100 : 50
+    return `<div class="flow-row"><span>${left}</span><span>${right}</span></div>
+      <div class="flow-bar"><i class="buy" style="width:${share.toFixed(1)}%"></i><i class="sell" style="width:${(100 - share).toFixed(1)}%"></i></div>`
+  }
+  set('flow', day.length
+    ? bar(buys.length, sells.length, `<b>${buys.length}</b> buys`, `<b>${sells.length}</b> sells`) +
+      bar(vol(buys), vol(sells), `<b>${compact(vol(buys))}</b> bought`, `<b>${compact(vol(sells))}</b> sold`)
+    : '<p class="flow-none">No trade in the last 24 hours.</p>')
+}
+
 function drawChart(box, coin) {
-  const { W, H, PAD, slices, tick } = geometry()
+  const { W, H, PAD, slices, tick, bare } = geometry()
   const all = chartCache.points
   const range = RANGES.find((r) => r.id === chartRange)
-  const cutoff = range.seconds ? Date.now() / 1000 - range.seconds : 0
-  const points = all.filter((p) => p.t >= cutoff)
+  const now = Date.now() / 1000
+  const cutoff = range.seconds ? now - range.seconds : 0
+  const inRange = all.filter((p) => p.t >= cutoff)
+  // The price in force when the window opens, every trade inside it, and that last price
+  // held up to now: a quiet day is a flat line at the price it sat at, not an empty box.
+  let before = null
+  for (const p of all) { if (p.t < cutoff) before = p; else break }
+  const points = [...(before ? [{ t: cutoff, price: before.price }] : []), ...inRange]
+  if (points.length) points.push({ t: Math.max(now, points[points.length - 1].t), price: points[points.length - 1].price })
+  const tradeCount = inRange.length
 
   const usd = coin.quoteUsdPrice ?? 0
   const buttons = RANGES.map((r) =>
@@ -1028,9 +1233,6 @@ function drawChart(box, coin) {
   }
 
   if (!all.length) return paint('<p class="empty">No trades yet — the chart starts with the first one.</p>')
-  if (!points.length) {
-    return paint(`<p class="empty">Nothing traded in the last ${chartRange === '1h' ? 'hour' : '24 hours'}.</p>`)
-  }
 
   const series = slice(points, slices)
   const prices = series.map((p) => p.price)
@@ -1042,7 +1244,11 @@ function drawChart(box, coin) {
   lo = Math.max(0, lo - pad); hi += pad
 
   const t0 = series[0].t, t1 = series[series.length - 1].t
-  const plotW = W - PAD.left - PAD.right
+  const last = points[points.length - 1]
+  // The bare chart's last price, in a label at the right edge that the line runs into.
+  const tag = usd ? `$${priceLabel(last.price * usd, 3)}` : priceLabel(last.price, 3)
+  const tagW = tag.length * 6.6 + 14
+  const plotW = W - PAD.left - (bare ? tagW + 10 : PAD.right)
   const plotH = H - PAD.top - PAD.bottom
   const x = (t) => PAD.left + (t1 === t0 ? plotW / 2 : ((t - t0) / (t1 - t0)) * plotW)
   const y = (v) => PAD.top + (1 - (v - lo) / (hi - lo)) * plotH
@@ -1054,24 +1260,28 @@ function drawChart(box, coin) {
     ? `${line} L${xy[xy.length - 1].x.toFixed(1)} ${floor} L${xy[0].x.toFixed(1)} ${floor} Z`
     : ''
 
-  const rows = [0, 0.25, 0.5, 0.75, 1].map((f) => {
-    const v = hi - f * (hi - lo)
-    const yy = (PAD.top + f * plotH).toFixed(1)
-    return `<line class="grid" x1="${PAD.left}" y1="${yy}" x2="${PAD.left + plotW}" y2="${yy}"></line>
+  const lastY = y(last.price)
+  const rows = bare
+    ? `<line class="last-line" x1="${PAD.left}" y1="${lastY.toFixed(1)}" x2="${W - PAD.right}" y2="${lastY.toFixed(1)}"></line>
+       <g class="last-tag"><rect x="${(W - PAD.right - tagW).toFixed(1)}" y="${(lastY - 10).toFixed(1)}" width="${tagW.toFixed(1)}" height="20" rx="3"></rect>
+       <text x="${(W - PAD.right - tagW / 2).toFixed(1)}" y="${lastY.toFixed(1)}" font-size="11" text-anchor="middle" dominant-baseline="central">${esc(tag)}</text></g>`
+    : [0, 0.25, 0.5, 0.75, 1].map((f) => {
+        const v = hi - f * (hi - lo)
+        const yy = (PAD.top + f * plotH).toFixed(1)
+        return `<line class="grid" x1="${PAD.left}" y1="${yy}" x2="${PAD.left + plotW}" y2="${yy}"></line>
             <text class="tick" x="${PAD.left + plotW + 6}" y="${yy}" font-size="${tick}" dominant-baseline="middle">${esc(priceLabel(v, 3))}</text>`
-  }).join('')
+      }).join('')
 
   const when = (t) => new Date(t * 1000).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  const last = points[points.length - 1]
   const move = points.length > 1 ? (last.price / points[0].price - 1) * 100 : 0
-  const trades = `${points.length} trade${points.length > 1 ? 's' : ''}`
+  const trades = tradeCount ? `${tradeCount} trade${tradeCount > 1 ? 's' : ''}` : `no trade in ${chartRange === '1h' ? 'the last hour' : 'the last 24 hours'}`
   const summary = `<span class="now">
       <b id="c-price">${esc(priceLabel(last.price))} ${esc(coin.quoteSymbol)}</b>
       <span class="usd" id="c-usd">${usd ? `$${esc(priceLabel(last.price * usd))}` : ''}</span>
       <span class="move" id="c-move">${move >= 0 ? '+' : ''}${move.toFixed(1)}% · ${trades}</span>
     </span>`
 
-  paint(`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Price of ${esc(coin.symbol ?? 'this coin')} in ${esc(coin.quoteSymbol)}, ${points.length} trades">
+  paint(`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Price of ${esc(coin.symbol ?? 'this coin')} in ${esc(coin.quoteSymbol)}, ${tradeCount} trades">
       ${rows}
       ${area ? `<path class="area" d="${area}"></path>` : ''}
       <path class="line" d="${line}" vector-effect="non-scaling-stroke"></path>
@@ -1081,8 +1291,8 @@ function drawChart(box, coin) {
         <circle r="4"></circle>
       </g>
       <rect class="hit" x="${PAD.left}" y="${PAD.top}" width="${plotW}" height="${plotH}" fill="transparent"></rect>
-      <text class="tick" x="${PAD.left}" y="${H - 4}" font-size="${tick}">${esc(when(t0))}</text>
-      <text class="tick" x="${PAD.left + plotW}" y="${H - 4}" font-size="${tick}" text-anchor="end">${esc(when(t1))}</text>
+      ${bare ? '' : `<text class="tick" x="${PAD.left}" y="${H - 4}" font-size="${tick}">${esc(when(t0))}</text>
+      <text class="tick" x="${PAD.left + plotW}" y="${H - 4}" font-size="${tick}" text-anchor="end">${esc(when(t1))}</text>`}
     </svg>`, summary)
 
   // Reading the chart by pointing at it. The header is the readout: the price, its
@@ -1142,7 +1352,12 @@ function drawChart(box, coin) {
  * the creator gets a button — the claim is signed by the position's owner and
  * nobody else can move it.
  */
+// Each call to paintFees is a run; only the latest one may paint. The panel is drawn once
+// from the pool and again when the fee report lands, and the first draw, still waiting on
+// its own reads, could land last and wipe the report's split off the panel.
+let feesRun = 0
 function paintFees(coin, state, api) {
+  const run = ++feesRun
   const box = $('#creator-fees')
   const price = coin.quoteUsdPrice ?? 0
   const report = feesByMint.get(coin.baseMint)
@@ -1174,6 +1389,7 @@ function paintFees(coin, state, api) {
   const render = async () => {
     const lp = await position
     const vf = await shared
+    if (run !== feesRun || !box?.isConnected) return
     const mine = session?.address === earner
     const c = vf
       ? {
@@ -1209,7 +1425,7 @@ function paintFees(coin, state, api) {
           const holdersUsd = report.holdersUsd ?? 0
           const money = usdGroup([creatorUsd, report.lfownUsd, ...presentShare(holdersUsd)])
           return `<dl class="fee-split">
-           <div><dt>Generated</dt><dd>${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(report.lfownUsd))}</dd></div>
+           <div><dt>Total</dt><dd>${money.show(money.round(creatorUsd) + money.round(holdersUsd) + money.round(report.lfownUsd))}</dd></div>
            <div><dt>To the creator</dt><dd>${money.show(creatorUsd)}</dd></div>
            ${holdersUsd ? `<div><dt>To holders</dt><dd>${money.show(holdersUsd)}</dd></div>` : ''}
            <div><dt>To the LFOwn DAO</dt><dd>${money.show(report.lfownUsd)}</dd></div>
@@ -1225,10 +1441,6 @@ function paintFees(coin, state, api) {
     const lines = []
     if (sources.length > 1) lines.push(sources.join(' · '))
     if (lpBase) lines.push(`plus ${fmt(lpBase, 4)} ${esc(coin.symbol)} from the graduated pool`)
-    lines.push(`${fmt(claimed, 4)} ${esc(coin.quoteSymbol)} already claimed`)
-    if (vf?.holders.share) {
-      lines.push(`${fmt(vf.holders.pending, 4)} ${esc(coin.quoteSymbol)} more belongs to holders, paid out hourly`)
-    }
 
     box.innerHTML = `
       <div class="creator-box">
@@ -1238,12 +1450,8 @@ function paintFees(coin, state, api) {
           <div class="lab">The creator's share</div>
           <div class="amount">${fmt(unclaimed, 4)} ${esc(coin.quoteSymbol)}
             <span class="sub">${usd(unclaimed * price)} unclaimed</span></div>
-          <div class="claimed">${lines.join('<br>')}</div>
-          ${mine
-            ? `<button class="btn" id="claim-all" ${unclaimed || lpBase ? '' : 'disabled'}>Claim</button>`
-            : coin.feeWallet
-              ? `<p class="hint">Paid to <a href="/creator/${esc(earner)}">${esc(short(earner))}</a>, named at launch by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>. Only that wallet can claim.</p>`
-              : `<p class="hint">Claimable only by <a href="/creator/${esc(coin.creator)}">${esc(short(coin.creator))}</a>, who launched it.</p>`}
+          ${lines.length ? `<div class="claimed">${lines.join('<br>')}</div>` : ''}
+          ${mine ? `<button class="btn" id="claim-all" ${unclaimed || lpBase ? '' : 'disabled'}>Claim</button>` : ''}
         </div>
         <p class="hint" id="claim-status"></p>
       </div>`

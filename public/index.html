@@ -137,16 +137,146 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .badge{border:1.5px solid var(--red);color:var(--red);padding:3px 7px;font-family:var(--mono);font-size:.52rem;letter-spacing:.12em;text-transform:uppercase}
 
 /* ── detail ────────────────────────── */
+/* A token page as traders read one: the coin and its numbers across the top, the chart
+   and its room in the middle, the trade and the coin's facts down the right. */
+.wrap.wide{max-width:1480px}
+.coin-bar{display:grid;grid-template-columns:auto minmax(0,1fr);gap:clamp(16px,2.4vw,34px);align-items:center;
+  border:1.5px solid var(--ink);background:var(--card);padding:14px clamp(14px,2vw,22px);margin-bottom:clamp(16px,2vw,24px);box-shadow:7px 7px 0 var(--ink)}
+.coin-id{display:flex;align-items:center;gap:14px;min-width:0}
+.coin-id img{width:56px;height:56px;object-fit:cover;border:1.5px solid var(--ink);flex:0 0 auto}
+.coin-id h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.4rem,2.6vw,2rem);margin:0;line-height:1}
+.coin-sub{font-family:var(--mono);font-size:.56rem;letter-spacing:.12em;text-transform:uppercase;color:var(--red);margin-top:6px;white-space:nowrap}
+.coin-sub span{color:var(--ink-soft)}
+.coin-tools{display:flex;align-items:center;gap:8px;margin-left:10px}
+.coin-tools .coin-links .social{width:34px;height:34px}
+.tiles{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));margin:0;border-left:1.5px solid var(--ink)}
+.tiles>div{padding:4px clamp(10px,1.2vw,16px);border-right:1px dashed var(--rule);min-width:0}
+.tiles>div:last-child{border-right:0}
+.tiles dt{font-family:var(--mono);font-size:.5rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
+.tiles dd{margin:4px 0 0;font-family:var(--display);font-weight:800;font-size:clamp(1rem,1.5vw,1.3rem);letter-spacing:-.02em;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tiles dd sub{font-size:.62em;vertical-align:-.25em;margin:0 .05em}
+.tile-sub{display:block;font-family:var(--mono);font-size:.55rem;color:var(--ink-soft);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.up{color:#1f8a4c}.down{color:var(--red)}
+:root[data-theme="dark"] .up{color:#4fd18a}
+
+/* Two rows, each pair the same height: the chart beside the trade, the chat beside About. */
+.coin-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,390px);grid-template-areas:"chart trade" "chat about";
+  gap:clamp(16px,2vw,24px);align-items:stretch}
+.coin-side{display:contents}
+.coin-grid .chart{grid-area:chart;margin:0}
+.coin-grid .trade{grid-area:trade}
+.coin-grid .about{grid-area:about}
+.coin-grid .chat-room{grid-area:chat;height:auto;min-height:560px}
+.coin-side .trade{box-shadow:7px 7px 0 var(--red)}
+
+.about h3{margin:0 0 6px;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:1.15rem}
+.about-text{margin:0 0 14px;color:var(--ink-soft);font-size:.92rem;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
+.moves{display:grid;grid-template-columns:repeat(4,1fr);border:1.5px solid var(--ink);margin-bottom:14px}
+.moves div{padding:8px 4px;text-align:center;border-right:1px dashed var(--rule)}
+.moves div:last-child{border-right:0}
+.moves span{display:block;font-family:var(--mono);font-size:.5rem;letter-spacing:.14em;color:var(--ink-soft)}
+.moves b{display:block;margin-top:3px;font-family:var(--mono);font-size:.66rem;font-weight:600;white-space:nowrap}
+.flow{display:grid;gap:6px;margin-bottom:16px}
+.flow-row{display:flex;justify-content:space-between;font-size:.88rem;color:var(--ink-soft)}
+.flow-row b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.flow-bar{display:flex;gap:3px;height:6px;margin-bottom:6px}
+.flow-bar i{display:block;height:100%;min-width:3px}
+.flow-bar .buy{background:#1f8a4c}
+.flow-bar .sell{background:var(--red)}
+.flow-none{margin:0;font-size:.88rem;color:var(--ink-soft)}
+.bond{margin-bottom:14px}
+.bond-head{display:flex;justify-content:space-between;gap:10px;font-family:var(--mono);font-size:.54rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:6px}
+.facts{margin:0;display:grid}
+.facts>div{display:flex;justify-content:space-between;align-items:baseline;gap:12px;padding:7px 0;border-top:1px dashed var(--rule)}
+.facts dt{font-family:var(--mono);font-size:.54rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);white-space:nowrap}
+.facts dd{margin:0;font-size:.9rem;text-align:right;font-variant-numeric:tabular-nums}
+.facts a{color:var(--ink)}
+.facts a:hover{color:var(--red)}
+.facts .copy{background:none;border:0;padding:0;font:inherit;font-family:var(--mono);font-size:.78rem;color:var(--ink);cursor:copy;text-decoration:underline dotted}
+.about .creator-box{margin-top:14px}
+
+@media(max-width:1180px){.tiles{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:8px}.tiles>div:nth-child(3){border-right:0}}
+@media(max-width:1000px){
+  .coin-bar{grid-template-columns:1fr}
+  .tiles{border-left:0;border-top:1.5px solid var(--ink);padding-top:10px}
+  .coin-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"chart" "trade" "about" "chat";grid-template-rows:auto}
+  .coin-grid .chat-room{min-height:0;height:min(560px,80vh)}
+}
+.coin-hero,.coin-tabs,.buy-bar,.sheet-close,.sheet-scrim{display:none}
+.chart .cross[hidden]{display:none}
+/* While the trades load: the chart's own footprint, a faint line sweeping across it. */
+.chart-loading{position:relative;aspect-ratio:800/300;overflow:hidden;border-bottom:1px dashed var(--rule);
+  background:repeating-linear-gradient(to bottom,transparent 0 24%,var(--rule) 24% calc(24% + 1px))}
+.chart-loading i{position:absolute;inset:0;background:linear-gradient(100deg,transparent 30%,color-mix(in srgb,var(--red) 14%,transparent) 50%,transparent 70%);
+  transform:translateX(-100%);animation:chart-sweep 1.3s ease-in-out infinite}
+@keyframes chart-sweep{to{transform:translateX(100%)}}
+@media(max-width:640px){.chart-loading{aspect-ratio:360/250}}
+@media(prefers-reduced-motion:reduce){.chart-loading i{animation:none;opacity:.5;transform:none}}
+.chart .last-line{stroke:var(--red);stroke-width:1;stroke-dasharray:3 4;opacity:.6}
+.chart .last-tag rect{fill:var(--red)}
+.chart .last-tag text{fill:#fff;font-family:var(--mono);font-weight:600}
+
+/* Phones, as fomo.family lays a token out: the price big at the top, the line edge to edge,
+   the chat and About as two tabs under it, and Buy/Sell in a bar that opens the trade sheet. */
+@media(max-width:760px){
+  .facts .m-only{display:flex}
+  main.wrap.wide{padding-bottom:96px}
+  .coin-bar{border:0;background:none;box-shadow:none;padding:0;gap:14px;margin-bottom:6px}
+  .coin-id img{width:46px;height:46px}
+  .coin-id h2{font-size:1.35rem}
+  .coin-sub{white-space:normal}
+  .coin-tools .share-btn span{display:none}
+  .tiles{display:none}
+  .coin-hero{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+  .coin-hero b{display:block;font-family:var(--display);font-weight:800;letter-spacing:-.03em;line-height:1}
+  #h-price{font-size:2.3rem}
+  #h-price sub{font-size:.55em;vertical-align:-.2em}
+  #h-change{display:block;margin-top:6px;font-family:var(--mono);font-size:.72rem;font-weight:600}
+  .hero-cap{text-align:right}
+  .hero-cap b{font-size:1.25rem}
+  .hero-cap span{display:block;margin-top:4px;font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+
+  .coin-grid{grid-template-columns:minmax(0,1fr);grid-template-areas:"chart" "tabs" "pane";grid-template-rows:auto;gap:14px}
+  .coin-grid .trade{grid-area:auto}
+  .coin-side{display:contents}
+  .coin-grid .chart{border:0;background:none;padding:0;display:flex;flex-direction:column;margin:0 calc(-1 * var(--pad))}
+  .coin-grid .chart .lab{order:2;border:0;margin:6px 0 0;padding:0 var(--pad);justify-content:center}
+  .coin-grid .chart .lab>span:first-child,.coin-grid .chart .lab .now{display:none}
+  .coin-grid .chart .ranges{margin:0 auto;border:0;gap:6px}
+  .coin-grid .chart .ranges button{border:0;padding:8px 14px;font-size:.66rem;border-radius:2px}
+  .coin-grid .chart .empty{padding:0 var(--pad)}
+  .coin-grid .chart .line{stroke-width:2.5}
+  .coin-grid .chart .area{opacity:.08}
+  .coin-tabs{grid-area:tabs;display:flex;border-bottom:1.5px solid var(--ink)}
+  .coin-tabs button{flex:1;padding:12px 8px;background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1.5px;cursor:pointer;
+    font-family:var(--mono);font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+  .coin-tabs button[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--red)}
+  .coin-grid .about,.coin-grid .chat-room{grid-area:pane}
+  .coin-grid[data-pane="chat"] .about,.coin-grid[data-pane="about"] .chat-room{display:none}
+  .coin-grid .about{border:0;background:none;padding:0}
+  .coin-grid .chat-room{border:0;background:none;padding:0;height:min(560px,70vh)}
+  .coin-grid .chat-room .chat-head{display:none}
+
+  /* The trade panel, as a sheet from the bottom. */
+  .coin-grid .trade{position:fixed;left:0;right:0;bottom:0;z-index:60;max-height:88vh;overflow-y:auto;margin:0;box-shadow:0 -10px 0 var(--red);
+    border-width:1.5px 0 0;transform:translateY(105%);transition:transform .25s cubic-bezier(.2,.8,.2,1);padding-top:46px}
+  .coin-grid.sheet-open .trade{transform:none}
+  .sheet-close{display:block;position:absolute;top:8px;right:12px;width:36px;height:36px;border:1.5px solid var(--ink);background:var(--card);
+    font-size:1.3rem;line-height:1;cursor:pointer;color:var(--ink)}
+  .sheet-scrim{display:block;position:fixed;inset:0;z-index:55;background:rgba(10,10,10,.45)}
+  .sheet-scrim[hidden]{display:none}
+  body.sheet-lock{overflow:hidden}
+  .buy-bar{display:grid;grid-template-columns:1fr auto;gap:10px;position:fixed;left:0;right:0;bottom:0;z-index:50;
+    padding:12px var(--pad) calc(12px + env(safe-area-inset-bottom));background:var(--paper);border-top:1.5px solid var(--ink)}
+  .buy-bar .btn{justify-content:center;padding:15px 18px}
+  .buy-bar .btn.ghost{min-width:96px}
+}
+.facts .m-only{display:none}
+@media(max-width:760px){.facts .m-only{display:flex}}
 .back{display:inline-block;margin-bottom:22px;font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);text-decoration:none}
 .back:hover{color:var(--red)}
-.detail{display:grid;grid-template-columns:1.1fr .9fr;gap:clamp(22px,3vw,38px);align-items:start}
-@media(max-width:900px){.detail{grid-template-columns:1fr}}
 .panel{border:1.5px solid var(--ink);background:var(--card);padding:clamp(20px,2.6vw,28px)}
 .panel.accent{box-shadow:10px 10px 0 var(--red)}
-.coin-head{display:flex;align-items:center;gap:16px;margin-bottom:20px}
-.coin-head img{width:64px;height:64px;object-fit:cover;border:1.5px solid var(--ink)}
-.coin-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.5rem,3.4vw,2.3rem);margin:0;line-height:1}
-.coin-side{margin-left:auto;align-self:flex-start;display:flex;flex-direction:column;align-items:flex-end;gap:8px}
 .share{position:relative}
 .share-btn{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;border:1.5px solid var(--ink);background:var(--red);color:#fff;cursor:pointer;
   font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;font-weight:600;box-shadow:3px 3px 0 var(--ink);transition:transform .12s,box-shadow .12s}
@@ -288,6 +418,36 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
 .picker-list img{width:24px;height:24px;border-radius:4px}
 .picker-list .blank{width:24px;height:24px;border:1.5px solid currentColor;opacity:.4}
 #picker-close{margin:14px 18px 18px;cursor:pointer;font-family:var(--mono);font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;width:auto}
+/* chat (src/app/chat.js) */
+.chat{display:flex;flex-direction:column;gap:10px}
+/* The chart and the coin's chat side by side; the chat as tall as the chart, stacked on a phone. */
+.chat-room{height:min(560px,80vh);box-sizing:border-box}
+.chat-tag{font-family:var(--mono);font-size:.5rem;letter-spacing:.12em;text-transform:uppercase;padding:2px 6px;border:1.5px solid var(--ink);color:var(--ink);line-height:1.2}
+.chat-tag.creator{background:var(--red);border-color:var(--red);color:#fff}
+.chat-tag.mod{background:var(--ink);color:var(--paper)}
+.chat-held{font-family:var(--mono);font-size:.6rem;font-weight:600;color:var(--ink);background:var(--card);border:1px dashed var(--rule);padding:1px 6px}
+.chat-held.zero{color:var(--ink-soft);font-weight:400}
+.chat-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.chat-head h3{margin:0;font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.02em;font-size:1.15rem}
+.chat-live{font-family:var(--mono);font-size:.55rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft)}
+.chat-live.on{color:var(--red)}
+.chat-live.on::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--red);margin-right:6px;vertical-align:middle}
+.chat-log{flex:1 1 auto;overflow-y:auto;border:1.5px solid var(--ink);background:var(--paper);padding:10px 12px;display:flex;flex-direction:column;gap:10px;min-height:120px}
+.chat-more{align-self:center;background:none;border:0;font-family:var(--mono);font-size:.55rem;letter-spacing:.14em;text-transform:uppercase;color:var(--red);cursor:pointer;text-decoration:underline}
+.chat-empty{margin:auto;color:var(--ink-soft);font-size:.9rem}
+.chat-msg{display:grid;gap:2px}
+.chat-meta{display:flex;align-items:baseline;gap:8px;font-family:var(--mono);font-size:.6rem;letter-spacing:.06em;color:var(--ink-soft)}
+.chat-who{color:hsl(var(--h) 55% 40%);font-weight:600;text-decoration:none}
+.chat-who:hover{text-decoration:underline}
+.chat-mod{background:none;border:0;padding:0;font:inherit;color:var(--red);cursor:pointer;opacity:.7}
+.chat-mod:hover{opacity:1;text-decoration:underline}
+.chat-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font-size:.95rem;line-height:1.4}
+.chat-form{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}
+.chat-form textarea{font:inherit;color:var(--ink);background:var(--paper);border:1.5px solid var(--ink);padding:10px 12px;resize:none;min-height:44px;max-height:140px}
+.chat-form textarea:focus{outline:2px solid var(--red);outline-offset:-1px}
+.chat-note{margin:0;min-height:1em;font-size:.82rem;color:var(--ink-soft)}
+.chat-note.warn{color:var(--red)}
+:root[data-theme="dark"] .chat-who{color:hsl(var(--h) 70% 70%)}
 </style>
 </head>
 <body>
