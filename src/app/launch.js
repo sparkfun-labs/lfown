@@ -847,12 +847,12 @@ async function paintFree() {
   if (!note) return
   if (!st?.enabled) { note.hidden = true; return }
   note.hidden = false
-  const left = `${st.remaining} of ${st.total} left`
+  const perDay = `${st.perDay} a day per wallet`
   note.innerHTML = !wallet
-    ? `<b>Free launch.</b> LFOwn pays the network fees of the next launches, one per wallet — ${left}.`
+    ? `<b>Free launch.</b> LFOwn pays the network fees, ${perDay}.`
     : st.eligible
-      ? `<b>Free launch.</b> LFOwn pays the network fees for this one — ${left}.`
-      : `This wallet has had its free launch. This one costs about 0.03 SOL in network fees.`
+      ? `<b>Free launch.</b> LFOwn pays the network fees for this one — ${st.leftToday} of ${st.perDay} left today.`
+      : `This wallet has had its ${st.perDay} free launches today. This one costs about 0.03 SOL in network fees.`
 }
 
 // Extensions can register after the page has loaded — repaint when they do, so the
@@ -1045,9 +1045,10 @@ signBtn.addEventListener('click', async () => {
         const signatures = await sendSponsored(transactions, signedLaunch, mint)
         signature = signatures[signatures.length - 1]
       } catch (e) {
-        // Refused outright (already used, run over, not a launch it will pay for): the
-        // next click takes the paid path. A launch that only expired can simply be retried.
-        // Only a 409 means the wallet or the run is used up; a 400 is this transaction.
+        // Refused outright (today's free launches used, sponsor out of SOL, not a launch it
+        // will pay for): the next click takes the paid path. A launch that only expired can
+        // simply be retried. Only a 409 means the wallet or the sponsor is used up; a 400 is
+        // this transaction.
         if (e.status === 409) {
           state.free.status = { ...state.free.status, eligible: false }
           paintWallet()

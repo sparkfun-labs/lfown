@@ -1439,7 +1439,10 @@ async function readFunnel(env, days) {
 
 // ── sponsored launches ───────────────────────────────────────────────────────
 const SPONSOR_COUNT = 'sponsor:count'
-const sponsorWalletKey = (wallet) => `sponsor:wallet:${wallet}`
+// One counter per wallet and UTC day, kept two days so a day's count outlives the day.
+const sponsorDayKey = (wallet, now = new Date()) => `sponsor:day:${now.toISOString().slice(0, 10)}:${wallet}`
+const DAY_KEY_TTL = 2 * 86_400
+const sponsoredToday = async (env, wallet) => Number(await env.REGISTRY.get(sponsorDayKey(wallet))) || 0
 /** Below this the sponsor could not cover one more launch, so none is offered. */
 const SPONSOR_FLOOR_LAMPORTS = 30_000_000 // one launch, pool and vault, with room to spare
 
@@ -1449,12 +1452,10 @@ class HttpError extends Error {
 
 /** Whether LFOwn will pay for a launch right now, and for this wallet. */
 async function sponsorStatus(env, wallet) {
-  const { SPONSORED_LAUNCHES } = await import('./lib/sponsor.mjs')
+  const { SPONSORED_PER_WALLET_PER_DAY } = await import('./lib/sponsor.mjs')
   const sponsor = await loadKey(env.SPONSOR_KEY).catch(() => null)
-  const used = Number(await env.REGISTRY?.get(SPONSOR_COUNT)) || 0
-  const remaining = Math.max(0, SPONSORED_LAUNCHES - used)
-  const out = { enabled: false, total: SPONSORED_LAUNCHES, remaining, sponsor: null, eligible: false }
-  if (!sponsor || !env.REGISTRY || !remaining) return out
+  const out = { enabled: false, perDay: SPONSORED_PER_WALLET_PER_DAY, sponsor: null, eligible: false, leftToday: 0 }
+  if (!sponsor || !env.REGISTRY) return out
 
   const { Connection, PublicKey } = await import('@solana/web3.js')
   const balance = await new Connection(env.HELIUS_RPC, 'confirmed').getBalance(sponsor.publicKey).catch(() => 0)
@@ -1464,16 +1465,19 @@ async function sponsorStatus(env, wallet) {
 
   let valid = false
   try { valid = Boolean(wallet) && PublicKey.isOnCurve(new PublicKey(wallet).toBytes()) } catch { valid = false }
-  if (valid) out.eligible = !(await env.REGISTRY.get(sponsorWalletKey(wallet)))
+  if (valid) {
+    out.leftToday = Math.max(0, SPONSORED_PER_WALLET_PER_DAY - await sponsoredToday(env, wallet))
+    out.eligible = out.leftToday > 0
+  }
   return out
 }
 
 /**
  * Checks, signs and sends a launch the sponsor pays for.
  *
- * One per wallet, and a fixed number in all. KV cannot make the check and the claim one
- * step, so two requests from the same wallet in the same second could both pass; the
- * sponsor's balance is what really bounds this, and it is funded for the run and no more.
+ * A few per wallet and UTC day; in all, as many as the sponsor's balance pays for. KV
+ * cannot make the check and the claim one step, so two requests from the same wallet in
+ * the same second could both pass; the sponsor's balance is what really bounds this.
  */
 async function sponsorLaunch(env, encoded) {
   const [{ Connection, Transaction, PublicKey }, sponsorLib, { waitFor }, { DynamicBondingCurveClient }, { DynamicFeeSharingClient }] = await Promise.all([
@@ -1508,10 +1512,13 @@ async function sponsorLaunch(env, encoded) {
     throw new HttpError(400, `This launch cannot be paid for by LFOwn: ${e.message}`)
   }
 
-  const walletKey = sponsorWalletKey(launch.creator)
-  if (await env.REGISTRY.get(walletKey)) throw new HttpError(409, 'This wallet has already had its free launch.')
-  // Claimed before anything is sent, released if nothing lands.
-  await env.REGISTRY.put(walletKey, JSON.stringify({ status: 'pending', mint: launch.baseMint, at: new Date().toISOString() }), { expirationTtl: 600 })
+  const dayKey = sponsorDayKey(launch.creator)
+  const today = await sponsoredToday(env, launch.creator)
+  if (today >= sponsorLib.SPONSORED_PER_WALLET_PER_DAY) {
+    throw new HttpError(409, `This wallet has had its ${sponsorLib.SPONSORED_PER_WALLET_PER_DAY} free launches today. Launch normally, or come back tomorrow.`)
+  }
+  // Claimed before anything is sent, given back if nothing lands.
+  await env.REGISTRY.put(dayKey, String(today + 1), { expirationTtl: DAY_KEY_TTL })
 
   const signatures = []
   try {
@@ -1533,20 +1540,18 @@ async function sponsorLaunch(env, encoded) {
       signatures.push(signature)
     }
   } catch (e) {
-    if (!signatures.length) await env.REGISTRY.delete(walletKey).catch(() => {})
+    if (!signatures.length) await env.REGISTRY.put(dayKey, String(today), { expirationTtl: DAY_KEY_TTL }).catch(() => {})
     if (e instanceof HttpError) { e.landed = signatures; throw e }
     throw new HttpError(/blockhash not found|expired/i.test(e.message) ? 410 : 502,
       /blockhash not found|expired/i.test(e.message) ? 'The launch took too long to reach us and expired. Sign it again.' : `The launch did not land: ${e.message}`,
       { landed: signatures })
   }
 
+  // A running total, for the logs only.
   const used = (Number(await env.REGISTRY.get(SPONSOR_COUNT)) || 0) + 1
-  await Promise.all([
-    env.REGISTRY.put(SPONSOR_COUNT, String(used)),
-    env.REGISTRY.put(walletKey, JSON.stringify({ status: 'launched', mint: launch.baseMint, signatures, at: new Date().toISOString() })),
-  ])
-  console.log(`sponsored launch ${used}/${sponsorLib.SPONSORED_LAUNCHES}: ${launch.baseMint} for ${launch.creator}`)
-  return { baseMint: launch.baseMint, signatures, remaining: Math.max(0, sponsorLib.SPONSORED_LAUNCHES - used) }
+  await env.REGISTRY.put(SPONSOR_COUNT, String(used))
+  console.log(`sponsored launch #${used} (${today + 1}/${sponsorLib.SPONSORED_PER_WALLET_PER_DAY} today for this wallet): ${launch.baseMint} for ${launch.creator}`)
+  return { baseMint: launch.baseMint, signatures, leftToday: Math.max(0, sponsorLib.SPONSORED_PER_WALLET_PER_DAY - today - 1) }
 }
 
 async function crankOne(env, mint) {

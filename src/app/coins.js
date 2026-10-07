@@ -409,8 +409,8 @@ async function renderList() {
   // The free launches, while there are any: the single best reason to launch today.
   fetch('/api/sponsor').then((r) => r.json()).then((st) => {
     const badge = $('#free-badge')
-    if (!badge || !st?.enabled || !st.remaining) return
-    badge.textContent = `Free launch — ${st.remaining} of ${st.total} left`
+    if (!badge || !st?.enabled) return
+    badge.textContent = 'Free launch'
     badge.hidden = false
   }).catch(() => {})
 

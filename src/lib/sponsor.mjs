@@ -26,8 +26,8 @@
 
 import { PublicKey } from '@solana/web3.js'
 
-/** How many launches LFOwn pays for, in all. */
-export const SPONSORED_LAUNCHES = 30
+/** How many launches LFOwn pays for per wallet and UTC day. In all, the sponsor's balance decides. */
+export const SPONSORED_PER_WALLET_PER_DAY = 3
 
 /** The most one transaction may take from the sponsor, rent and fee included. */
 export const MAX_SPONSOR_LAMPORTS = 30_000_000 // 0.03 SOL; the pool transaction measures 0.0206

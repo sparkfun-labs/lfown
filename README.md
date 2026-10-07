@@ -107,8 +107,9 @@ key something already depends on is not replaced by replacing its file — only 
 
 ## Free launches
 
-LFOwn pays the rent and network fees of the next `SPONSORED_LAUNCHES` launches (30),
-one per wallet, so someone can launch holding no SOL. A launch measures 0.026 SOL on
+LFOwn pays the rent and network fees of launches, `SPONSORED_PER_WALLET_PER_DAY` (3)
+per wallet and UTC day, for as long as the sponsor's balance lasts, so someone can launch
+holding no SOL. A launch measures 0.026 SOL on
 devnet: 0.0206 for the pool (Metaplex's metadata fee included) and 0.0040 for the
 holders' fee vault. The creator still signs, owns the coin and earns its fees; an
 initial buy is still theirs to pay, plus the rent of the account their tokens land in.
@@ -125,11 +126,11 @@ the sponsor. `GET /api/sponsor?wallet=` says whether one is on offer.
 To turn it on:
 
     node scripts/keygen.mjs sponsor                          # prints the address
-    # send it 0.8 SOL: 30 launches at 0.026, and a little over
+    # send it what the run should cost: 0.026 SOL a launch, and a little over
     npx wrangler secret put SPONSOR_KEY < .keys/sponsor.json
 
-It turns itself off when the count is reached or the sponsor holds less than 0.03 SOL,
-and the page goes back to the paid launch. One per wallet is checked in KV, which is
+It turns itself off when the sponsor holds less than 0.03 SOL, and the page goes back to
+the paid launch. Three a day per wallet is counted in KV, which is
 not atomic and does not stop someone from using many wallets; the sponsor's balance is
 the real ceiling, so fund it for the run and no more. `npm run test:sponsor` runs a free
 launch end to end on devnet.
