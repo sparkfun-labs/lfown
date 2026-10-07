@@ -56,6 +56,17 @@ h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .block{margin:0 0 clamp(34px,5vw,56px)}
 .table-wrap{overflow-x:auto;border:1.5px solid var(--ink);background:var(--card)}
 table{width:100%;border-collapse:collapse;min-width:520px}
+td .m-sub{display:none}
+/* Phones: two columns per table, the detail folded under the first cell instead of a table
+   half off the screen. */
+@media(max-width:560px){
+  .table-wrap table{min-width:0}
+  .table-wrap th,.table-wrap td{padding:12px 14px}
+  #coins td:nth-child(2),#coins-table th:nth-child(2),#recent td:nth-child(3),#recent-table th:nth-child(3){display:none}
+  td .m-sub{display:block;margin-top:4px;font-family:var(--mono);font-size:.62rem;letter-spacing:.04em;color:var(--ink-soft)}
+  #coins td.num{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em}
+  #recent td.num .paid-usd{display:block;margin-top:3px;font-size:.85rem}
+}
 th{font-family:var(--mono);font-size:.52rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);text-align:left;font-weight:600;padding:12px 16px;border-bottom:1.5px solid var(--ink);white-space:nowrap}
 td{padding:12px 16px;border-bottom:1px dashed var(--rule)}
 tr:last-child td{border-bottom:0}
@@ -258,14 +269,14 @@ td a:hover{color:var(--red);border-color:var(--red)}
   <div class="two">
     <section class="block">
       <h2>Top distributors</h2>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table id="coins-table">
         <thead><tr><th>Coin</th><th>Pays in</th><th class="num">Earned by holders</th></tr></thead>
         <tbody id="coins"><tr><td colspan="3"><span class="skel">Loading…</span></td></tr></tbody>
       </table></div>
     </section>
     <section class="block">
       <h2>Latest payouts</h2>
-      <div class="table-wrap"><table>
+      <div class="table-wrap"><table id="recent-table">
         <thead><tr><th>When</th><th class="num">Paid</th><th class="num">Holders</th></tr></thead>
         <tbody id="recent"><tr><td colspan="3"><span class="skel">Loading…</span></td></tr></tbody>
       </table></div>
@@ -289,9 +300,9 @@ fetch('/api/rewards').then(function(r){return r.json()}).then(function(d){
   ]
   document.getElementById('stats').innerHTML=tiles.map(function(x){return '<div class="tot"><span class="lab">'+esc(x[0])+'</span><span class="big">'+esc(x[1])+'</span><span class="sub">'+esc(x[2])+'</span></div>'}).join('')
   var coins=d.coins||[]
-  document.getElementById('coins').innerHTML=coins.length?coins.map(function(c){return '<tr><td><a href="/coins/'+esc(c.baseMint)+'">$'+esc(c.symbol)+'</a></td><td>'+esc(c.quoteSymbol)+'</td><td class="num">'+usd(c.holdersUsd)+'</td></tr>'}).join(''):'<tr><td colspan="3">No coin has paid its holders yet.</td></tr>'
+  document.getElementById('coins').innerHTML=coins.length?coins.map(function(c){return '<tr><td><a href="/coins/'+esc(c.baseMint)+'">$'+esc(c.symbol)+'</a><span class="m-sub">pays in '+esc(c.quoteSymbol)+'</span></td><td>'+esc(c.quoteSymbol)+'</td><td class="num">'+usd(c.holdersUsd)+'</td></tr>'}).join(''):'<tr><td colspan="3">No coin has paid its holders yet.</td></tr>'
   var rec=d.recent||[]
-  document.getElementById('recent').innerHTML=rec.length?rec.map(function(r){return '<tr><td><a href="https://solscan.io/tx/'+esc(r.signature)+'" target="_blank" rel="noopener">'+esc(ago(r.at))+'</a></td><td class="num">'+num(r.amount,r.amount<1?4:2)+' '+esc(r.symbol)+(r.usd?' <span style="color:var(--ink-soft)">('+usd(r.usd)+')</span>':'')+'</td><td class="num">'+num(r.recipients,0)+'</td></tr>'}).join(''):'<tr><td colspan="3">No payout yet.</td></tr>'
+  document.getElementById('recent').innerHTML=rec.length?rec.map(function(r){return '<tr><td><a href="https://solscan.io/tx/'+esc(r.signature)+'" target="_blank" rel="noopener">'+esc(ago(r.at))+'</a><span class="m-sub">'+num(r.recipients,0)+' holder'+(r.recipients===1?'':'s')+'</span></td><td class="num">'+num(r.amount,r.amount<1?4:2)+' '+esc(r.symbol)+(r.usd?' <span class="paid-usd" style="color:var(--ink-soft)">('+usd(r.usd)+')</span>':'')+'</td><td class="num">'+num(r.recipients,0)+'</td></tr>'}).join(''):'<tr><td colspan="3">No payout yet.</td></tr>'
   document.getElementById('rw-note').innerHTML='Read from the holder pot\u2019s own transactions on chain. Earned by holders counts their share of every fee so far, including what is waiting for the next hourly payout.'
 }).catch(function(){document.getElementById('stats').innerHTML='<div class="tot"><span class="skel">Could not load the figures. Reload to try again.</span></div>'})
 </script>

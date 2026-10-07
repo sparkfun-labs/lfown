@@ -64,6 +64,16 @@ tr:last-child td{border-bottom:0}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 td a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule)}
 td a:hover{color:var(--red);border-color:var(--red)}
+td .m-amt{display:none}
+/* Phones: two columns, the token with its amount under it and the value beside, rather than
+   a table half off the screen. */
+@media(max-width:560px){
+  .table-wrap table{min-width:0}
+  .table-wrap th,.table-wrap td{padding:12px 14px}
+  #holdings td:nth-child(2),.table-wrap th:nth-child(2){display:none}
+  td .m-amt{display:block;margin-top:4px;font-family:var(--mono);font-size:.62rem;letter-spacing:.04em;color:var(--ink-soft);font-variant-numeric:tabular-nums}
+  #holdings td.num{font-family:var(--display);font-weight:800;font-size:1.05rem;letter-spacing:-.02em;vertical-align:middle}
+}
 .note{font-size:.9rem;color:var(--ink-soft);max-width:66ch;margin:12px 0 0}
 .note a{color:var(--red)}
 .token-mark{display:flex;align-items:center;gap:16px;margin:0 0 18px}
@@ -308,7 +318,7 @@ fetch('/api/lfown').then(function(r){return r.json()}).then(function(d){
   ]
   document.getElementById('stats').innerHTML=tiles.map(function(x){return '<div class="tot"><span class="lab">'+esc(x[0])+'</span><span class="big">'+esc(x[1])+'</span>'+(x[2]?'<span class="sub">'+esc(x[2])+'</span>':'')+'</div>'}).join('')
   var rows=(d.treasury||[]).filter(function(h){return h.usd>=1||!h.usd}).slice(0,25)
-  document.getElementById('holdings').innerHTML=rows.length?rows.map(function(h){return '<tr><td><a href="https://solscan.io/token/'+esc(h.mint)+'" target="_blank" rel="noopener">'+esc(h.symbol)+'</a></td><td class="num">'+num(h.amount,h.amount<1?6:2)+'</td><td class="num">'+(h.usd?usd(h.usd):'—')+'</td></tr>'}).join(''):'<tr><td colspan="3">Nothing yet.</td></tr>'
+  document.getElementById('holdings').innerHTML=rows.length?rows.map(function(h){return '<tr><td><a href="https://solscan.io/token/'+esc(h.mint)+'" target="_blank" rel="noopener">'+esc(h.symbol)+'</a><span class="m-amt">'+num(h.amount,h.amount<1?6:2)+' '+esc(h.symbol)+'</span></td><td class="num">'+num(h.amount,h.amount<1?6:2)+'</td><td class="num">'+(h.usd?usd(h.usd):'—')+'</td></tr>'}).join(''):'<tr><td colspan="3">Nothing yet.</td></tr>'
   document.getElementById('treasury-note').innerHTML='The DAO treasury account, read from chain: <a href="https://solscan.io/account/'+esc(d.treasuryAddress)+'#portfolio" target="_blank" rel="noopener">'+esc(short(d.treasuryAddress))+'</a>. Values at today\u2019s prices; tokens without a market are listed without one.'
 }).catch(function(){document.getElementById('stats').innerHTML='<div class="tot"><span class="skel">Could not load the figures. Reload to try again.</span></div>'})
 </script>
