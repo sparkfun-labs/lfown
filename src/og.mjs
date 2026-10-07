@@ -67,9 +67,9 @@ export function money(n) {
 /**
  * The card for one coin. `coin` is its launches entry; `artwork` its image as bytes and
  * type, or null; `marketCap` in dollars, or null when unknown; `logo` the
- * LFOwn mark as PNG bytes; `bonded` how far along its curve, in percent.
+ * LFOwn mark as PNG bytes.
  */
-export async function renderCard({ coin, artwork, marketCap, logo, bonded }) {
+export async function renderCard({ coin, artwork, marketCap, logo }) {
   const fontList = await prepare()
   const symbol = String(coin.symbol ?? '?').slice(0, 14).toUpperCase()
   const name = String(coin.name ?? '').slice(0, 40)
@@ -78,7 +78,6 @@ export async function renderCard({ coin, artwork, marketCap, logo, bonded }) {
   // rough width in this face (in ems): W and M run wide, I and 1 narrow.
   const em = (ch) => (/[WM]/.test(ch) ? 0.98 : /[I1]/.test(ch) ? 0.34 : /[$J]/.test(ch) ? 0.62 : 0.74)
   const tickerSize = Math.min(168, Math.floor(580 / [...`$${symbol}`].reduce((w, ch) => w + em(ch), 0)))
-  const status = coin.isMigrated ? 'GRADUATED · METEORA DAMM V2' : `ON THE CURVE · ${Math.round(bonded ?? 0)}% BONDED`
 
   // Artwork resvg can draw: PNG, JPEG, GIF. Anything else gets the ticker's initial instead.
   const art = artwork && /image\/(png|jpe?g|gif)/.test(artwork.type)
@@ -102,10 +101,10 @@ export async function renderCard({ coin, artwork, marketCap, logo, bonded }) {
         h('div', { flexDirection: 'column', marginTop: 'auto', marginBottom: 6 },
           label('Market cap'),
           h('div', { fontFamily: 'Bricolage', fontSize: 104, letterSpacing: -3, lineHeight: 1, marginTop: 12 }, marketCap ? money(marketCap) : '—')))),
-    // The foot: the coin's status, and whose site this is.
-    h('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 96, marginTop: 34, padding: '0 72px', background: C.ink, color: C.paper },
-      h('div', { fontSize: 18, letterSpacing: 4, fontWeight: 600 }, status),
-      h('div', { display: 'flex', alignItems: 'center', gap: 18 },
+    // The foot: whose site this is, on the right. The left stays empty because X lays the
+    // link's title over the bottom-left corner of the image.
+    h('div', { alignItems: 'center', justifyContent: 'flex-end', height: 96, marginTop: 34, padding: '0 72px', background: C.ink, color: C.paper },
+      h('div', { alignItems: 'center', gap: 18 },
         logo ? img(`data:image/png;base64,${toBase64(logo)}`, { height: 46, width: 68 }) : null,
         h('div', { fontSize: 20, letterSpacing: 2 }, 'letsfuckingown.fun'))))
 

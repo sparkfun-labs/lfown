@@ -945,12 +945,7 @@ async function shareCardInput(env, mint) {
   ])
   const last = chart.points?.length ? chart.points[chart.points.length - 1].price : 0
   const usd = Number(coin.quoteUsdPrice ?? 0)
-  const raised = Number(coin.quoteReserve ?? 0) / tokenUnit(coin.quoteMint)
-  return {
-    coin, artwork, logo,
-    marketCap: last && usd && supply ? last * usd * supply : null,
-    bonded: coin.threshold ? Math.min(100, (raised / coin.threshold) * 100) : 0,
-  }
+  return { coin, artwork, logo, marketCap: last && usd && supply ? last * usd * supply : null }
 }
 
 // Which card field each tag carries. Anything not listed is left alone.
