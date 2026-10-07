@@ -47,6 +47,13 @@
       "remote": true
     }
   ],
+  // Chat rooms (src/chat.mjs): one Durable Object per room, its history in its own SQLite.
+  "durable_objects": {
+    "bindings": [{ "name": "CHAT", "class_name": "ChatRoom" }]
+  },
+  "migrations": [
+    { "tag": "chat-v1", "new_sqlite_classes": ["ChatRoom"] }
+  ],
   "r2_buckets": [
     {
       "binding": "IMAGES",
@@ -55,7 +62,9 @@
     }
   ],
   "vars": {
-    "PUBLIC_ORIGIN": "https://letsfuckingown.fun"
+    "PUBLIC_ORIGIN": "https://letsfuckingown.fun",
+    // Wallets that can delete chat messages and ban a wallet from a room (src/chat.mjs).
+    "CHAT_ADMINS": "526W6vNe3WtRsfw8ELNKtAcpa2eFzXBtvre6RSsn3xUi"
   },
   // Per-address ceilings on what costs something to answer, enforced by the Worker
   // itself. The RPC proxy has its own because a trade polls it every second while a

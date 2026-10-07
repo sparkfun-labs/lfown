@@ -647,6 +647,25 @@ await test('pumps: the X post fits, keeps its headline, and the Telegram one is 
   assert.match(html, /\+20%<\/b> today/)
 })
 
+await test('chat: only a real wallet signature signs in, and a message is plain text', async () => {
+  const chat = await import(new URL('../src/chat.mjs', import.meta.url).href)
+  const { ed25519 } = await import('@noble/curves/ed25519')
+  const { PublicKey } = await import('@solana/web3.js')
+  const priv = ed25519.utils.randomPrivateKey()
+  const wallet = new PublicKey(ed25519.getPublicKey(priv)).toBase58()
+  const expires = Date.now() + 86_400_000
+  const sign = (w, e) => Buffer.from(ed25519.sign(new TextEncoder().encode(chat.signInMessage(w, e)), priv)).toString('base64')
+  assert.equal(chat.verifySignIn({ wallet, expires, signature: sign(wallet, expires) }), wallet)
+  assert.equal(chat.verifySignIn({ wallet, expires: expires + 1, signature: sign(wallet, expires) }), null, 'another expiry than the one signed')
+  const other = new PublicKey(ed25519.getPublicKey(ed25519.utils.randomPrivateKey())).toBase58()
+  assert.equal(chat.verifySignIn({ wallet: other, expires, signature: sign(other, expires) }), null, 'signed by a key that is not the wallet')
+  assert.equal(chat.verifySignIn({ wallet, expires: Date.now() - 1, signature: sign(wallet, Date.now() - 1) }), null, 'expired')
+  assert.equal(chat.verifySignIn({ wallet, expires: Date.now() + 90 * 86_400_000, signature: sign(wallet, Date.now() + 90 * 86_400_000) }), null, 'a session longer than a month')
+  assert.equal(chat.verifySignIn(null), null)
+  assert.equal(chat.cleanText('  hi\u0007\u202e there\n\n\n\nyou  '), 'hi there\n\nyou')
+  assert.equal(chat.cleanText('x'.repeat(900)).length, 500)
+})
+
 console.log(`\n${passed} passed`)
 console.log('rpc calls seen:', JSON.stringify(rpcCalls))
 rpc.close()

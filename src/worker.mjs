@@ -269,11 +269,19 @@ async function handleApi(url, request, env, ctx) {
     if (await limited(env.RPC_LIMITER, request)) return tooMany()
   } else if (path === '/api/event') {
     if (await limited(env.EVENT_LIMITER, request)) return new Response(null, { status: 204 })
+  } else if (path.startsWith('/api/chat/')) {
+    // Reading a room and opening its socket; what a socket sends is limited by the room.
+    if (await limited(env.EVENT_LIMITER, request)) return tooMany()
   } else if (path.startsWith('/api/random/')) {
     // Every call here runs a model. Its own ceiling, well under the heavy routes'.
     if (await limited(env.RANDOM_LIMITER, request)) return tooMany()
   } else if (HEAVY.some((p) => path === p || path.startsWith(`${p}/`))) {
     if (await limited(env.HEAVY_LIMITER, request)) return tooMany()
+  }
+
+  if (path.startsWith('/api/chat/')) {
+    const { handleChat } = await import('./chat.mjs')
+    return handleChat(url, request, env)
   }
 
   // The catalogue of ownership coins usable as a quote asset. Nothing is filtered
@@ -1970,6 +1978,9 @@ function decodeBase58(str) {
   for (const c of str) { if (c !== '1') break; bytes.unshift(0) }
   return Uint8Array.from(bytes)
 }
+
+// Chat rooms are Durable Objects, and their class has to be exported from the main module.
+export { ChatRoom } from './chat.mjs'
 
 export default {
   async fetch(request, env, ctx) {
