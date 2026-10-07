@@ -95,6 +95,13 @@ menu.addEventListener('click', async (e) => {
   render()
 })
 document.addEventListener('click', (e) => { if (!e.target.closest('.wallet-slot')) menu.hidden = true })
+// Another account picked in the wallet itself: the page follows it (see wallet.js).
+window.addEventListener('lfown:wallet-change', (e) => {
+  if (e.detail.session !== session) return
+  if (!e.detail.address) session = null
+  paintConnect()
+  render()
+})
 window.addEventListener('wallet-standard:register-wallet', () => setTimeout(() => {
   paintConnect()
   // Extensions announce themselves a beat after load, so this page can well have

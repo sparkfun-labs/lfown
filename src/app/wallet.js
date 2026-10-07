@@ -122,10 +122,10 @@ export async function connect(wallet, { silent = false } = {}) {
     const legacy = wallet.__legacy
     const { publicKey } = await legacy.connect(silent ? { onlyIfTrusted: true } : undefined)
     try { localStorage.setItem(REMEMBERED, wallet.name) } catch {}
-    return {
+    const session = {
       name: wallet.name,
       address: publicKey.toBase58(),
-      disconnect: () => legacy.disconnect?.(),
+      disconnect: () => { unfollow(session); return legacy.disconnect?.() },
       async signAndSend(tx, connection) {
         const signed = await legacy.signTransaction(tx)
         return connection.sendRawTransaction(signed.serialize())
@@ -139,22 +139,42 @@ export async function connect(wallet, { silent = false } = {}) {
         const signed = await legacy.signAllTransactions(txs)
         return signed.map((t) => t.serialize({ requireAllSignatures: false, verifySignatures: false }))
       },
+      /** The wallet's ed25519 signature of `bytes`, or null when it cannot sign messages. */
+      async signMessage(bytes) {
+        if (typeof legacy.signMessage !== 'function') return null
+        const { signature } = await legacy.signMessage(bytes, 'utf8')
+        return Uint8Array.from(signature)
+      },
     }
+    // The account the wallet has selected now: a switch to an account this site was never
+    // shown comes as null, and a silent reconnect is the only way to learn which it is.
+    const current = async (key = legacy.publicKey) => {
+      if (key) return key.toBase58()
+      try { return (await legacy.connect({ onlyIfTrusted: true })).publicKey?.toBase58() ?? null } catch { return null }
+    }
+    const onSwitch = (key) => current(key).then((address) => moved(session, address))
+    legacy.on?.('accountChanged', onSwitch)
+    follow(session, {
+      check: () => current().then((address) => moved(session, address)),
+      stop: () => (legacy.off ?? legacy.removeListener)?.call(legacy, 'accountChanged', onSwitch),
+    })
+    return session
   }
 
   const connectFeature = wallet.features['standard:connect']
   const { accounts } = await connectFeature.connect(silent ? { silent: true } : undefined)
-  const account = accounts[0]
+  // Mutable: when the person switches accounts in the wallet, signing follows the new one.
+  let account = accounts[0]
   if (!account) throw new Error('the wallet returned no account')
   try { localStorage.setItem(REMEMBERED, wallet.name) } catch {}
 
   const signAndSendFeature = wallet.features['solana:signAndSendTransaction']
   const signFeature = wallet.features['solana:signTransaction']
 
-  return {
+  const session = {
     name: wallet.name,
     address: account.address,
-    disconnect: () => wallet.features['standard:disconnect']?.disconnect(),
+    disconnect: () => { unfollow(session); return wallet.features['standard:disconnect']?.disconnect() },
     async signAndSend(tx, connection) {
       // Preferred: the wallet broadcasts through its own RPC, so a dropped
       // transaction is its problem to retry, not ours.
@@ -217,8 +237,63 @@ export async function connect(wallet, { silent = false } = {}) {
       if (signed.length !== txs.length) throw new Error(`${wallet.name} signed ${signed.length} of ${txs.length} transactions`)
       return signed.map((o) => o.signedTransaction)
     },
+
+    /** The wallet's ed25519 signature of `bytes` (a sign-in, not a transaction), or null when it cannot sign messages. */
+    async signMessage(bytes) {
+      const feature = wallet.features['solana:signMessage']
+      if (!feature) return null
+      const [{ signature }] = await feature.signMessage({ account, message: bytes })
+      return Uint8Array.from(signature)
+    },
   }
+  // The account the wallet shows this site now. Empty after a switch to an account the site
+  // was never connected to: a silent connect then says which, or that there is none.
+  const check = async () => {
+    let next = wallet.accounts?.[0] ?? null
+    if (!next) {
+      try { next = (await connectFeature.connect({ silent: true })).accounts?.[0] ?? null } catch { next = null }
+    }
+    if (next && next.address !== session.address) account = next
+    moved(session, next?.address ?? null)
+  }
+  const off = wallet.features['standard:events']?.on('change', (props) => { if (props.accounts) check() })
+  follow(session, { check, stop: () => off?.() })
+  return session
 }
+
+// ── following the wallet ─────────────────────────────────────────────────────
+//
+// Switching accounts in Phantom, Jupiter or any wallet, in the extension or in the app's own
+// browser, changes who is signing. The wallet says so with an event (Wallet Standard's
+// `change`, the older providers' `accountChanged`), and in case it says nothing, the account
+// is checked again whenever the page comes back into focus. Either way the session is
+// updated in place and the page hears it as one `lfown:wallet-change` event on window:
+// detail.address is the new address, or null once the wallet no longer shows this site any.
+
+let followed = null // { session, check, stop }
+function follow(session, watcher) {
+  if (followed) followed.stop()
+  followed = { session, ...watcher }
+}
+function unfollow(session) {
+  if (followed?.session !== session) return
+  followed.stop()
+  followed = null
+}
+function moved(session, address) {
+  if (followed?.session !== session || address === session.address) return
+  if (address) session.address = address
+  else unfollow(session)
+  window.dispatchEvent(new CustomEvent('lfown:wallet-change', { detail: { session, address } }))
+}
+let lastCheck = 0
+const recheck = () => {
+  if (!followed || document.hidden || Date.now() - lastCheck < 1_000) return
+  lastCheck = Date.now()
+  followed.check()
+}
+window.addEventListener('focus', recheck)
+document.addEventListener('visibilitychange', recheck)
 
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 function bs58(bytes) {

@@ -858,6 +858,13 @@ async function paintFree() {
 // Extensions can register after the page has loaded — repaint when they do, so the
 // button is never left dead next to a wallet that is actually there.
 window.addEventListener('wallet-standard:register-wallet', () => setTimeout(() => { paintConnect(); paintWallet() }, 0))
+// Another account picked in the wallet itself: the page follows it (see wallet.js).
+window.addEventListener('lfown:wallet-change', (e) => {
+  if (e.detail.session !== session) return
+  if (!e.detail.address) session = null
+  paintConnect()
+  paintWallet()
+})
 document.addEventListener('click', (e) => { if (!e.target.closest('.wallet-slot')) menu.hidden = true })
 
 connectBtn.addEventListener('click', async () => {

@@ -80,6 +80,12 @@ menu?.addEventListener('click', async (e) => {
 })
 document.addEventListener('click', (e) => { if (menu && !e.target.closest('.wallet-slot')) menu.hidden = true })
 window.addEventListener('wallet-standard:register-wallet', () => setTimeout(paint, 0))
+// Another account picked in the wallet itself: the button follows it (see wallet.js).
+window.addEventListener('lfown:wallet-change', (e) => {
+  if (e.detail.session !== session) return
+  if (!e.detail.address) session = null
+  paint()
+})
 
 paint()
 // Wallets register a beat after the page loads; a refresh should not cost a reconnection.
