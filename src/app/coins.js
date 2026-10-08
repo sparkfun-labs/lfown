@@ -4,7 +4,7 @@ import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
-import { tokenUnit } from '../lib/config.mjs'
+import { tokenUnit, THEMES, EXTRA_QUOTES } from '../lib/config.mjs'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 import { mountChat } from './chat.js'
@@ -307,7 +307,11 @@ const SORTS = {
 // One set of controls for the whole page, so the state lives here rather than in
 // either section. Kept outside the render: the fee report repaints the list, and
 // sorting it should not come undone underneath the person who did it.
-const listState = { pair: '', key: 'new', desc: true }
+const listState = { pair: '', key: 'new', desc: true, theme: '' }
+/** A meme's thematic is its pair's: listed by hand with its own, or an ownership coin. */
+const memeTheme = (c) => EXTRA_QUOTES.find((q) => q.mint === c.quoteMint)?.theme ?? 'ownership'
+// What the headline says the memes are paired with, per tab.
+const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana OGs.', dino: 'a dinosaur.' }
 
 /**
  * A dropdown in the site's own clothes.
@@ -412,19 +416,19 @@ async function renderList() {
   view.innerHTML = `
     <section class="opener">
       <div>
-        <p class="eyebrow">Solana · MetaDAO · Futarchy</p>
-        <h1>Launch coins paired with <em>ownership coins.</em></h1>
+        <p class="eyebrow">Memes on Solana · ${THEMES.map((t) => esc(t.short)).join(' · ')}</p>
+        <h1>Launch memes paired with <em id="paired-with">${esc(PAIRED_WITH[listState.theme])}</em></h1>
       </div>
       <div class="side">
-        <p>Not SOL, not a stock: every meme here trades against a <b>MetaDAO ownership coin</b> with a treasury behind it. Its creator earns on every trade, and so do its holders.</p>
+        <p>Pick what your meme trades against: an <b>ownership coin</b> with a treasury behind it, a <b>Solana OG</b>, even a fossil. Its creator earns on every trade, so do its holders, and half of every fee goes to the <b>LFOWN DAO</b>.</p>
         <div class="ctas">
-          <a class="btn" href="/launch">Launch Ownership Memes</a>
+          <a class="btn" id="launch-cta" href="/launch">Launch a meme</a>
           <a class="btn ghost" href="/rewards">Holder rewards</a>
         </div>
         <span class="free" id="free-badge" hidden></span>
       </div>
     </section>
-    <div class="list-head"><h2>Ownership memes</h2></div>
+    <div class="list-head"><h2>Memes</h2><nav class="theme-tabs" id="theme-tabs" aria-label="Thematics"></nav></div>
     <div id="sections"><p class="skel">Loading…</p></div>`
 
   // No totals strip on the home page any more (they live on /leaderboard and
@@ -451,15 +455,37 @@ async function renderList() {
   // Two different things wearing the same card, so they keep their own headings —
   // but one set of controls above both, because filtering to a pair and then having
   // to do it twice is not a filter, it is two.
+  // One tab per thematic, after All, even one with no meme yet: that is an invitation. The headline and the launch button
+  // follow the tab: "paired with Solana OGs", and a launch that opens on that thematic.
+  const tabs = $('#theme-tabs')
+  const paintTabs = () => {
+    const count = (id) => coins.filter((c) => !id || memeTheme(c) === id).length
+    tabs.innerHTML = [{ id: '', short: 'All' }, ...THEMES]
+      .map((t) => `<button type="button" data-theme="${t.id}" aria-pressed="${String(t.id === listState.theme)}">${esc(t.short)}<span>${count(t.id)}</span></button>`).join('')
+    tabs.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+      listState.theme = b.dataset.theme
+      listState.pair = ''
+      paintTabs()
+      paintSections()
+    }))
+    $('#paired-with').textContent = PAIRED_WITH[listState.theme]
+    $('#launch-cta').href = listState.theme ? `/launch?theme=${listState.theme}` : '/launch'
+  }
+  const inTheme = () => coins.filter((c) => !listState.theme || memeTheme(c) === listState.theme)
   paintSections = () => {
     box.innerHTML = ''
-    box.appendChild(controls(coins, () => paintSections()))
-    section(box, 'Graduated', coins.filter((c) => c.isMigrated))
-    section(box, 'On the curve', coins.filter((c) => !c.isMigrated))
+    const shown = inTheme()
+    box.appendChild(controls(shown, () => paintSections()))
+    section(box, 'Graduated', shown.filter((c) => c.isMigrated))
+    section(box, 'On the curve', shown.filter((c) => !c.isMigrated))
     if (!box.querySelector('.coin')) {
-      box.insertAdjacentHTML('beforeend', `<p class="skel">Nothing paired with ${esc(listState.pair)}.</p>`)
+      const t = THEMES.find((x) => x.id === listState.theme)
+      box.insertAdjacentHTML('beforeend', listState.pair
+        ? `<p class="skel">Nothing paired with ${esc(listState.pair)}.</p>`
+        : `<p class="skel">No meme paired with ${esc(t?.pairedWith ?? 'these')} yet. <a href="${esc($('#launch-cta').getAttribute('href'))}">Launch the first</a>.</p>`)
     }
   }
+  paintTabs()
   paintSections()
 }
 
@@ -813,7 +839,8 @@ async function renderCoin(mint) {
     // on the buy side the amount box underneath already reads "Amount in CARS".
     payLab.hidden = side !== 'sell'
     payBox.hidden = false
-    const options = [{ mint: coin.quoteMint, symbol: coin.quoteSymbol }, ...PAY_WITH]
+    // A meme paired with SOL already trades in SOL: it is not offered a second time.
+    const options = [{ mint: coin.quoteMint, symbol: coin.quoteSymbol }, ...PAY_WITH.filter((p) => p.mint !== coin.quoteMint)]
     payBox.innerHTML = options.map((o) =>
       `<button type="button" data-mint="${esc(o.mint)}" aria-pressed="${String(o.mint === payVia)}">${esc(o.symbol)}</button>`).join('')
     payBox.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
@@ -897,7 +924,10 @@ async function renderCoin(mint) {
         latest = null
         // A graduated coin no longer trades on its curve: every trade goes through Jupiter,
         // which routes it over the coin's Meteora pool, paying in its own pair included.
-        const via = payWith(payVia) ?? (state.isMigrated ? { mint: coin.quoteMint, decimals: state.quoteDecimals, symbol: coin.quoteSymbol } : null)
+        // Paying in the pair itself is the curve, SOL included (the SDK wraps it); only a
+        // graduated coin sends that through Jupiter too.
+        const pair = { mint: coin.quoteMint, decimals: state.quoteDecimals, symbol: coin.quoteSymbol }
+        const via = payVia === coin.quoteMint ? (state.isMigrated ? pair : null) : payWith(payVia)
         let receiving, symbol
 
         if (via) {

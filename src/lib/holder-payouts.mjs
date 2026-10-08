@@ -17,11 +17,11 @@
 
 import { PublicKey } from '@solana/web3.js'
 import {
-  TOKEN_PROGRAM_ID, getAssociatedTokenAddressSync,
-  createAssociatedTokenAccountIdempotentInstruction, createTransferInstruction,
+  getAssociatedTokenAddressSync,
+  createAssociatedTokenAccountIdempotentInstruction, createTransferCheckedInstruction,
 } from '@solana/spl-token'
 import { allocate, deriveVault } from './fee-split.mjs'
-import { tokenUnit } from './config.mjs'
+import { tokenUnit, tokenDecimals, tokenProgramOf } from './config.mjs'
 
 /**
  * Below this, in dollars, a coin is left alone for the next run.
@@ -155,7 +155,11 @@ export function payoutInstructions({ holders, pot, payer, quoteMint, amount, pri
   if (!payouts.length) return { batches: [], totals: [], paid: 0n, carried, payouts: [] }
 
   const mint = new PublicKey(quoteMint)
-  const from = getAssociatedTokenAddressSync(mint, pot, true)
+  // Token-2022 coins (PUMP) live at other account addresses and move with transfer_checked,
+  // which carries the mint and its decimals; that works for classic SPL coins too.
+  const program = new PublicKey(tokenProgramOf(quoteMint))
+  const decimals = tokenDecimals(quoteMint)
+  const from = getAssociatedTokenAddressSync(mint, pot, true, program)
   const batches = []
   const totals = []
   for (let i = 0; i < payouts.length; i += PER_TRANSACTION) {
@@ -164,13 +168,13 @@ export function payoutInstructions({ holders, pot, payer, quoteMint, amount, pri
     totals.push(slice.reduce((t, p) => t + p.amount, 0n))
     for (const p of slice) {
       const owner = new PublicKey(p.address)
-      const to = getAssociatedTokenAddressSync(mint, owner, true)
+      const to = getAssociatedTokenAddressSync(mint, owner, true, program)
       // Idempotent: a holder who already has an account for this coin is common, and
       // the plain create would fail the whole batch for everyone else in it.
       // The payer rents the account, not the pot: the pot holds what is owed to other
       // people and nothing else, so it never needs a SOL balance of its own.
-      instructions.push(createAssociatedTokenAccountIdempotentInstruction(payer, to, owner, mint, TOKEN_PROGRAM_ID))
-      instructions.push(createTransferInstruction(from, to, pot, p.amount, [], TOKEN_PROGRAM_ID))
+      instructions.push(createAssociatedTokenAccountIdempotentInstruction(payer, to, owner, mint, program))
+      instructions.push(createTransferCheckedInstruction(from, mint, to, pot, p.amount, decimals, [], program))
     }
     batches.push(instructions)
   }

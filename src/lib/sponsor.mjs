@@ -45,6 +45,8 @@ const MAX_UNIT_LIMIT = 1_400_000 // the runtime's own ceiling
 const DEFAULT_UNITS_PER_IX = 200_000 // what the runtime allots when no limit is set
 const MAX_SIGNERS = 3 // sponsor, creator, the new coin
 const ASSOCIATED_TOKEN = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL'
+const SYSTEM = '11111111111111111111111111111111'
+const TOKEN = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
 
 export class SponsorError extends Error {}
 const refuse = (message) => { throw new SponsorError(message) }
@@ -91,7 +93,7 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
     refuse('a sponsored launch is one or two transactions')
   }
 
-  const allowed = new Set([COMPUTE_BUDGET, ASSOCIATED_TOKEN, dbc.programId.toBase58(), dfs.programId.toBase58()])
+  const allowed = new Set([COMPUTE_BUDGET, ASSOCIATED_TOKEN, SYSTEM, TOKEN, dbc.programId.toBase58(), dfs.programId.toBase58()])
   const POOL_PAYER = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'payer')
   const POOL_CREATOR = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'creator')
   const POOL_CONFIG = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'config')
@@ -155,6 +157,11 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
       }
       // Every other instruction — a buy, an account, a budget — pays its own way.
       if (sponsorAt.length) refuse(`instruction ${t}.${i} would spend the sponsor's SOL`)
+      // A first buy in SOL, on a meme paired with SOL: the creator's SOL wrapped into their
+      // own account (a transfer, then sync), and the account closed after. The sponsor is
+      // in none of these accounts, checked just above.
+      if (program === SYSTEM && Buffer.from(ix.data).readUInt32LE(0) !== 2) refuse(`instruction ${t}.${i} is not a plain SOL transfer`)
+      if (program === TOKEN && ![17, 9].includes(Buffer.from(ix.data)[0])) refuse(`instruction ${t}.${i} is not part of a launch (token instruction ${Buffer.from(ix.data)[0]})`)
       // Whitelisted programs, but only these of their instructions.
       if (program === dbc.programId.toBase58() && !['swap', norm('transferPoolCreator')].includes(name)) {
         refuse(`instruction ${t}.${i} is not part of a launch (${name || 'unknown'})`)

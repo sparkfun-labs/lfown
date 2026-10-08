@@ -38,12 +38,27 @@ export const COIN_DECIMALS = 6
  * only while the coin has no market for Jupiter to price; once it trades, the market
  * price wins.
  */
+/**
+ * The thematics a meme can be paired in. Every MetaDAO ownership coin is in `ownership`;
+ * a coin listed by hand below names its own. The first is the default tab.
+ */
+export const THEMES = [
+  { id: 'ownership', label: 'Ownership coins', short: 'Ownership', pairedWith: 'ownership coins',
+    blurb: 'MetaDAO ownership coins: a treasury behind every pair, run by futarchy.' },
+  { id: 'solana', label: 'Solana OGs', short: 'Solana OGs', pairedWith: 'Solana OGs',
+    blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
+  { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
+    blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
+]
+export const themeOf = (coin) => coin?.theme ?? 'ownership'
+
 export const EXTRA_QUOTES = [
   {
     mint: 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB',
     symbol: 'TRCH1',
     name: 'Deaton',
     decimals: 9,
+    theme: 'dino',
     // What contributors paid per token: $660,000 raised for ~950,000 TRCH1.
     referencePrice: 0.6947,
     icon: 'https://gateway.irys.xyz/9kC4VBpTGcwokbvMpBQsEMDgZrp2xFgSFKiRF21D8zvH',
@@ -58,6 +73,18 @@ export const EXTRA_QUOTES = [
       url: 'https://app.jurassic.finance/',
     },
   },
+  // Solana OGs. No backing to name: each is priced by its market, which Jupiter reads.
+  // `opens` keeps a pair announced but not launchable until its config is open, the
+  // day it goes live; the catalogue still lists it so the script can open it.
+  { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana', decimals: 9, theme: 'solana', opens: '2026-10-09', native: true },
+  // PUMP is a Token-2022 mint (transfer hook extension, no hook set) that Meteora has badged
+  // for DBC; every amount of it moves through the Token-2022 program, transfer_checked.
+  { mint: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6, theme: 'solana', opens: '2026-10-09', token2022: true },
+  { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, theme: 'solana', opens: '2026-10-09' },
+  { mint: 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL', symbol: 'MET', name: 'Meteora', decimals: 6, theme: 'solana', opens: '2026-10-09' },
+  // BONK has 5 decimals. DBC's SDK types quote decimals as 6–9, but the program takes the
+  // quote's decimals from its mint and a 5-decimal quote ran end to end on devnet (8 Oct).
+  { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, theme: 'solana', opens: '2026-10-09' },
 ]
 
 /** Decimals of a coin LFOwn deals in: listed by hand above, or the 6 everything else has. */
@@ -68,6 +95,14 @@ export function tokenDecimals(mint) {
 
 /** Raw units in one whole token of `mint`. */
 export const tokenUnit = (mint) => 10 ** tokenDecimals(mint)
+
+export const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
+/** The token program a coin LFOWN deals in moves through: Token-2022 for the few listed so. */
+export function tokenProgramOf(mint) {
+  const key = typeof mint === 'string' ? mint : mint?.toBase58?.()
+  return EXTRA_QUOTES.find((q) => q.mint === key)?.token2022 ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM
+}
 
 /** Exit sizes we price on every quote asset, in USD. Shown to the user, never used to gate. */
 export const EXIT_SIZES = [1_000, 5_000, 25_000]

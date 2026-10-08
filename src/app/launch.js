@@ -5,7 +5,7 @@ import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
-import { TIERS, FEES, tokenUnit } from '../lib/config.mjs'
+import { TIERS, FEES, tokenUnit, THEMES, themeOf } from '../lib/config.mjs'
 
 const state = {
   asset: null,
@@ -40,9 +40,15 @@ const price = (n) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
  * What stands behind a backing coin, as a short label and a figure. An ownership coin
  * has a treasury; a coin listed by hand says what it has instead — a dinosaur, so far.
  */
+const big = (n) => (n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : usd(n))
 const backing = (a) => a.backing
   ? { label: 'Backed by', value: a.backing.label.replace(/^A /, ''), usd: a.backing.usd }
-  : { label: 'Treasury', value: usd(a.treasury), usd: a.treasury }
+  : themeOf(a) === 'solana'
+    ? { label: 'Market cap', value: big(a.mcap), usd: a.mcap }
+    : { label: 'Treasury', value: usd(a.treasury), usd: a.treasury }
+/** A pair announced for a later day: shown, not yet launchable. */
+const opensLater = (a) => Boolean(a.opens) && Date.parse(`${a.opens}T00:00:00Z`) > Date.now()
+const opensLabel = (a) => new Date(`${a.opens}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
 /** A price nobody has traded at yet is the raise's, and says so. */
 const priceOf = (a) => price(a.usdPrice) + (a.priceSource === 'reference' ? ' raise' : '')
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
@@ -89,7 +95,7 @@ function paintPaired(n = +document.querySelector('.step.on')?.dataset.step) {
   if (box.hidden) return
   box.innerHTML = state.blind
     ? `<span class="dice">?</span>
-       <span class="what">Paired with <b>a random ownership coin</b><br><small>Revealed before you sign.</small></span>`
+       <span class="what">Paired with <b>a random ${esc(THEMES.find((t) => t.id === theme)?.pairedWith.replace(/s$/, '') ?? 'coin')}</b><br><small>Revealed before you sign.</small></span>`
     : `${a.icon ? `<img src="${safeUrl(a.icon)}" alt="">` : ''}
        <span class="what">Paired with <b>${esc(a.symbol)}</b>${a.name ? ` <small>${esc(a.name)}</small>` : ''}<br>
        <small>${backing(a).label} ${esc(backing(a).value)} · ${priceOf(a)}</small></span>`
@@ -117,6 +123,8 @@ async function loadAssets() {
   }
 
   box.innerHTML = ''
+  allCoins = coins
+  paintThemeTabs(coins)
 
   // First tile, before any coin: a draw made here, in this browser, with the
   // platform's own CSPRNG. Nothing about it is decided on our side.
@@ -130,17 +138,20 @@ async function loadAssets() {
       <div class="dice">?</div>
       <div><div class="sym">Random</div><div class="name">Let the draw decide</div></div>
     </div>
-    <p class="wild-note" id="wild-note">One of the ${coins.length} coins beside this one. Which one
-      stays off this screen until you sign.</p>`
-  wild.addEventListener('click', () => drawRandom(wild, coins))
+    <p class="wild-note" id="wild-note"></p>`
+  // The draw is among the coins of the tab on show, open today.
+  wild.addEventListener('click', () => drawRandom(wild, coins.filter((c) => themeOf(c) === theme && !opensLater(c))))
   box.appendChild(wild)
 
   for (const c of coins) {
     const f = c.financials
     const card = document.createElement('button')
     card.type = 'button'
-    card.className = c.backing ? `qcard featured ${c.backing.kind}` : 'qcard'
+    card.className = c.backing ? `qcard featured ${c.backing.kind}` : `qcard theme-${themeOf(c)}`
     card.setAttribute('aria-pressed', 'false')
+    card.dataset.theme = themeOf(c)
+    const later = opensLater(c)
+    if (later) { card.classList.add('soon'); card.setAttribute('aria-disabled', 'true') }
     card.dataset.search = `${c.symbol} ${c.name ?? ''} ${c.backing ? `${c.backing.kind} ${c.backing.label} ${c.backing.project}` : ''}`.toLowerCase()
     card.dataset.mint = c.mint
     card.dataset.symbol = c.symbol.toLowerCase()
@@ -155,6 +166,17 @@ async function loadAssets() {
         <div><dt>Raised</dt><dd>${usd(c.backing.raised)}</dd></div>
         <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
         <div><dt title="${c.priceSource === 'reference' ? 'What its raise paid per token; it has no market yet' : 'Market price'}">Price</dt><dd>${priceOf(c)}</dd></div>
+      </dl>` : themeOf(c) === 'solana' ? `
+      <div class="top">
+        ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
+        <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>
+      </div>
+      ${later ? `<p class="badge soon-badge">Opens ${esc(opensLabel(c))}</p>` : ''}
+      <dl>
+        <div class="treasury"><dt>Market cap</dt><dd>${big(c.mcap)}</dd></div>
+        <div><dt>Liquidity</dt><dd>${big(c.liquidity)}</dd></div>
+        <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
+        <div><dt>Price</dt><dd>${price(c.usdPrice)}</dd></div>
       </dl>` : `
       <div class="top">
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
@@ -166,7 +188,7 @@ async function loadAssets() {
         <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
         <div><dt>Price</dt><dd>${price(c.usdPrice)}</dd></div>
       </dl>`
-    card.addEventListener('click', () => select(c, card))
+    card.addEventListener('click', () => { if (!opensLater(c)) select(c, card) })
 
     // A link cannot sit inside a button, so the card and its link share a slot in the grid.
     const slot = document.createElement('div')
@@ -197,6 +219,53 @@ async function loadAssets() {
     }
     box.appendChild(slot)
   }
+  filterAssets()
+}
+
+// ── thematics ────────────────────────────────────────────────────────────────
+// The grid shows one thematic at a time, ownership coins first. `?theme=solana` opens on
+// another; `?quote=` opens on that coin's.
+let allCoins = []
+let theme = THEMES.some((t) => t.id === new URLSearchParams(location.search).get('theme'))
+  ? new URLSearchParams(location.search).get('theme') : THEMES[0].id
+
+function paintThemeTabs(coins) {
+  const wanted = new URLSearchParams(location.search).get('quote')?.replace(/^\$/, '').toLowerCase()
+  const quoted = wanted && coins.find((c) => c.mint === wanted || c.symbol.toLowerCase() === wanted)
+  if (quoted) theme = themeOf(quoted)
+  const nav = $('#theme-tabs')
+  nav.innerHTML = THEMES.map((t) => {
+    const n = coins.filter((c) => themeOf(c) === t.id).length
+    return n ? `<button type="button" data-theme="${t.id}" aria-pressed="${String(t.id === theme)}">${esc(t.label)}<span>${n}</span></button>` : ''
+  }).join('')
+  nav.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    theme = b.dataset.theme
+    nav.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)))
+    const url = new URL(location.href)
+    url.searchParams.set('theme', theme)
+    history.replaceState(null, '', url)
+    filterAssets()
+  }))
+}
+
+/** The tab on show, and the search within it. */
+function filterAssets() {
+  const needle = search.value.trim().toLowerCase()
+  const t = THEMES.find((x) => x.id === theme)
+  $('#theme-blurb').textContent = t?.blurb ?? ''
+  let shown = 0
+  document.querySelectorAll('.qcard:not(.wild)').forEach((card) => {
+    const hit = card.dataset.theme === theme && (!needle || card.dataset.search.includes(needle))
+    ;(card.closest('.qitem') ?? card).hidden = !hit
+    if (hit) shown++
+  })
+  const open = allCoins.filter((c) => themeOf(c) === theme && !opensLater(c)).length
+  const wild = $('.qcard.wild')
+  if (wild) {
+    wild.hidden = open < 2 || Boolean(needle)
+    $('#wild-note').textContent = `One of the ${open} coins beside this one. Which one stays off this screen until you sign.`
+  }
+  $('#no-match').hidden = shown > 0
 }
 
 /**
@@ -247,16 +316,7 @@ function select(coin, card) {
 }
 
 const search = $('#asset-search')
-search.addEventListener('input', () => {
-  const needle = search.value.trim().toLowerCase()
-  let shown = 0
-  document.querySelectorAll('.qcard').forEach((card) => {
-    const hit = !needle || card.dataset.search.includes(needle)
-    ;(card.closest('.qitem') ?? card).hidden = !hit
-    if (hit) shown++
-  })
-  $('#no-match').hidden = shown > 0
-})
+search.addEventListener('input', () => filterAssets())
 
 // ── 02 · token details ───────────────────────────────────────────────────────
 const fields = { name: '#f-name', symbol: '#f-symbol', desc: '#f-desc', x: '#f-x', site: '#f-site' }
@@ -542,7 +602,10 @@ async function paintFunding() {
   // Balances and quotes come back out of order, and the person may have clicked
   // another currency in the meantime. Only the newest run is allowed to write.
   const run = ++fundingRun
-  const options = state.blind ? [...PAY_WITH] : [{ mint: a.mint, symbol: a.symbol }, ...PAY_WITH]
+  // A meme paired with SOL is bought in SOL itself, straight from the wallet: there is
+  // nothing for Jupiter to swap, and SOL is not offered twice.
+  const others = PAY_WITH.filter((p) => p.mint !== a.mint)
+  const options = state.blind ? [...PAY_WITH] : [{ mint: a.mint, symbol: a.symbol }, ...(a.native ? [] : others)]
 
   box.innerHTML = `<span class="lab">Paying the ${fmt(need, 4)} ${esc(sym())} initial buy</span>
     <div class="pay">${options.map((o) =>
@@ -566,7 +629,7 @@ async function paintFunding() {
 
   try {
     const { connection } = await import('./launchpad.js')
-    const have = await balanceOf(connection, session.address, a.mint)
+    const have = await balanceOf(connection, session.address, a.mint, { native: Boolean(a.native) })
     if (run !== fundingRun) return
     f.have = have
     const short = Math.max(0, need - have)
@@ -654,7 +717,7 @@ function paintReview() {
     line('Paired with', state.blind ? 'Random — named the moment you sign' : esc(a.symbol)) +
     // The treasury is the one figure that would identify the coin outright, so a
     // blind launch simply does without it rather than printing a lookup key.
-    (state.blind ? '' : line(a.backing ? 'Backed by' : 'Treasury', a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : usd(a.treasury))) +
+    (state.blind ? '' : line(backing(a).label, a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : esc(backing(a).value))) +
     line('Graduation target', target ?? '—') +
     (state.feeWallet.address
       ? line(`${esc(short(state.feeWallet.address))} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')
@@ -971,7 +1034,7 @@ signBtn.addEventListener('click', async () => {
       paintPaired()
       paintReview()
       paintFunding()
-      say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, ${a.backing ? `backed by ${esc(a.backing.label.toLowerCase())}` : `treasury ${usd(a.treasury)}`}.
+      say(`Your draw is <b>${esc(a.symbol)}</b>${a.name ? ` — ${esc(a.name)}` : ''}, ${a.backing ? `backed by ${esc(a.backing.label.toLowerCase())}` : `${backing(a).label.toLowerCase()} ${esc(backing(a).value)}`}.
         Nothing has been signed. Continue, or go back and pick another.`)
       // A beat to actually read it, rather than a wallet popping up over the reveal.
       await new Promise((r) => setTimeout(r, 2600))
@@ -983,8 +1046,8 @@ signBtn.addEventListener('click', async () => {
     let devBuy = state.curve.devBuyQuote ?? 0
     if (devBuy > 0) {
       const { balanceOf, inputFor, topUp, payWith } = await import('./funding.js')
-      let have = await balanceOf(connection, wallet.address, a.mint)
-      const pay = state.funding.via === a.mint ? null : payWith(state.funding.via)
+      let have = await balanceOf(connection, wallet.address, a.mint, { native: Boolean(a.native) })
+      const pay = state.funding.via === a.mint || a.native ? null : payWith(state.funding.via)
 
       if (pay && have < devBuy) {
         // Repriced against the balance as it stands rather than reused from the

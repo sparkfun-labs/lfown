@@ -24,7 +24,7 @@
 // `own` like everyone else's; when the reserve is empty the launch goes ahead on a
 // random address and says so, because an agent must always be able to launch.
 
-import { FEES, TIERS, feeBreakdown, tokenUnit } from './lib/config.mjs'
+import { FEES, TIERS, feeBreakdown, tokenUnit, tokenProgramOf } from './lib/config.mjs'
 import { HOLDER_MAX_PCT, clampHolderPct, splitFor } from './lib/fee-split.mjs'
 
 /** What a launch shares with holders when the agent does not say. Same as the page. */
@@ -269,7 +269,7 @@ async function chainChecks(env, request) {
     if (out.devBuyQuote > 0) {
       let held = 0
       try {
-        const ata = getAssociatedTokenAddressSync(new PublicKey(request.coin.mint), creator)
+        const ata = getAssociatedTokenAddressSync(new PublicKey(request.coin.mint), creator, false, new PublicKey(tokenProgramOf(request.coin.mint)))
         held = Number((await connection.getTokenAccountBalance(ata)).value.amount)
       } catch { /* no account for it yet means none held */ }
       if (held < out.devBuyQuote) {

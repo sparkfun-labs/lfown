@@ -36,7 +36,7 @@ const WALLET = `<span class="wallet-slot">
  * launch button drops below the breakpoint, where the burger's drawer has it and the
  * bar has room for one button only.
  */
-const ACTIONS = `<a class="btn hide-s launch-cta" href="/launch"><span>Launch Ownership Memes</span></a>
+const ACTIONS = `<a class="btn hide-s launch-cta" href="/launch"><span>Launch a meme</span></a>
       ${WALLET}`
 
 /**

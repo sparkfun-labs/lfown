@@ -7,7 +7,7 @@
 // without them. A post that fails is logged and dropped — a timeline is never worth
 // failing a graduation over.
 
-import { tokenUnit } from './config.mjs'
+import { tokenUnit, EXTRA_QUOTES } from './config.mjs'
 
 const API = 'https://api.x.com/2/tweets'
 // v2, because the v1.1 endpoint on upload.twitter.com has been retired. The answer
@@ -182,13 +182,21 @@ function fit(lines, url) {
 // Put `\nCA: ${coin.baseMint}` back as the last line of both messages after the
 // window closes — it is the first reply a launch post gets without it.
 
+/** What the pair is, in the words of its thematic. */
+function pairLine(coin, quote) {
+  const extra = EXTRA_QUOTES.find((q) => q.mint === coin.quoteMint)
+  if (!extra) return `Paired with ${quote}, a MetaDAO ownership coin.`
+  if (extra.backing) return `Paired with ${quote}, backed by ${extra.backing.label.replace(/^A /, 'a ')}.`
+  return `Paired with ${quote}, one of the Solana OGs.`
+}
+
 /** A coin has opened. */
 export function launchedMessage(coin, origin) {
   const symbol = coin.symbol || '?'
   const quote = coin.quoteSymbol || '?'
   return fit([
     `🚀 ${symbol} just launched`,
-    { text: `Paired with ${quote}, a MetaDAO ownership coin.`, drop: true },
+    { text: pairLine(coin, quote), drop: true },
     { text: coin.threshold ? `Graduates at ${money(coin.threshold)} ${quote}.` : '', drop: true },
   ], coinUrl(coin, origin))
 }

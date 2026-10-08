@@ -8,7 +8,7 @@
 
 import { PublicKey } from '@solana/web3.js'
 import { CpAmm, getUnClaimLpFee, derivePositionNftAccount } from '@meteora-ag/cp-amm-sdk'
-import { tokenUnit } from './config.mjs'
+import { tokenUnit, tokenProgramOf } from './config.mjs'
 
 /**
  * Every graduated position an owner holds, with what is actually claimable.
@@ -56,7 +56,6 @@ export async function lpPositions(connection, owner) {
 export async function buildLpClaim(connection, entry, { owner, receiver, feePayer }) {
   const cp = new CpAmm(connection)
   const { poolState, positionState } = entry
-  const { TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
 
   return cp.claimPositionFee2({
     owner: new PublicKey(owner),
@@ -69,7 +68,8 @@ export async function buildLpClaim(connection, entry, { owner, receiver, feePaye
     tokenBVault: poolState.tokenBVault,
     tokenAMint: poolState.tokenAMint,
     tokenBMint: poolState.tokenBMint,
-    tokenAProgram: TOKEN_PROGRAM_ID,
-    tokenBProgram: TOKEN_PROGRAM_ID,
+    // Each side under its own token program: the quote may be a Token-2022 coin (PUMP).
+    tokenAProgram: new PublicKey(tokenProgramOf(poolState.tokenAMint)),
+    tokenBProgram: new PublicKey(tokenProgramOf(poolState.tokenBMint)),
   })
 }

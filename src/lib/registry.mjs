@@ -165,10 +165,10 @@ export function extraCoin(q, found) {
     symbol: q.symbol,
     name: q.name,
     decimals: q.decimals,
-    usdPrice: market || q.referencePrice,
+    usdPrice: market || q.referencePrice || 0,
     priceSource: market ? 'market' : 'reference',
     liquidity: found?.liquidity ?? 0,
-    treasury: q.backing.usd,
+    treasury: q.backing?.usd ?? 0,
     treasuryVault: null,
     volume24h: 0,
     pool: null,
@@ -178,8 +178,12 @@ export function extraCoin(q, found) {
     mcap: found?.mcap ?? 0,
     exits: [],
     featured: Boolean(q.featured),
-    backing: q.backing,
+    backing: q.backing ?? null,
     financials: null,
+    theme: q.theme ?? 'ownership',
+    opens: q.opens ?? null,
+    native: Boolean(q.native),
+    token2022: Boolean(q.token2022),
   }
 }
 
@@ -246,6 +250,7 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
       decimals: COIN_DECIMALS,
       ...decoration,
       exits: withExits ? await Promise.all(EXIT_SIZES.map((s) => exitCost(d.mint, d.usdPrice, s))) : [],
+      theme: 'ownership',
     })
   }
 
@@ -261,7 +266,9 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
     }
   }
 
-  listed = listed.filter((d) => d.treasury >= MIN_TREASURY_USD || keep.has(d.mint))
+  // The treasury floor is about ownership coins, whose treasury is what backs them; a
+  // Solana OG is backed by its market instead.
+  listed = listed.filter((d) => (d.theme && d.theme !== 'ownership') || d.treasury >= MIN_TREASURY_USD || keep.has(d.mint))
   // Featured coins lead; the rest by what backs them.
   listed.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
   return { updatedAt: new Date().toISOString(), count: listed.length, coins: listed }

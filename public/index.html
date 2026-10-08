@@ -3,23 +3,23 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LFOWN — Launch coins paired with ownership coins</title>
-<meta name="description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOWN, live." />
+<title>LFOWN — Launch memes paired with what you own</title>
+<meta name="description" content="Launch memecoins paired with ownership coins, Solana OGs and more. Half of every fee goes to the LFOWN DAO, and holders earn too." />
 
 <!-- Shared links. The worker rewrites these per coin under /coins/<mint>; every
      other page keeps the banner, so a link to the site looks like the site. -->
 <meta property="og:site_name" content="LFOWN" />
 <meta property="og:type" content="website" />
 <meta property="og:url" content="https://letsfuckingown.fun/" />
-<meta property="og:title" content="LFOWN — Launch coins paired with ownership coins" />
-<meta property="og:description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOWN, live." />
+<meta property="og:title" content="LFOWN — Launch memes paired with what you own" />
+<meta property="og:description" content="Launch memecoins paired with ownership coins, Solana OGs and more. Half of every fee goes to the LFOWN DAO, and holders earn too." />
 <meta property="og:image" content="https://letsfuckingown.fun/assets/og-card.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:site" content="@LFOWNDOTFUN" />
-<meta name="twitter:title" content="LFOWN — Launch coins paired with ownership coins" />
-<meta name="twitter:description" content="Launch memecoins paired with MetaDAO ownership coins instead of SOL. Every coin launched on LFOWN, live." />
+<meta name="twitter:title" content="LFOWN — Launch memes paired with what you own" />
+<meta name="twitter:description" content="Launch memecoins paired with ownership coins, Solana OGs and more. Half of every fee goes to the LFOWN DAO, and holders earn too." />
 <meta name="twitter:image" content="https://letsfuckingown.fun/assets/og-card.png" />
 <link rel="icon" href="/favicon.png" sizes="32x32">
 <link rel="icon" href="/assets/icon-512.png" sizes="512x512">
@@ -56,7 +56,13 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .opener .free{display:inline-block;margin-top:16px;font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;
   color:#fff;background:var(--red);padding:5px 9px}
 .opener .free[hidden]{display:none}
-.list-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 14px}
+.list-head{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin:0 0 14px}
+/* Thematics, as tabs: the memes of one at a time, or all of them. */
+.theme-tabs{display:flex;flex-wrap:wrap;gap:8px}
+.theme-tabs button{display:inline-flex;align-items:center;gap:8px;padding:9px 13px;border:1.5px solid var(--ink);background:var(--card);cursor:pointer;
+  font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink)}
+.theme-tabs button span{font-size:.54rem;opacity:.6}
+.theme-tabs button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
 .list-head h2{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-spacing:-.03em;font-size:clamp(1.4rem,3vw,2rem);margin:0}
 
 /* ── the grid ──────────────────────── */
@@ -466,7 +472,7 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
         <svg class="i-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
         <svg class="i-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.4v2.2M12 19.4v2.2M2.4 12h2.2M19.4 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6"/></svg>
       </button>
-      <a class="btn hide-s launch-cta" href="/launch"><span>Launch Ownership Memes</span></a>
+      <a class="btn hide-s launch-cta" href="/launch"><span>Launch a meme</span></a>
       <span class="wallet-slot">
         <button class="btn" type="button" id="connect">Connect wallet</button>
         <div class="wallet-menu" id="wallet-menu" hidden>

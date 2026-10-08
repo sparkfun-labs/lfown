@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "@meteora-ag/cp-amm-sdk": "^1.4.8",
-    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.11",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "^1.5.13",
     "@meteora-ag/dynamic-fee-sharing-sdk": "^1.1.0",
     "@noble/curves": "^1.9.7",
     "@resvg/resvg-wasm": "^2.6.2",

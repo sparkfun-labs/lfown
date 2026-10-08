@@ -12,11 +12,10 @@
 // opens a pool on the config that already exists for the coin they picked.
 
 import { PublicKey, Transaction } from '@solana/web3.js'
-import { deriveDbcPoolAddress, deriveDbcEventAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveTokenBadgeAddress } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
-import { TOKEN_PROGRAM_ID } from '@solana/spl-token'
 import BN from 'bn.js'
-import { FEES, tokenUnit } from './config.mjs'
+import { FEES, tokenUnit, tokenProgramOf, TOKEN_2022_PROGRAM } from './config.mjs'
 import { clampHolderPct, deriveVault, vaultShares } from './fee-split.mjs'
 import { checkFeeWallet } from './fee-wallet.mjs'
 
@@ -63,6 +62,13 @@ export async function devBuyCost(client, { config, percent }) {
  * Returns the transactions in the order they must land, each with its blockhash and
  * fee payer set and nobody's signature on it.
  */
+/** `{ tokenBadge }` when `quoteMint` is a Token-2022 coin Meteora has badged for DBC, else `{}`. */
+export async function badgeFor(connection, quoteMint) {
+  if (!quoteMint || tokenProgramOf(quoteMint) !== TOKEN_2022_PROGRAM) return {}
+  const badge = deriveTokenBadgeAddress(new PublicKey(quoteMint))
+  return (await connection.getAccountInfo(badge)) ? { tokenBadge: badge } : {}
+}
+
 export async function buildLaunchTransactions({
   client, connection, config, creator, token, devBuyQuote = 0, mint, quoteMint,
   holderPct = 0, holderPot = FEES.holderPot, sponsor = null, feeWallet = null,
@@ -88,6 +94,9 @@ export async function buildLaunchTransactions({
     uri: token.uri ?? '',
     payer,
     poolCreator: owner,
+    // A Token-2022 quote with extensions (PUMP) is accepted only with the badge Meteora
+    // issued for it, named by the pool; one with none needs no badge (see below).
+    ...(await badgeFor(connection, quoteMint)),
   }
 
   // The pool does not exist until this transaction lands, so the buy cannot be built
@@ -137,7 +146,7 @@ export async function buildLaunchTransactions({
       const open = await dfs.createFeeVaultPda({
         base: mint.publicKey,
         tokenMint: quote,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        tokenProgram: new PublicKey(tokenProgramOf(quote)),
         owner,
         payer,
         userShare: wanted,

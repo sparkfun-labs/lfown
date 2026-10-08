@@ -22,7 +22,7 @@
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js'
 import { getAssociatedTokenAddressSync } from '@solana/spl-token'
-import { COIN_DECIMALS, tokenDecimals } from '../lib/config.mjs'
+import { COIN_DECIMALS, tokenDecimals, tokenProgramOf } from '../lib/config.mjs'
 
 export const NATIVE_SOL = 'So11111111111111111111111111111111111111112'
 
@@ -78,7 +78,8 @@ const ceilTo = (n, decimals) => Math.ceil(n * 10 ** decimals) / 10 ** decimals
 export async function balanceOf(connection, owner, mint, { native = false } = {}) {
   const pubkey = new PublicKey(owner)
   if (native) return (await connection.getBalance(pubkey)) / 1e9
-  const ata = getAssociatedTokenAddressSync(new PublicKey(mint), pubkey, true)
+  // The account address depends on the token program: PUMP lives under Token-2022.
+  const ata = getAssociatedTokenAddressSync(new PublicKey(mint), pubkey, true, new PublicKey(tokenProgramOf(mint)))
   try {
     const { value } = await connection.getTokenAccountBalance(ata)
     return Number(value.uiAmount ?? 0)

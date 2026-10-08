@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, USDC as USDC_MINT } from './lib/config.mjs'
+import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, tokenProgramOf, USDC as USDC_MINT } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -619,9 +619,10 @@ const oneLine = (v, cap = 140) => {
 /** What stands behind a backing coin, in a phrase that follows its symbol. */
 function backedBy(quoteMint) {
   const extra = EXTRA_QUOTES.find((q) => q.mint === quoteMint)
-  return extra
+  if (!extra) return 'an ownership coin launched on MetaDAO with a treasury behind it'
+  return extra.backing
     ? `a coin backed by ${extra.backing.label.replace(/^A /, 'a ')} on ${extra.backing.project}`
-    : 'an ownership coin launched on MetaDAO with a treasury behind it'
+    : `${extra.name}, one of the Solana OGs`
 }
 
 /**
@@ -1860,7 +1861,7 @@ async function distributeToHolders(env) {
     if (o.usd < FLOOR_USD) continue
     const name = o.launch.symbol ?? o.launch.baseMint
     const quoteMint = new PublicKey(o.launch.quoteMint)
-    const from = getAssociatedTokenAddressSync(quoteMint, pot.publicKey, true)
+    const from = getAssociatedTokenAddressSync(quoteMint, pot.publicKey, true, new PublicKey(tokenProgramOf(quoteMint)))
     let claimed = 0n
     let sent = 0n
     try {

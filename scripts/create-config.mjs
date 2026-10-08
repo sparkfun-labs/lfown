@@ -34,7 +34,7 @@ import {
   DynamicBondingCurveClient, buildCurve,
   TokenType, TokenDecimal, ActivationType, CollectFeeMode,
   MigrationOption, MigrationFeeOption, BaseFeeMode, TokenAuthorityOption,
-  DEFAULT_MIGRATED_POOL_FEE_PARAMS,
+  DEFAULT_MIGRATED_POOL_FEE_PARAMS, deriveTokenBadgeAddress,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -128,7 +128,9 @@ function openedAlready(mint) {
   } catch { return false }
 }
 
-const DECIMAL = { 6: TokenDecimal.SIX, 7: TokenDecimal.SEVEN, 8: TokenDecimal.EIGHT, 9: TokenDecimal.NINE }
+// The SDK's enum stops at 6, but the curve maths take any count and the program reads the
+// quote's decimals from its mint: BONK's 5 ran end to end on devnet.
+const DECIMAL = { 5: 5, 6: TokenDecimal.SIX, 7: TokenDecimal.SEVEN, 8: TokenDecimal.EIGHT, 9: TokenDecimal.NINE }
 
 const todo = []
 for (const coin of queue) {
@@ -212,6 +214,8 @@ for (const coin of todo) {
   if (!ARMED) { console.log('  would create', config.publicKey.toBase58()); continue }
 
   const tx = await client.partner.createConfig({
+    // A Token-2022 quote (PUMP) is accepted only with the badge Meteora issued for it.
+    ...(coin.token2022 && await connection.getAccountInfo(deriveTokenBadgeAddress(new PublicKey(coin.mint))) ? { tokenBadge: deriveTokenBadgeAddress(new PublicKey(coin.mint)) } : {}),
     config: config.publicKey,
     feeClaimer: new PublicKey(FEES.recipient),
     leftoverReceiver: new PublicKey(FEES.treasury),

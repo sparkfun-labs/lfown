@@ -589,7 +589,10 @@ await test('sponsor: signs a real launch, and nothing that spends its SOL any ot
   assert.equal(good.baseMint, mint.publicKey.toBase58())
   assert.equal(good.vault, vault.toBase58())
 
-  await refused(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: sponsor.publicKey, toPubkey: stranger.publicKey, lamports: 1e9 })] }), /program a launch does not use/)
+  await refused(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: sponsor.publicKey, toPubkey: stranger.publicKey, lamports: 1e9 })] }), /spend the sponsor/)
+  // A first buy in SOL wraps the creator's own SOL: allowed. Anything else from System is not.
+  assert.ok(ok(await build({ launchExtra: [SystemProgram.transfer({ fromPubkey: creator.publicKey, toPubkey: Keypair.generate().publicKey, lamports: 1e9 })] })), 'the creator wrapping their own SOL is fine')
+  await refused(await build({ launchExtra: [SystemProgram.allocate({ accountPubkey: creator.publicKey, space: 10 })] }), /plain SOL transfer/)
   await refused(await build({ launchExtra: [createAssociatedTokenAccountIdempotentInstruction(sponsor.publicKey, Keypair.generate().publicKey, stranger.publicKey, quote)] }), /spend the sponsor/)
   await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 50_000_000 })] }), /priority fee/)
   await refused(await build({ launchFirst: [ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 1_000_000 })] }), /priority fee/)
