@@ -852,7 +852,7 @@ async function paintFree() {
     ? `<b>Free launch.</b> LFOWN pays the network fees, ${perDay}.`
     : st.eligible
       ? `<b>Free launch.</b> LFOWN pays the network fees for this one — ${st.leftToday} of ${st.perDay} left today.`
-      : `This wallet has had its ${st.perDay} free launches today. This one costs about 0.03 SOL in network fees.`
+      : `No free launch left today for this wallet or this connection. This one costs about 0.03 SOL in network fees.`
 }
 
 // Extensions can register after the page has loaded — repaint when they do, so the

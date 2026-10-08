@@ -542,13 +542,13 @@ async function handleApi(url, request, env, ctx) {
 
   // Launches LFOwn pays for. See src/lib/sponsor.mjs for what the sponsor will sign.
   if (path === '/api/sponsor' && request.method === 'GET') {
-    return json(await sponsorStatus(env, url.searchParams.get('wallet')), { headers: { 'cache-control': 'no-store' } })
+    return json(await sponsorStatus(env, url.searchParams.get('wallet'), request.headers.get('CF-Connecting-IP')), { headers: { 'cache-control': 'no-store' } })
   }
   if (path === '/api/sponsor/launch' && request.method === 'POST') {
     if (!sameOrigin(request, url, env)) return json({ error: 'cross-site requests are not accepted here' }, { status: 403 })
     const body = await request.json().catch(() => null)
     try {
-      return json(await sponsorLaunch(env, body?.transactions))
+      return json(await sponsorLaunch(env, body?.transactions, request.headers.get('CF-Connecting-IP')))
     } catch (e) {
       const status = e.status ?? 502
       if (status >= 500) console.error(`sponsored launch failed: ${e.message}`)
@@ -1474,6 +1474,9 @@ const SPONSOR_COUNT = 'sponsor:count'
 const sponsorDayKey = (wallet, now = new Date()) => `sponsor:day:${now.toISOString().slice(0, 10)}:${wallet}`
 const DAY_KEY_TTL = 2 * 86_400
 const sponsoredToday = async (env, wallet) => Number(await env.REGISTRY.get(sponsorDayKey(wallet))) || 0
+// The same per network (see networkKey in src/lib/sponsor.mjs): one person, many wallets.
+const sponsorNetKey = (net, now = new Date()) => `sponsor:net:${now.toISOString().slice(0, 10)}:${net}`
+const sponsoredFromNet = async (env, net) => (net ? Number(await env.REGISTRY.get(sponsorNetKey(net))) || 0 : 0)
 /** Below this the sponsor could not cover one more launch, so none is offered. */
 const SPONSOR_FLOOR_LAMPORTS = 30_000_000 // one launch, pool and vault, with room to spare
 
@@ -1481,9 +1484,9 @@ class HttpError extends Error {
   constructor(status, message, extra = {}) { super(message); this.status = status; Object.assign(this, extra) }
 }
 
-/** Whether LFOwn will pay for a launch right now, and for this wallet. */
-async function sponsorStatus(env, wallet) {
-  const { SPONSORED_PER_WALLET_PER_DAY } = await import('./lib/sponsor.mjs')
+/** Whether LFOWN will pay for a launch right now, for this wallet on this network. */
+async function sponsorStatus(env, wallet, ip = null) {
+  const { SPONSORED_PER_WALLET_PER_DAY, SPONSORED_PER_IP_PER_DAY, networkKey } = await import('./lib/sponsor.mjs')
   const sponsor = await loadKey(env.SPONSOR_KEY).catch(() => null)
   const out = { enabled: false, perDay: SPONSORED_PER_WALLET_PER_DAY, sponsor: null, eligible: false, leftToday: 0 }
   if (!sponsor || !env.REGISTRY) return out
@@ -1497,7 +1500,9 @@ async function sponsorStatus(env, wallet) {
   let valid = false
   try { valid = Boolean(wallet) && PublicKey.isOnCurve(new PublicKey(wallet).toBytes()) } catch { valid = false }
   if (valid) {
-    out.leftToday = Math.max(0, SPONSORED_PER_WALLET_PER_DAY - await sponsoredToday(env, wallet))
+    const net = await networkKey(ip)
+    const [byWallet, byNet] = await Promise.all([sponsoredToday(env, wallet), sponsoredFromNet(env, net)])
+    out.leftToday = Math.max(0, Math.min(SPONSORED_PER_WALLET_PER_DAY - byWallet, net ? SPONSORED_PER_IP_PER_DAY - byNet : Infinity))
     out.eligible = out.leftToday > 0
   }
   return out
@@ -1506,11 +1511,11 @@ async function sponsorStatus(env, wallet) {
 /**
  * Checks, signs and sends a launch the sponsor pays for.
  *
- * A few per wallet and UTC day; in all, as many as the sponsor's balance pays for. KV
- * cannot make the check and the claim one step, so two requests from the same wallet in
- * the same second could both pass; the sponsor's balance is what really bounds this.
+ * A few per wallet and per network each UTC day; in all, as many as the sponsor's balance
+ * pays for. KV cannot make the check and the claim one step, so two requests in the same
+ * second could both pass; the sponsor's balance is what really bounds this.
  */
-async function sponsorLaunch(env, encoded) {
+async function sponsorLaunch(env, encoded, ip = null) {
   const [{ Connection, Transaction, PublicKey }, sponsorLib, { waitFor }, { DynamicBondingCurveClient }, { DynamicFeeSharingClient }] = await Promise.all([
     import('@solana/web3.js'), import('./lib/sponsor.mjs'), import('./lib/confirm.mjs'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'), import('@meteora-ag/dynamic-fee-sharing-sdk'),
@@ -1544,12 +1549,21 @@ async function sponsorLaunch(env, encoded) {
   }
 
   const dayKey = sponsorDayKey(launch.creator)
-  const today = await sponsoredToday(env, launch.creator)
+  const net = await sponsorLib.networkKey(ip)
+  const netKey = net && sponsorNetKey(net)
+  const [today, fromNet] = await Promise.all([sponsoredToday(env, launch.creator), sponsoredFromNet(env, net)])
   if (today >= sponsorLib.SPONSORED_PER_WALLET_PER_DAY) {
     throw new HttpError(409, `This wallet has had its ${sponsorLib.SPONSORED_PER_WALLET_PER_DAY} free launches today. Launch normally, or come back tomorrow.`)
   }
+  if (net && fromNet >= sponsorLib.SPONSORED_PER_IP_PER_DAY) {
+    console.log(`sponsored launch refused: network over its ${sponsorLib.SPONSORED_PER_IP_PER_DAY} today (wallet ${launch.creator})`)
+    throw new HttpError(409, `This connection has had its ${sponsorLib.SPONSORED_PER_IP_PER_DAY} free launches today. Launch normally, or come back tomorrow.`)
+  }
   // Claimed before anything is sent, given back if nothing lands.
-  await env.REGISTRY.put(dayKey, String(today + 1), { expirationTtl: DAY_KEY_TTL })
+  await Promise.all([
+    env.REGISTRY.put(dayKey, String(today + 1), { expirationTtl: DAY_KEY_TTL }),
+    netKey && env.REGISTRY.put(netKey, String(fromNet + 1), { expirationTtl: DAY_KEY_TTL }),
+  ])
 
   const signatures = []
   try {
@@ -1571,7 +1585,12 @@ async function sponsorLaunch(env, encoded) {
       signatures.push(signature)
     }
   } catch (e) {
-    if (!signatures.length) await env.REGISTRY.put(dayKey, String(today), { expirationTtl: DAY_KEY_TTL }).catch(() => {})
+    if (!signatures.length) {
+      await Promise.all([
+        env.REGISTRY.put(dayKey, String(today), { expirationTtl: DAY_KEY_TTL }),
+        netKey && env.REGISTRY.put(netKey, String(fromNet), { expirationTtl: DAY_KEY_TTL }),
+      ]).catch(() => {})
+    }
     if (e instanceof HttpError) { e.landed = signatures; throw e }
     throw new HttpError(/blockhash not found|expired/i.test(e.message) ? 410 : 502,
       /blockhash not found|expired/i.test(e.message) ? 'The launch took too long to reach us and expired. Sign it again.' : `The launch did not land: ${e.message}`,

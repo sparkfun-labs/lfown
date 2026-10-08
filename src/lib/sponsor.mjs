@@ -28,6 +28,27 @@ import { PublicKey } from '@solana/web3.js'
 
 /** How many launches LFOwn pays for per wallet and UTC day. In all, the sponsor's balance decides. */
 export const SPONSORED_PER_WALLET_PER_DAY = 3
+/** And per network and UTC day: wallets cost nothing to make, connections a little more. */
+export const SPONSORED_PER_IP_PER_DAY = 3
+
+/**
+ * The network a request came from, as a key: an IPv4 address as is, an IPv6 one by its /64,
+ * since a single home connection is handed a whole /64 and could walk through it. Hashed, so
+ * the KV never holds anyone's address.
+ */
+export async function networkKey(ip) {
+  if (!ip) return null
+  let net = String(ip).trim().toLowerCase()
+  if (net.includes(':')) {
+    const [head, tail = ''] = net.split('::')
+    const left = head ? head.split(':') : []
+    const right = tail ? tail.split(':') : []
+    const full = [...left, ...Array(Math.max(0, 8 - left.length - right.length)).fill('0'), ...right]
+    net = full.slice(0, 4).map((h) => h.padStart(4, '0')).join(':') + '::/64'
+  }
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`lfown-sponsor:${net}`))
+  return [...new Uint8Array(digest)].slice(0, 16).map((b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 /** The most one transaction may take from the sponsor, rent and fee included. */
 export const MAX_SPONSOR_LAMPORTS = 30_000_000 // 0.03 SOL; the pool transaction measures 0.0206

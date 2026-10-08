@@ -647,6 +647,17 @@ await test('pumps: the X post fits, keeps its headline, and the Telegram one is 
   assert.match(html, /\+20%<\/b> today/)
 })
 
+await test('sponsor: free launches are counted per network, an IPv6 one by its /64, never by the raw address', async () => {
+  const { networkKey } = await import(new URL('../src/lib/sponsor.mjs', import.meta.url).href)
+  const home = await networkKey('2a01:cb00:1234:5678:aaaa:bbbb:cccc:dddd')
+  assert.equal(home, await networkKey('2a01:cb00:1234:5678::1'), 'the same /64 is one network')
+  assert.notEqual(home, await networkKey('2a01:cb00:1234:5679::1'), 'the next /64 is another')
+  assert.equal(await networkKey('203.0.113.7'), await networkKey(' 203.0.113.7 '))
+  assert.notEqual(await networkKey('203.0.113.7'), await networkKey('203.0.113.8'))
+  assert.ok(!home.includes('2a01'), 'the address itself is never kept')
+  assert.equal(await networkKey(null), null)
+})
+
 await test('chat: only a real wallet signature signs in, and a message is plain text', async () => {
   const chat = await import(new URL('../src/chat.mjs', import.meta.url).href)
   const { ed25519 } = await import('@noble/curves/ed25519')
