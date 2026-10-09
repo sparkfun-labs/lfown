@@ -314,7 +314,7 @@ const listState = { pair: '', key: 'new', desc: true, theme: '' }
 /** A meme's thematic is its pair's: listed by hand with its own, or an ownership coin. */
 const memeTheme = (c) => EXTRA_QUOTES.find((q) => q.mint === c.quoteMint)?.theme ?? 'ownership'
 // What the headline says the memes are paired with, per tab.
-const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana OGs.', dino: 'a dinosaur.' }
+const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana Majors.', dino: 'a dinosaur.' }
 
 /**
  * A dropdown in the site's own clothes.
@@ -423,7 +423,7 @@ async function renderList() {
         <h1>Launch memes paired with <em id="paired-with">${esc(PAIRED_WITH[listState.theme])}</em></h1>
       </div>
       <div class="side">
-        <p>Pick what your meme trades against: an <b>ownership coin</b> with a treasury behind it, a <b>Solana OG</b>, even a fossil. Its creator earns on every trade, so do its holders, and half of every fee goes to the <b>LFOWN DAO</b>.</p>
+        <p>Pick what your meme trades against: an <b>ownership coin</b> with a treasury behind it, a <b>Solana major</b>, even a fossil. Its creator earns on every trade, so do its holders, and half of every fee goes to the <b>LFOWN DAO</b>.</p>
         <div class="ctas">
           <a class="btn" id="launch-cta" href="/launch">Launch a meme</a>
           <a class="btn ghost" href="/rewards">Holder rewards</a>
@@ -459,7 +459,7 @@ async function renderList() {
   // but one set of controls above both, because filtering to a pair and then having
   // to do it twice is not a filter, it is two.
   // One tab per thematic, after All, even one with no meme yet: that is an invitation. The headline and the launch button
-  // follow the tab: "paired with Solana OGs", and a launch that opens on that thematic.
+  // follow the tab: "paired with Solana Majors", and a launch that opens on that thematic.
   const tabs = $('#theme-tabs')
   const paintTabs = () => {
     const count = (id) => coins.filter((c) => !id || memeTheme(c) === id).length

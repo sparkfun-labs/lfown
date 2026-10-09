@@ -45,7 +45,7 @@ export const COIN_DECIMALS = 6
 export const THEMES = [
   { id: 'ownership', label: 'Ownership coins', short: 'Ownership', pairedWith: 'ownership coins',
     blurb: 'MetaDAO ownership coins: a treasury behind every pair, run by futarchy.' },
-  { id: 'solana', label: 'Solana OGs', short: 'Solana OGs', pairedWith: 'Solana OGs',
+  { id: 'solana', label: 'Solana Majors', short: 'Solana Majors', pairedWith: 'Solana Majors',
     blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
     blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
@@ -73,7 +73,7 @@ export const EXTRA_QUOTES = [
       url: 'https://app.jurassic.finance/',
     },
   },
-  // Solana OGs. No backing to name: each is priced by its market, which Jupiter reads.
+  // Solana Majors. No backing to name: each is priced by its market, which Jupiter reads.
   // `opens` keeps a pair announced but not launchable until its config is open, the
   // day it goes live; the catalogue still lists it so the script can open it.
   { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana', decimals: 9, theme: 'solana', opens: '2026-10-09', native: true },

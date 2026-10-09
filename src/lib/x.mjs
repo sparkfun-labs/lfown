@@ -187,7 +187,7 @@ function pairLine(coin, quote) {
   const extra = EXTRA_QUOTES.find((q) => q.mint === coin.quoteMint)
   if (!extra) return `Paired with ${quote}, a MetaDAO ownership coin.`
   if (extra.backing) return `Paired with ${quote}, backed by ${extra.backing.label.replace(/^A /, 'a ')}.`
-  return `Paired with ${quote}, one of the Solana OGs.`
+  return `Paired with ${quote}, one of the Solana Majors.`
 }
 
 /** A coin has opened. */

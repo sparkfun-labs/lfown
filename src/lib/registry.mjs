@@ -267,7 +267,7 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
   }
 
   // The treasury floor is about ownership coins, whose treasury is what backs them; a
-  // Solana OG is backed by its market instead.
+  // Solana major is backed by its market instead.
   listed = listed.filter((d) => (d.theme && d.theme !== 'ownership') || d.treasury >= MIN_TREASURY_USD || keep.has(d.mint))
   // Featured coins lead; the rest by what backs them.
   listed.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)

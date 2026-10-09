@@ -622,7 +622,7 @@ function backedBy(quoteMint) {
   if (!extra) return 'an ownership coin launched on MetaDAO with a treasury behind it'
   return extra.backing
     ? `a coin backed by ${extra.backing.label.replace(/^A /, 'a ')} on ${extra.backing.project}`
-    : `${extra.name}, one of the Solana OGs`
+    : `${extra.name}, one of the Solana Majors`
 }
 
 /**
