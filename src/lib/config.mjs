@@ -80,7 +80,10 @@ export const EXTRA_QUOTES = [
   // PUMP is a Token-2022 mint (transfer hook extension, no hook set) that Meteora has badged
   // for DBC; every amount of it moves through the Token-2022 program, transfer_checked.
   // Its icon is kept here: the one Jupiter lists sits on ipfs.io, which answers 429.
-  { mint: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6, theme: 'solana', opens: '2026-10-09', token2022: true, icon: 'https://letsfuckingown.fun/assets/quotes/pump.png' },
+  // No holder share: Meteora's fee-sharing program refuses any Token-2022 mint carrying
+  // a transfer hook extension (InvalidMint, "Mint is not supported"), and unlike DBC and
+  // DAMM v2 it has no badge to make an exception. Its memes pay the creator directly.
+  { mint: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6, theme: 'solana', opens: '2026-10-09', token2022: true, holderShare: false, icon: 'https://letsfuckingown.fun/assets/quotes/pump.png' },
   { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, theme: 'solana', opens: '2026-10-09' },
   { mint: 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL', symbol: 'MET', name: 'Meteora', decimals: 6, theme: 'solana', opens: '2026-10-09' },
   // BONK has 5 decimals. DBC's SDK types quote decimals as 6–9, but the program takes the
@@ -103,6 +106,12 @@ export const TOKEN_2022_PROGRAM = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb'
 export function tokenProgramOf(mint) {
   const key = typeof mint === 'string' ? mint : mint?.toBase58?.()
   return EXTRA_QUOTES.find((q) => q.mint === key)?.token2022 ? TOKEN_2022_PROGRAM : TOKEN_PROGRAM
+}
+
+/** Whether a meme paired with this coin can share its fees with holders (see PUMP above). */
+export function holdersCanShare(mint) {
+  const key = typeof mint === 'string' ? mint : mint?.toBase58?.()
+  return EXTRA_QUOTES.find((q) => q.mint === key)?.holderShare !== false
 }
 
 /** Exit sizes we price on every quote asset, in USD. Shown to the user, never used to gate. */

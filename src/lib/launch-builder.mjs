@@ -15,7 +15,7 @@ import { PublicKey, Transaction } from '@solana/web3.js'
 import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveTokenBadgeAddress } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import BN from 'bn.js'
-import { FEES, tokenUnit, tokenProgramOf, TOKEN_2022_PROGRAM } from './config.mjs'
+import { FEES, tokenUnit, tokenProgramOf, holdersCanShare, TOKEN_2022_PROGRAM } from './config.mjs'
 import { clampHolderPct, deriveVault, vaultShares } from './fee-split.mjs'
 import { checkFeeWallet } from './fee-wallet.mjs'
 
@@ -118,7 +118,9 @@ export async function buildLaunchTransactions({
 
   const transaction = tx.transaction ?? tx // createPool returns a Transaction, not a wrapper
 
-  const share = clampHolderPct(holderPct)
+  // Some pairs cannot hold a fee vault at all (holdersCanShare): their memes pay the
+  // creator directly, whatever share was asked for.
+  const share = quoteMint && !holdersCanShare(quoteMint) ? 0 : clampHolderPct(holderPct)
   let vault = null
   const before = []
   if (share > 0 && holderPot && quoteMint) {

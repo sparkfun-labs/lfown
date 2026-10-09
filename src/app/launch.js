@@ -708,7 +708,10 @@ function paintReview() {
   // What trading pays the person about to sign, as parts of the half that is not the
   // DAO's: 12.5 and 37.5 of 50 read as 25% and 75%.
   const half = creatorShare || 50
-  const holdersPart = Math.round(((c.holders ?? 0) / half) * 100)
+  // A pair that cannot hold a fee vault (PUMP) leaves holders out: the creator keeps it all.
+  const noHolders = !state.blind && a?.holderShare === false
+  const holders = noHolders ? 0 : c.holders ?? 0
+  const holdersPart = Math.round((holders / half) * 100)
   const yours = 100 - holdersPart
 
   $('#review').innerHTML =
@@ -722,7 +725,8 @@ function paintReview() {
     (state.feeWallet.address
       ? line(`${esc(short(state.feeWallet.address))} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')
       : line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn')) +
-    (c.holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '')
+    (holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '') +
+    (noHolders ? line('Holders earn', `Nothing: ${esc(a.symbol)} memes cannot share fees with holders`) : '')
 
   $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
 }
@@ -1099,7 +1103,7 @@ signBtn.addEventListener('click', async () => {
       devBuyQuote: Math.round(devBuy * tokenUnit(a.mint)),
       seed: state.seed,
       quoteMint: state.asset?.mint,
-      holderPct: state.curve.holders,
+      holderPct: state.asset?.holderShare === false ? 0 : state.curve.holders,
       sponsor: sponsored ? state.free.status.sponsor : null,
       feeWallet: state.feeWallet.address,
     })

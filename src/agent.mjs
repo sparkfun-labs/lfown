@@ -24,7 +24,7 @@
 // `own` like everyone else's; when the reserve is empty the launch goes ahead on a
 // random address and says so, because an agent must always be able to launch.
 
-import { FEES, TIERS, feeBreakdown, tokenUnit, tokenProgramOf } from './lib/config.mjs'
+import { FEES, TIERS, feeBreakdown, tokenUnit, tokenProgramOf, holdersCanShare } from './lib/config.mjs'
 import { HOLDER_MAX_PCT, clampHolderPct, splitFor } from './lib/fee-split.mjs'
 
 /** What a launch shares with holders when the agent does not say. Same as the page. */
@@ -185,7 +185,8 @@ async function readRequest(env, input, deps) {
   const tier = input?.tier ? coin.tiers.find((t) => t.id === String(input.tier)) : coin.tiers[0]
   if (!tier) throw new AgentError(400, `tier "${input.tier}" is not open for ${coin.symbol}`, { open: coin.tiers.map((t) => t.id) })
 
-  const holderPct = input?.holderPct === undefined ? DEFAULT_HOLDER_PCT : clampHolderPct(input.holderPct)
+  // A pair whose memes cannot share with holders (PUMP) launches at 0, whatever was asked.
+  const holderPct = !holdersCanShare(coin.mint) ? 0 : input?.holderPct === undefined ? DEFAULT_HOLDER_PCT : clampHolderPct(input.holderPct)
   const devBuyPercent = Math.max(0, Math.min(LIMITS.devBuyMaxPercent, Number(input?.devBuyPercent ?? 0) || 0))
   const creator = input?.creator ? String(input.creator).trim() : null
   if (creator && !BASE58.test(creator)) throw new AgentError(400, 'creator must be a Solana wallet address')
@@ -245,6 +246,7 @@ async function requestFrom(env, input, deps) {
  */
 async function chainChecks(env, request) {
   const out = { problems: [], warnings: [], devBuy: null, devBuyQuote: 0 }
+  if (!holdersCanShare(request.coin.mint)) out.warnings.push(`memes paired with ${request.coin.symbol} cannot share fees with holders: holderPct is 0 and the creator keeps the whole creator half`)
   if (!request.creator && !(request.devBuyPercent > 0)) return out
 
   const [{ Connection, PublicKey }, { DynamicBondingCurveClient }, builder, { getAssociatedTokenAddressSync }] =

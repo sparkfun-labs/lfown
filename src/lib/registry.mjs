@@ -184,6 +184,7 @@ export function extraCoin(q, found) {
     opens: q.opens ?? null,
     native: Boolean(q.native),
     token2022: Boolean(q.token2022),
+    holderShare: q.holderShare !== false,
   }
 }
 
