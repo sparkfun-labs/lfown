@@ -8,6 +8,7 @@ import { tokenUnit } from '../lib/config.mjs'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 import { mountChat } from './chat.js'
+import { thumb, whenNear } from './thumb.js'
 
 const $ = (s) => document.querySelector(s)
 const view = $('#view')
@@ -267,7 +268,7 @@ function coinCard(c) {
   a.href = `/coins/${esc(c.baseMint)}`
   a.innerHTML = `
     <div class="top">
-      <img alt="">
+      <img alt="" width="42" height="42" decoding="async">
       <div>
         <div class="nm">${esc(c.symbol ?? '—')}</div>
         <div class="pair">${esc(c.name ?? '')} · paired with ${esc(c.quoteSymbol)}</div>
@@ -280,7 +281,9 @@ function coinCard(c) {
     </div>
     <div class="meta earned" data-mint="${esc(c.baseMint)}"></div>`
 
-  artwork(c).then((src) => { if (src) a.querySelector('img').src = safeUrl(src) })
+  // The artwork's metadata and picture only once the card is about to be seen: the list
+  // runs to well over a hundred coins.
+  whenNear(a, () => artwork(c).then((src) => { if (src) a.querySelector('img').src = safeUrl(thumb(src)) }))
   const earned = feesByMint.get(c.baseMint)
   if (earned) {
     a.querySelector('.earned').innerHTML =
@@ -323,8 +326,8 @@ function dropdown({ value, options, label, onPick }) {
   el.className = 'drop'
   const chosen = options.find((o) => o.value === value) ?? options[0]
   el.innerHTML = `
-    <button class="drop-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="${esc(label)}">
-      <span>${esc(chosen.label)}</span><i>▾</i>
+    <button class="drop-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="${esc(label)}: ${esc(chosen.label)}">
+      <span>${esc(chosen.label)}</span><i aria-hidden="true">▾</i>
     </button>
     <ul class="drop-list" role="listbox" hidden>
       ${options.map((o) => `<li><button type="button" role="option" data-value="${esc(o.value)}"
@@ -549,7 +552,7 @@ async function renderCoin(mint) {
     <a class="back" href="/">← All coins</a>
     <header class="coin-bar">
       <div class="coin-id">
-        <img alt="" hidden>
+        <img alt="" width="56" height="56" hidden>
         <div>
           <h2>${esc(coin.symbol ?? '—')}</h2>
           <div class="coin-sub">${esc(coin.name ?? '')} <span>· paired with ${esc(coin.quoteSymbol)}</span></div>
@@ -692,7 +695,7 @@ async function renderCoin(mint) {
   // empty and the image dropped in when it lands, rather than holding the page back.
   artwork(coin).then((src) => {
     const slot = view.querySelector('.coin-id img')
-    if (src && slot) { slot.src = safeUrl(src); slot.hidden = false }
+    if (src && slot) { slot.src = safeUrl(thumb(src)); slot.hidden = false }
   })
   wireShare(coin)
   track('coin_open')

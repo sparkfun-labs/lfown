@@ -26,7 +26,9 @@
 <link rel="apple-touch-icon" href="/assets/icon-180.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" rel="stylesheet">
+<!-- Fonts load beside the page rather than ahead of it: text shows in the fallback face, then swaps. -->
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Martian+Mono:wght@400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Permanent+Marker&display=swap"></noscript>
 <script>
 (function(){
   var saved=null; try{saved=localStorage.getItem('lfown-theme')}catch(e){}
@@ -454,7 +456,7 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
 
 <header class="top">
   <div class="bar">
-    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark.png" alt="LFOWN"></a>
+    <a class="brand" href="/"><img class="brand-mark" src="/assets/logo-mark-90.png" width="44" height="30" alt="LFOWN"></a>
     <nav class="nav-centre">
       <a class="mono hide-s" href="/lfown">$LFOWN</a>
       <a class="mono hide-s" href="/launch">Launch</a>
@@ -601,7 +603,7 @@ dialog#wallet-picker::backdrop{background:rgba(0,0,0,.45)}
       var one = rows.map(item).join('')
       var group = one
       while (group.length < 6000 && rows.length) group += one
-      track.innerHTML = '<div class="earners-grp">' + group + '</div><div class="earners-grp" aria-hidden="true">' + group + '</div>'
+      track.innerHTML = '<div class="earners-grp">' + group + '</div><div class="earners-grp" aria-hidden="true" inert>' + group + '</div>'
       track.style.animationDuration = Math.max(30, rows.length * 9) + 's'
       box.hidden = false
     }).catch(function () { /* no strip is better than a broken one */ })

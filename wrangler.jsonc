@@ -55,6 +55,8 @@
   "migrations": [
     { "tag": "chat-v1", "new_sqlite_classes": ["ChatRoom"] }
   ],
+  // Shrinks token images into the thumbnails the lists show (worker.mjs, thumbnail()).
+  "images": { "binding": "RESIZE" },
   "r2_buckets": [
     {
       "binding": "IMAGES",

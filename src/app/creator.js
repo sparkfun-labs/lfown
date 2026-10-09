@@ -6,6 +6,7 @@
 // kilobytes and opens instantly.
 
 import { esc, safeUrl } from './escape.js'
+import { thumb, whenNear } from './thumb.js'
 import { tokenUnit } from '../lib/config.mjs'
 
 const view = document.querySelector('#view')
@@ -53,7 +54,7 @@ function card(c, earned) {
   a.href = `/coins/${esc(c.baseMint)}`
   a.innerHTML = `
     <div class="top">
-      <img alt="">
+      <img alt="" width="42" height="42" decoding="async">
       <div>
         <div class="nm">${esc(c.symbol ?? '—')}</div>
         <div class="pair">${esc(c.name ?? '')} · paired with ${esc(c.quoteSymbol)}</div>
@@ -65,7 +66,7 @@ function card(c, earned) {
       <span>${c.isMigrated ? 'graduated' : `${pct.toFixed(0)}% of target`}</span>
     </div>
     ${earned ? `<div class="meta earned"><span>${usd(earned.totalUsd)} in fees</span><span>${usd(earned.lfownUsd)} to the DAO</span></div>` : ''}`
-  artwork(c).then((src) => { if (src) a.querySelector('img').src = safeUrl(src) })
+  whenNear(a, () => artwork(c).then((src) => { if (src) a.querySelector('img').src = safeUrl(thumb(src)) }))
   return a
 }
 

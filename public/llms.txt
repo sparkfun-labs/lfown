@@ -64,7 +64,9 @@ The creator pays roughly 0.03 SOL in rent and network fees to launch, plus the d
 
 ## Reference
 
-- MCP server (Streamable HTTP): https://letsfuckingown.fun/mcp
-- API index: https://letsfuckingown.fun/api/agent
-- OpenAPI: https://letsfuckingown.fun/api/agent/openapi.json
-- Launched coins: https://letsfuckingown.fun/coins
+- [MCP server](https://letsfuckingown.fun/mcp): Streamable HTTP, the four tools above
+- [API index](https://letsfuckingown.fun/api/agent): every HTTP endpoint, as JSON
+- [OpenAPI](https://letsfuckingown.fun/api/agent/openapi.json): the same endpoints as an OpenAPI document
+- [Launch options](https://letsfuckingown.fun/api/agent/options): the pairs, tiers, fee split and limits, live
+- [Launched coins](https://letsfuckingown.fun/): every coin launched on LFOWN
+- [Launch page](https://letsfuckingown.fun/launch): where a person reviews and signs a launch

@@ -2024,6 +2024,41 @@ function decodeBase58(str) {
 // Chat rooms are Durable Objects, and their class has to be exported from the main module.
 export { ChatRoom } from './chat.mjs'
 
+/** The widths /i/<key>?w= answers with a thumbnail; anything else gets the original. */
+const THUMB_WIDTHS = [80, 160, 320]
+
+/**
+ * A token image shrunk to `width` pixels, as WebP. Made once by the Images binding and
+ * kept beside the original in R2 (under thumb/<width>/), so each picture costs one
+ * transformation ever. Null when it cannot be made — no binding, the original is gone, or
+ * the transformation failed — and the caller serves the original instead.
+ */
+async function thumbnail(env, ctx, key, width) {
+  const thumbKey = `thumb/${width}/${key.replace(/\.\w+$/, '')}.webp`
+  const headers = (type) => ({
+    'content-type': type,
+    'cache-control': 'public, max-age=31536000, immutable',
+    'access-control-allow-origin': '*',
+    'x-content-type-options': 'nosniff',
+  })
+  const kept = await env.IMAGES.get(thumbKey)
+  if (kept) return new Response(kept.body, { headers: headers('image/webp') })
+  if (!env.RESIZE) return null
+  const original = await env.IMAGES.get(key)
+  if (!original) return null
+  try {
+    const result = await env.RESIZE.input(original.body)
+      .transform({ width, height: width, fit: 'cover' })
+      .output({ format: 'image/webp', quality: 80 })
+    const bytes = await result.response().arrayBuffer()
+    ctx.waitUntil(env.IMAGES.put(thumbKey, bytes, { httpMetadata: { contentType: 'image/webp', cacheControl: 'public, max-age=31536000, immutable' } }))
+    return new Response(bytes, { headers: headers('image/webp') })
+  } catch (e) {
+    console.error(`thumbnail ${thumbKey} failed: ${e.message}`)
+    return null
+  }
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
@@ -2049,7 +2084,14 @@ export default {
 
     // Uploaded token images.
     if (url.pathname.startsWith('/i/') && env.IMAGES) {
-      const object = await env.IMAGES.get(url.pathname.slice(3))
+      const key = url.pathname.slice(3)
+      // ?w=160: a small WebP copy for the lists, which show artwork 42 to 56 pixels wide.
+      const width = Number(url.searchParams.get('w'))
+      if (THUMB_WIDTHS.includes(width) && /^[0-9a-f-]{36}\.(png|jpg|webp|gif)$/.test(key)) {
+        const thumb = await thumbnail(env, ctx, key, width)
+        if (thumb) return thumb
+      }
+      const object = await env.IMAGES.get(key)
       if (!object) return new Response('not found', { status: 404 })
       const headers = new Headers()
       object.writeHttpMetadata(headers)
