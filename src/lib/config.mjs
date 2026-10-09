@@ -79,7 +79,8 @@ export const EXTRA_QUOTES = [
   { mint: 'So11111111111111111111111111111111111111112', symbol: 'SOL', name: 'Solana', decimals: 9, theme: 'solana', opens: '2026-10-09', native: true },
   // PUMP is a Token-2022 mint (transfer hook extension, no hook set) that Meteora has badged
   // for DBC; every amount of it moves through the Token-2022 program, transfer_checked.
-  { mint: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6, theme: 'solana', opens: '2026-10-09', token2022: true },
+  // Its icon is kept here: the one Jupiter lists sits on ipfs.io, which answers 429.
+  { mint: 'pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn', symbol: 'PUMP', name: 'Pump', decimals: 6, theme: 'solana', opens: '2026-10-09', token2022: true, icon: 'https://letsfuckingown.fun/assets/quotes/pump.png' },
   { mint: 'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN', symbol: 'JUP', name: 'Jupiter', decimals: 6, theme: 'solana', opens: '2026-10-09' },
   { mint: 'METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL', symbol: 'MET', name: 'Meteora', decimals: 6, theme: 'solana', opens: '2026-10-09' },
   // BONK has 5 decimals. DBC's SDK types quote decimals as 6–9, but the program takes the
