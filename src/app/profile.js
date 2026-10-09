@@ -6,6 +6,7 @@
 
 import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
+import { thumb } from './thumb.js'
 import { explain, declined } from './errors.js'
 import { isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 
@@ -279,7 +280,7 @@ async function render() {
   for (const r of data.rows) {
     artwork(r.coin).then((src) => {
       const img = document.querySelector(`img[data-mint="${CSS.escape(r.coin.baseMint)}"]`)
-      if (src && img) img.src = safeUrl(src)
+      if (src && img) img.src = safeUrl(thumb(src))
     })
   }
 
@@ -289,7 +290,7 @@ async function render() {
 function row(r) {
   const c = r.coin
   return `<a class="row" href="/coins/${esc(c.baseMint)}">
-    <img alt="" data-mint="${esc(c.baseMint)}">
+    <img alt="" width="40" height="40" decoding="async" data-mint="${esc(c.baseMint)}">
     <div>
       <div class="nm">${esc(c.symbol ?? '—')}</div>
       <div class="pair">${c.isMigrated ? 'graduated' : 'on the curve'} · paired with ${esc(c.quoteSymbol)}</div>
