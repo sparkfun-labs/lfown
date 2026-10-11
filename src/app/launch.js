@@ -47,8 +47,13 @@ const backing = (a) => a.backing
     ? { label: 'Market cap', value: big(a.mcap), usd: a.mcap }
     : { label: 'Treasury', value: usd(a.treasury), usd: a.treasury }
 /** A pair announced for a later day: shown, not yet launchable. */
-const opensLater = (a) => Boolean(a.opens) && Date.parse(`${a.opens}T00:00:00Z`) > Date.now()
-const opensLabel = (a) => new Date(`${a.opens}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
+// `opens` is a day ('2026-10-09') or an exact time ('2026-10-11T17:45:00Z'); a time is
+// shown in the visitor's own zone.
+const opensAt = (a) => Date.parse(a.opens.includes('T') ? a.opens : `${a.opens}T00:00:00Z`)
+const opensLater = (a) => Boolean(a.opens) && opensAt(a) > Date.now()
+const opensLabel = (a) => a.opens.includes('T')
+  ? new Date(opensAt(a)).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+  : new Date(`${a.opens}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
 /** A price nobody has traded at yet is the raise's, and says so. */
 const priceOf = (a) => price(a.usdPrice) + (a.priceSource === 'reference' ? ' raise' : '')
 const fmt = (n, d = 2) => Number(n).toLocaleString('en-US', { maximumFractionDigits: d })
@@ -147,7 +152,7 @@ async function loadAssets() {
     const f = c.financials
     const card = document.createElement('button')
     card.type = 'button'
-    card.className = c.backing ? `qcard featured ${c.backing.kind}` : `qcard theme-${themeOf(c)}`
+    card.className = c.backing ? `qcard featured ${c.backing.kind}` : `qcard theme-${themeOf(c)}${c.spotlight ? ' featured spot' : ''}`
     card.setAttribute('aria-pressed', 'false')
     card.dataset.theme = themeOf(c)
     const later = opensLater(c)
@@ -182,11 +187,12 @@ async function loadAssets() {
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
         <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>
       </div>
+      ${c.spotlight ? `<p class="badge">New${later ? ` · opens ${esc(opensLabel(c))}` : ' on MetaDAO'}</p>` : ''}
       <dl>
-        <div class="treasury"><dt title="${f ? 'Every DAO wallet and LP position, from 01Resolved' : 'The treasury vault, from MetaDAO'}">Treasury</dt><dd>${usd(c.treasury)}</dd></div>
-        <div><dt>Liquidity</dt><dd>${usd(c.liquidity)}</dd></div>
-        <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
-        <div><dt>Price</dt><dd>${price(c.usdPrice)}</dd></div>
+        <div class="treasury"><dt title="${f ? 'Every DAO wallet and LP position, from 01Resolved' : 'The treasury vault, from MetaDAO'}">Treasury</dt><dd>${later ? '—' : usd(c.treasury)}</dd></div>
+        <div><dt>Liquidity</dt><dd>${later ? '—' : usd(c.liquidity)}</dd></div>
+        <div><dt>Holders</dt><dd>${later ? '—' : c.holders.toLocaleString('en-US')}</dd></div>
+        <div><dt>Price</dt><dd>${later ? '—' : price(c.usdPrice)}</dd></div>
       </dl>`
     card.addEventListener('click', () => { if (!opensLater(c)) select(c, card) })
 

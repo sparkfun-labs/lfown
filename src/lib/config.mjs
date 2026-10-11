@@ -52,6 +52,25 @@ export const THEMES = [
 ]
 export const themeOf = (coin) => coin?.theme ?? 'ownership'
 
+/**
+ * Ownership coins just raised on MetaDAO, pinned to the top of their tab with a "New"
+ * badge until `until`. Before the coin trades (it is not in MetaDAO's market API yet)
+ * the catalogue shows this entry instead, marked as opening at `opens`, an ISO time.
+ * Once it trades the market's own figures replace it, and the treasury floor does not
+ * apply while it is spotlit: a raise's treasury can read zero for its first hours.
+ */
+export const SPOTLIGHT = [
+  {
+    mint: 'syQqkspvb2PRr1meJ5pJDmhgxwc4hUou2TMjjrTmeta',
+    symbol: 'GANG',
+    name: 'The Syndicate',
+    icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/04ae395c-2943-46fd-dc40-33cf775a9200/public',
+    // The raise closes and the coin starts trading on 11 Oct 2026, 22:45 at UTC+5.
+    opens: '2026-10-11T17:45:00Z',
+    until: '2026-10-25',
+  },
+]
+
 export const EXTRA_QUOTES = [
   {
     mint: 'DeatoN4UYU2B658Lh4ZV1VXy1u2ros32UEwnAtCRv4nB',

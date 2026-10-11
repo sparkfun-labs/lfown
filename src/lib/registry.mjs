@@ -12,7 +12,7 @@
 // coin, its treasury is the one shown. MetaDAO still decides which coins are listed at
 // all, so a 01Resolved outage changes some numbers and nothing else.
 
-import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD, COIN_DECIMALS, EXTRA_QUOTES, tokenUnit } from './config.mjs'
+import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD, COIN_DECIMALS, EXTRA_QUOTES, SPOTLIGHT, tokenUnit } from './config.mjs'
 
 // The market API rejects requests without a browser-shaped User-Agent.
 const UA = 'Mozilla/5.0 (compatible; LFOwn/1.0; +https://letsfuckingown.fun)'
@@ -197,6 +197,25 @@ export function extraCoin(q, found) {
  * `keep`: mints LFOwn has already paired memes with. They stay listed below the treasury
  * floor, since MetaDAO's treasury figure can be wrong and dropping a coin drops its memes.
  */
+/**
+ * Marks the spotlit coins, and stands in for any that does not trade yet: the entry from
+ * SPOTLIGHT, priced at nothing and opening at its `opens` time, so the page can announce
+ * it. No config exists for it until it trades, so nothing can launch against it early.
+ */
+export function withSpotlight(coins, spotlit) {
+  const out = coins.map((c) => (spotlit.has(c.mint) ? { ...c, spotlight: true } : c))
+  for (const s of SPOTLIGHT) {
+    if (!spotlit.has(s.mint) || out.some((c) => c.mint === s.mint)) continue
+    out.push({
+      mint: s.mint, symbol: s.symbol, name: s.name, decimals: COIN_DECIMALS, icon: s.icon ?? null,
+      usdPrice: 0, priceSource: 'reference', liquidity: 0, treasury: 0, treasuryVault: null, volume24h: 0,
+      pool: null, since: null, holders: 0, mcap: 0, exits: [], featured: false, backing: null, financials: null,
+      theme: 'ownership', opens: s.opens, spotlight: true,
+    })
+  }
+  return out
+}
+
 export async function buildRegistry(_endpoint, { withExits = false, resolvedKey, resolvedCache, keep = new Set() } = {}) {
   const res = await fetch(MARKET_API, { headers: { 'user-agent': UA, accept: 'application/json' } })
   if (!res.ok) throw new Error(`metadao market api ${res.status}`)
@@ -269,8 +288,11 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
 
   // The treasury floor is about ownership coins, whose treasury is what backs them; a
   // Solana major is backed by its market instead.
-  listed = listed.filter((d) => (d.theme && d.theme !== 'ownership') || d.treasury >= MIN_TREASURY_USD || keep.has(d.mint))
-  // Featured coins lead; the rest by what backs them.
-  listed.sort((a, b) => Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
+  const spotlit = new Set(SPOTLIGHT.filter((s) => Date.now() < Date.parse(`${s.until}T00:00:00Z`)).map((s) => s.mint))
+  listed = listed.filter((d) => (d.theme && d.theme !== 'ownership') || d.treasury >= MIN_TREASURY_USD || keep.has(d.mint) || spotlit.has(d.mint))
+  listed = withSpotlight(listed, spotlit)
+  // Spotlit coins lead, then featured ones; the rest by what backs them.
+  listed.sort((a, b) => Number(Boolean(b.spotlight)) - Number(Boolean(a.spotlight))
+    || Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
   return { updatedAt: new Date().toISOString(), count: listed.length, coins: listed }
 }
