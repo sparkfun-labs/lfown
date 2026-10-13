@@ -69,6 +69,15 @@ export const SPOTLIGHT = [
     opens: '2026-10-11T17:45:00Z',
     until: '2026-10-25',
   },
+  {
+    mint: '5Xg5fq7PgLNafbgXYfpWNmPhYpkSMEAqb7SPeHNdmeta',
+    symbol: 'KREW',
+    name: 'MimiKrew',
+    icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/aec66fc8-2e91-4787-7422-819ff3e6ba00/public',
+    // 13 Oct 2026, 22:00 at UTC+5; the raise sold at $0.002 a token.
+    opens: '2026-10-13T17:00:00Z',
+    until: '2026-10-27',
+  },
 ]
 
 export const EXTRA_QUOTES = [

@@ -291,8 +291,10 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
   const spotlit = new Set(SPOTLIGHT.filter((s) => Date.now() < Date.parse(`${s.until}T00:00:00Z`)).map((s) => s.mint))
   listed = listed.filter((d) => (d.theme && d.theme !== 'ownership') || d.treasury >= MIN_TREASURY_USD || keep.has(d.mint) || spotlit.has(d.mint))
   listed = withSpotlight(listed, spotlit)
-  // Spotlit coins lead, then featured ones; the rest by what backs them.
+  // Spotlit coins lead, the latest raise first; then featured ones; the rest by what backs them.
+  const raisedAt = new Map(SPOTLIGHT.map((s) => [s.mint, Date.parse(s.opens)]))
   listed.sort((a, b) => Number(Boolean(b.spotlight)) - Number(Boolean(a.spotlight))
+    || (raisedAt.get(b.mint) ?? 0) - (raisedAt.get(a.mint) ?? 0)
     || Number(Boolean(b.featured)) - Number(Boolean(a.featured)) || b.treasury - a.treasury)
   return { updatedAt: new Date().toISOString(), count: listed.length, coins: listed }
 }
