@@ -117,7 +117,8 @@ h1{font-family:var(--display);font-weight:800;text-transform:uppercase;letter-sp
 .qcard.featured .sym{color:var(--red)}
 .qcard.featured .badge{margin:0;align-self:flex-start;font-family:var(--mono);font-size:.54rem;letter-spacing:.14em;text-transform:uppercase;color:#fff;background:var(--red);padding:4px 7px}
 .qitem:has(.featured) .fin{color:var(--red)}
-.qitem:has(.featured) .qcard .top{padding-right:11.5rem}
+/* The longer "View on Jurassic Finance" needs more room; a spotlit coin's 01Resolved link does not. */
+.qitem:has(.featured:not(.spot)) .qcard .top{padding-right:11.5rem}
 
 /* The draw. Red-on-paper rather than a card of figures, because it has none to show
    — and it has to read as a different kind of thing from the coins beside it. */
