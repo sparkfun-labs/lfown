@@ -5,7 +5,7 @@
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
 import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, tokenProgramOf, USDC as USDC_MINT } from './lib/config.mjs'
-import { listLaunches, describeLaunch, launchEntry } from './lib/launches.mjs'
+import { listLaunches, describeLaunch, launchEntry, refreshLaunches } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
 import { feeReport } from './lib/fee-report.mjs'
@@ -29,6 +29,8 @@ const LAUNCHES_KEY = 'launches:v2'
 // A route that let anyone drop it let anyone make the next twenty visitors each pay
 // for a full rebuild, and a rebuild is one program scan per config.
 const LAUNCHES_FRESH = 15 * 60_000
+/** How often the list looks for pools it does not know, one getProgramAccounts per config. */
+const LAUNCHES_DISCOVER = 60 * 60_000
 const LAUNCHES_TTL = 86_400
 // v4: "generated" no longer counts Meteora's cut, so a stored v3 report holds the
 // same fields with different meanings — which is exactly what a bump is for.
@@ -40,7 +42,9 @@ const LAUNCHES_TTL = 86_400
 const FEES_KEY = 'fees:v6'
 // How old the fee report may be before a request also triggers a rebuild behind it.
 // The stored copy outlives this by a long way, so an expiry never lands on a visitor.
-const FEES_FRESH = 60_000
+// Five minutes, not one: every page asks for the report, and each rebuild re-reads every
+// graduated pool's positions with a getProgramAccounts.
+const FEES_FRESH = 5 * 60_000
 // v3: one descriptor became a list of legs, so a graduated coin keeps a chart. The
 // entry holds a shape, not just a value, so changing what is in it means changing
 // the key — a stale descriptor silently produced empty charts the last time.
@@ -220,6 +224,32 @@ async function waitForKey(env, key, ms) {
   return null
 }
 
+/**
+ * Brings the stored list up to date: a full rebuild once an hour (or with nothing stored),
+ * otherwise only the known pools re-read in a batch or two. The full rebuild is one
+ * getProgramAccounts per config, and it ran every ten minutes for coins that, launched
+ * from these pages, are added the moment they confirm.
+ */
+function freshenLaunches(env) {
+  return withLock(env, 'launches', async () => {
+    const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
+    if (!cached?.launches || Date.now() - Date.parse(cached.discoveredAt ?? '') > LAUNCHES_DISCOVER) {
+      const fresh = await collectLaunches(env)
+      if (env.REGISTRY) await env.REGISTRY.put(LAUNCHES_KEY, JSON.stringify(fresh), { expirationTtl: LAUNCHES_TTL })
+      return fresh
+    }
+    const [{ Connection, PublicKey }, { DynamicBondingCurveClient }] = await Promise.all([
+      import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk'),
+    ])
+    const client = new DynamicBondingCurveClient(new Connection(env.HELIUS_RPC, 'confirmed'), 'confirmed')
+    const { coins } = await readCatalogue(env)
+    await refreshLaunches(client, PublicKey, cached.launches, new Map(coins.map((c) => [c.mint, c.usdPrice])))
+    const fresh = { ...cached, updatedAt: new Date().toISOString(), count: cached.launches.length }
+    if (env.REGISTRY) await env.REGISTRY.put(LAUNCHES_KEY, JSON.stringify(fresh), { expirationTtl: LAUNCHES_TTL })
+    return fresh
+  })
+}
+
 /** Rebuilds the launches list and stores it — unless another request already is. */
 function rebuildLaunches(env) {
   return withLock(env, 'launches', async () => {
@@ -240,7 +270,7 @@ async function readLaunches(env, ctx) {
   const cached = env.REGISTRY ? await env.REGISTRY.get(LAUNCHES_KEY, 'json') : null
   if (cached) {
     if (ctx && Date.now() - Date.parse(cached.updatedAt ?? '') > LAUNCHES_FRESH) {
-      ctx.waitUntil(rebuildLaunches(env).catch((e) => console.error('launches rebuild failed:', e.message)))
+      ctx.waitUntil(freshenLaunches(env).catch((e) => console.error('launches refresh failed:', e.message)))
     }
     return cached
   }
@@ -1101,7 +1131,8 @@ async function collectLaunches(env) {
   const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
   const launches = await listLaunches(client, connection, PublicKey, await ourConfigs(env))
-  return { updatedAt: new Date().toISOString(), count: launches.length, launches }
+  const now = new Date().toISOString()
+  return { updatedAt: now, discoveredAt: now, count: launches.length, launches }
 }
 
 /**
@@ -1211,7 +1242,7 @@ const EMPTY_REPORT = () => ({
   pending: true,
 })
 
-/** The fee report from KV, rebuilt behind the response once it is a minute old. */
+/** The fee report from KV, rebuilt behind the response once it is FEES_FRESH old. */
 async function readFeeReport(env, ctx) {
   const cached = env.REGISTRY ? await env.REGISTRY.get(FEES_KEY, 'json') : null
   if (cached?.report) {
@@ -2160,7 +2191,7 @@ export default {
       await writeCatalogue(env, catalogue)
       await announcePumps(env, catalogue).catch((e) => console.error('pump posts failed:', e.message))
       if (env.REGISTRY) {
-        await rebuildLaunches(env).catch((e) => console.error('launches rebuild failed:', e.message))
+        await freshenLaunches(env).catch((e) => console.error('launches refresh failed:', e.message))
         // Warmed here so that visitors read it rather than build it.
         await buildFeeReport(env).catch((e) => console.error('fee report warm-up failed:', e.message))
       }

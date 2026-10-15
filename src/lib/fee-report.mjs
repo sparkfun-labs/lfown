@@ -2,7 +2,9 @@
 //
 // Nothing is indexed: a bonding curve records its lifetime fees, and a DAMM v2
 // position records what it has claimed. Add the unclaimed remainder and the full
-// history falls out of two account reads per coin.
+// history falls out of a few account reads per coin — made in batches, every pool,
+// config and vault at once, because one read per account was 400 calls a report
+// (Helius, Oct 2026: 92% of all traffic, at a report every few minutes).
 
 import { PublicKey } from '@solana/web3.js'
 import {
@@ -27,9 +29,28 @@ export async function feeReport(client, connection, launches, { prices = new Map
     ? new (await import('@meteora-ag/dynamic-fee-sharing-sdk')).DynamicFeeSharingClient(connection, 'confirmed')
     : null
 
+  // Every account the loop needs, read up front in batches of 99. A pool or vault
+  // that cannot be read is missing from its map and handled where it is used.
+  const program = client.state.program ?? client.program
+  const fetchAll = async (account, addresses) => {
+    const unique = [...new Set(addresses)]
+    const found = new Map()
+    for (let i = 0; i < unique.length; i += 99) {
+      const slice = unique.slice(i, i + 99)
+      const decoded = await account.fetchMultiple(slice.map((a) => new PublicKey(a)))
+      decoded.forEach((d, j) => { if (d) found.set(slice[j], d) })
+    }
+    return found
+  }
+  const pools = await fetchAll(program.account.virtualPool, launches.map((l) => l.pool))
+  const configs = await fetchAll(program.account.poolConfig, [...pools.values()].map((p) => p.poolState.config.toBase58()))
+  const vaults = dfs ? await fetchAll(dfs.program.account.feeVault, launches.filter((l) => l.vault).map((l) => l.vault)) : new Map()
+
   for (const l of launches) {
-    const { poolState } = await client.state.getPool(new PublicKey(l.pool))
-    const config = await client.state.getPoolConfig(poolState.config)
+    const pool = pools.get(l.pool)
+    if (!pool) { console.error(`fee report: pool ${l.pool} for ${l.symbol ?? l.baseMint} unreadable, left out`); continue }
+    const { poolState } = pool
+    const config = configs.get(poolState.config.toBase58()) ?? {}
     const creatorPct = Number(config.creatorTradingFeePercentage ?? 50)
     const price = prices.get(l.quoteMint) ?? l.quoteUsdPrice ?? 0
     const lamports = (x) => whole(x, l.quoteMint)
@@ -85,7 +106,8 @@ export async function feeReport(client, connection, launches, { prices = new Map
     let customSplit = false
     if (l.vault && dfs) {
       try {
-        const vault = await dfs.getFeeVault(new PublicKey(l.vault))
+        const vault = vaults.get(l.vault)
+        if (!vault) throw new Error('not found')
         const split = vaultSplit(vault.users, vault.totalShare, { creator: l.feeWallet ?? l.creator, pot: holderPot })
         if (split.total) {
           holders = (creatorSide * split.holders) / split.total

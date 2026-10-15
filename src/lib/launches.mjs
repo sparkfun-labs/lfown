@@ -149,6 +149,31 @@ export async function launchEntry(connection, PublicKey, publicKey, poolState, c
 }
 
 /**
+ * The list brought up to date without looking for new pools: every known pool's reserves
+ * and graduation re-read in batches of 99, and each pair's price taken from `prices`.
+ * Finding new pools (listLaunches: one getProgramAccounts per config) runs far less
+ * often — a coin launched from these pages is added the moment it confirms anyway.
+ */
+export async function refreshLaunches(client, PublicKey, launches, prices = new Map()) {
+  const program = client.state.program ?? client.program
+  for (let i = 0; i < launches.length; i += 99) {
+    const slice = launches.slice(i, i + 99)
+    const pools = await program.account.virtualPool.fetchMultiple(slice.map((l) => new PublicKey(l.pool)))
+    pools.forEach((pool, j) => {
+      if (!pool) return
+      const { poolState } = pool
+      Object.assign(slice[j], {
+        baseReserve: poolState.baseReserve.toString(),
+        quoteReserve: poolState.quoteReserve.toString(),
+        isMigrated: Boolean(poolState.isMigrated),
+      })
+    })
+  }
+  for (const l of launches) if (prices.get(l.quoteMint) > 0) l.quoteUsdPrice = prices.get(l.quoteMint)
+  return launches
+}
+
+/**
  * Every pool opened on the given configs, newest first.
  * `client` is a DynamicBondingCurveClient; PublicKey is passed in so this module
  * stays usable from both the Worker bundle and Node scripts.

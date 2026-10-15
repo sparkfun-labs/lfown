@@ -188,15 +188,27 @@ await test('launches: six concurrent cold requests cost one lookup, not six', as
   assert.equal(kv.has('rebuilding:launches'), false)
 })
 
-await test('launches: an old list is served at once and rebuilt behind the response', async () => {
+await test('launches: an old list is served at once and refreshed behind it, without a scan', async () => {
   const stored = JSON.parse(kv.get(KEYS.LAUNCHES_KEY))
   stored.updatedAt = new Date(Date.now() - 3_600_000).toISOString()
+  stored.discoveredAt = new Date().toISOString()
+  kv.set(KEYS.LAUNCHES_KEY, JSON.stringify(stored))
+  const before = scans()
+  const r = await call('/api/launches')
+  assert.equal(r.status, 200)
+  assert.equal(scans() - before, 0)
+  assert.ok(Date.now() - Date.parse(JSON.parse(kv.get(KEYS.LAUNCHES_KEY)).updatedAt) < 5_000)
+})
+
+await test('launches: once an hour the refresh looks for new pools again, one scan per config', async () => {
+  const stored = JSON.parse(kv.get(KEYS.LAUNCHES_KEY))
+  stored.updatedAt = stored.discoveredAt = new Date(Date.now() - 3_600_000 - 1).toISOString()
   kv.set(KEYS.LAUNCHES_KEY, JSON.stringify(stored))
   const before = scans()
   const r = await call('/api/launches')
   assert.equal(r.status, 200)
   assert.equal(scans() - before, UNIT)
-  assert.ok(Date.now() - Date.parse(JSON.parse(kv.get(KEYS.LAUNCHES_KEY)).updatedAt) < 5_000)
+  assert.ok(Date.now() - Date.parse(JSON.parse(kv.get(KEYS.LAUNCHES_KEY)).discoveredAt) < 5_000)
 })
 
 await test('metadata: a post no longer drops the launches list, and links are http(s) or nothing', async () => {
