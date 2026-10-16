@@ -40,10 +40,12 @@ const price = (n) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
  * What stands behind a backing coin, as a short label and a figure. An ownership coin
  * has a treasury; a coin listed by hand says what it has instead — a dinosaur, so far.
  */
+/** Thematics whose pairs are judged by their market, not a treasury: majors and stocks. */
+const MARKET_PRICED = new Set(['solana', 'stocks'])
 const big = (n) => (n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : usd(n))
 const backing = (a) => a.backing
   ? { label: 'Backed by', value: a.backing.label.replace(/^A /, ''), usd: a.backing.usd }
-  : themeOf(a) === 'solana'
+  : MARKET_PRICED.has(themeOf(a))
     ? { label: 'Market cap', value: big(a.mcap), usd: a.mcap }
     : { label: 'Treasury', value: usd(a.treasury), usd: a.treasury }
 /** A pair announced for a later day: shown, not yet launchable. */
@@ -171,7 +173,7 @@ async function loadAssets() {
         <div><dt>Raised</dt><dd>${usd(c.backing.raised)}</dd></div>
         <div><dt>Holders</dt><dd>${c.holders.toLocaleString('en-US')}</dd></div>
         <div><dt title="${c.priceSource === 'reference' ? 'What its raise paid per token; it has no market yet' : 'Market price'}">Price</dt><dd>${priceOf(c)}</dd></div>
-      </dl>` : themeOf(c) === 'solana' ? `
+      </dl>` : MARKET_PRICED.has(themeOf(c)) ? `
       <div class="top">
         ${c.icon ? `<img src="${safeUrl(c.icon)}" alt="" loading="lazy">` : ''}
         <div><div class="sym">${esc(c.symbol)}</div><div class="name">${esc(c.name ?? '')}</div></div>

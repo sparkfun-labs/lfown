@@ -147,7 +147,11 @@ for (const coin of queue) {
     console.error(`  skip ${coin.symbol.padEnd(9)} has ${decimals} decimals; list it in EXTRA_QUOTES (src/lib/config.mjs) first`)
     continue
   }
-  todo.push({ ...coin, decimals, threshold: Math.round(tier.usd / coin.usdPrice) })
+  // Whole tokens are fine for a cheap coin, and badly off for a dear one: at $772 a
+  // token, rounding $5,000 to 6 SPYx graduates at $4,632. Under a thousand tokens, two
+  // decimals keep the target within a cent or so of the tier.
+  const exact = tier.usd / coin.usdPrice
+  todo.push({ ...coin, decimals, threshold: exact >= 1000 ? Math.round(exact) : Math.round(exact * 100) / 100 })
 }
 
 if (!todo.length) { console.log('\nnothing to do.'); process.exit(0) }

@@ -49,6 +49,8 @@ export const THEMES = [
     blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
     blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
+  { id: 'stocks', label: 'Stocks', short: 'Stocks', pairedWith: 'stocks',
+    blurb: 'Tokenized shares from xStocks: SpaceX, Tesla, the S&P 500, Nvidia. Pair your meme with a stock.' },
 ]
 export const themeOf = (coin) => coin?.theme ?? 'ownership'
 
@@ -117,6 +119,16 @@ export const EXTRA_QUOTES = [
   // BONK has 5 decimals. DBC's SDK types quote decimals as 6–9, but the program takes the
   // quote's decimals from its mint and a 5-decimal quote ran end to end on devnet (8 Oct).
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, theme: 'solana', opens: '2026-10-09' },
+  // Stocks: the five largest xStocks (Backed Finance) by market cap, Oct 2026. Token-2022
+  // mints with 8 decimals that Meteora has badged for DBC and DAMM v2. Their extensions —
+  // a permanent delegate, pausing, a transfer hook slot (no program set), a scaled UI
+  // amount — put them out of the fee-sharing program's reach, as PUMP is: no holder share.
+  // The scaled amount's multiplier sits within 1.006 of 1, too little to matter to a tier.
+  { mint: 'Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8', symbol: 'SPCXx', name: 'SpaceX xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/SPCXx.png' },
+  { mint: 'XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB', symbol: 'TSLAx', name: 'Tesla xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/TSLAx.png' },
+  { mint: 'XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W', symbol: 'SPYx', name: 'SP500 xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/SPYx.png' },
+  { mint: 'XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ', symbol: 'MSTRx', name: 'MicroStrategy xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/MSTRx.png' },
+  { mint: 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh', symbol: 'NVDAx', name: 'NVIDIA xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/NVDAx.png' },
 ]
 
 /** Decimals of a coin LFOwn deals in: listed by hand above, or the 6 everything else has. */
