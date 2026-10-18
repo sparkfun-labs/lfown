@@ -9,22 +9,43 @@ import { PublicKey } from '@solana/web3.js'
 import { DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { sendAndConfirm } from './confirm.mjs'
 
-/** Pools whose curve is full and which have not migrated yet. */
+/**
+ * Pools whose curve is full and which have not migrated yet.
+ *
+ * Every pool and every config is read in batches of 99. It used to be three reads per
+ * pool — the pool, then the pool again and its config for the threshold — one after
+ * another, every ten minutes: about 450 calls a run once there were 150 curves, most of
+ * Helius's traffic for a check that almost always finds nothing.
+ */
 export async function readyToGraduate(client, launches) {
-  const ready = []
-  for (const p of launches) {
-    if (p.isMigrated) continue
-    try {
-      const { poolState } = await client.state.getPool(new PublicKey(p.pool))
-      if (poolState.isMigrated) continue
-      const threshold = await client.state.getPoolMigrationQuoteThreshold(new PublicKey(p.pool))
-      if (poolState.quoteReserve.lt(threshold)) continue
-      ready.push({ ...p, poolState })
-    } catch (e) {
-      // One unreadable pool should not stop the sweep — but swallowing the reason
-      // makes "nothing is ready" and "the check is broken" the same silent answer.
-      console.error(`readyToGraduate: ${p.symbol ?? p.pool} could not be read: ${e.message}`)
+  const program = client.state.program ?? client.program
+  const live = launches.filter((p) => !p.isMigrated)
+  const batched = async (account, keys) => {
+    const found = new Map()
+    const unique = [...new Set(keys)]
+    for (let i = 0; i < unique.length; i += 99) {
+      const slice = unique.slice(i, i + 99)
+      try {
+        const decoded = await account.fetchMultiple(slice.map((k) => new PublicKey(k)))
+        decoded.forEach((d, j) => { if (d) found.set(slice[j], d) })
+      } catch (e) {
+        // One failed batch should not stop the sweep — but swallowing the reason makes
+        // "nothing is ready" and "the check is broken" the same silent answer.
+        console.error(`readyToGraduate: ${slice.length} accounts could not be read: ${e.message}`)
+      }
     }
+    return found
+  }
+  const pools = await batched(program.account.virtualPool, live.map((p) => p.pool))
+  const configs = await batched(program.account.poolConfig, [...pools.values()].map((v) => v.poolState.config.toBase58()))
+
+  const ready = []
+  for (const p of live) {
+    const poolState = pools.get(p.pool)?.poolState
+    const config = poolState && configs.get(poolState.config.toBase58())
+    if (!config) { if (poolState) console.error(`readyToGraduate: config of ${p.symbol ?? p.pool} unreadable`); continue }
+    if (poolState.isMigrated || poolState.quoteReserve.lt(config.migrationQuoteThreshold)) continue
+    ready.push({ ...p, poolState })
   }
   return ready
 }
