@@ -80,6 +80,15 @@ export const SPOTLIGHT = [
     opens: '2026-10-13T17:00:00Z',
     until: '2026-10-27',
   },
+  {
+    mint: '2HPNEWcxDDnLhdSmfsNPf6TC1byJXPNj6mczqY5ymeta',
+    symbol: 'DRAWUP',
+    name: 'DRAWUP',
+    icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/36b3ed40-a1e4-4258-9659-17d4ecc47800/public',
+    // 20 Oct 2026, 18:15 at UTC+5.
+    opens: '2026-10-20T13:15:00Z',
+    until: '2026-11-03',
+  },
 ]
 
 export const EXTRA_QUOTES = [
