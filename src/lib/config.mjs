@@ -119,6 +119,9 @@ export const EXTRA_QUOTES = [
   // BONK has 5 decimals. DBC's SDK types quote decimals as 6–9, but the program takes the
   // quote's decimals from its mint and a 5-decimal quote ran end to end on devnet (8 Oct).
   { mint: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', symbol: 'BONK', name: 'Bonk', decimals: 5, theme: 'solana', opens: '2026-10-09' },
+  // Collector Crypt: tokenized trading cards. A plain SPL mint, so its memes share with
+  // holders like any ownership coin's. Its icon is kept here: Jupiter's sits on a slow CDN.
+  { mint: 'CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp', symbol: 'CARDS', name: 'Collector Crypt', decimals: 6, theme: 'solana', icon: 'https://letsfuckingown.fun/assets/quotes/cards.png' },
   // Stocks: the five largest xStocks (Backed Finance) by market cap, Oct 2026. Token-2022
   // mints with 8 decimals that Meteora has badged for DBC and DAMM v2. Their extensions —
   // a permanent delegate, pausing, a transfer hook slot (no program set), a scaled UI
