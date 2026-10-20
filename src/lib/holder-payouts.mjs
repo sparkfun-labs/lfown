@@ -89,34 +89,51 @@ export async function snapshotHolders(rpcUrl, mint) {
  * pulls, and reading the vault alone would have paid their holders nothing, ever.
  * `needsPull` says whether the payout has to pull from the curve first, and
  * `position`, when set, is the graduated position it has to pull from. `readPool`
- * returns a DBC pool's state; `positionOf(vault, launch)` returns the vault's locked
+ * returns a DBC pool's state, and `readPools(addresses)`, when given, a Map of them read
+ * in one go; `positionOf(vault, launch)` returns the vault's locked
  * DAMM v2 position for that coin with its unclaimed quote-side fee in base units.
  */
-export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map(), readPool, positionOf } = {}) {
+export async function pendingHolderFees(dfs, connection, launches, { potAddress, prices = new Map(), readPool, readPools, positionOf } = {}) {
   const pot = new PublicKey(potAddress)
   const candidates = launches
     .filter((l) => l.baseMint && l.quoteMint)
     .map((l) => ({ launch: l, vault: deriveVault(l.baseMint, l.quoteMint) }))
   if (!candidates.length) return []
 
-  // One batched read tells us which of them were ever opened; the rest never had a
-  // vault and never will, because opening one needs the mint's signature.
+  // One batched read tells us which of them were ever opened — the rest never had a
+  // vault and never will, because opening one needs the mint's signature — and hands
+  // back each vault's state with it. What the pot is owed is arithmetic on that state
+  // (the SDK's getFeeBreakdown does the same sum after reading the vault again), so
+  // nothing here is read twice. It used to be three reads a vault, one after another:
+  // 250 calls an hour once 84 coins shared.
   const open = []
   for (let i = 0; i < candidates.length; i += 100) {
     const slice = candidates.slice(i, i + 100)
     const infos = await connection.getMultipleAccountsInfo(slice.map((c) => c.vault))
-    slice.forEach((c, j) => { if (infos[j]) open.push(c) })
+    slice.forEach((c, j) => {
+      if (!infos[j]) return
+      try {
+        open.push({ ...c, state: dfs.program.coder.accounts.decode('feeVault', infos[j].data) })
+      } catch (e) {
+        console.error(`holder payout: vault ${c.vault.toBase58()} undecodable — ${e.message}`)
+      }
+    })
   }
+  const withPot = open.filter((o) => o.state.users.some((u) => u.share > 0 && u.address.equals(pot)))
+
+  // Every pool at once, when the caller can batch; one at a time otherwise.
+  const pools = readPools
+    ? await readPools(withPot.map((o) => o.launch.pool))
+    : new Map(await Promise.all(withPot.map(async (o) => [o.launch.pool, await readPool(o.launch.pool)])))
 
   const owed = []
-  for (const { launch, vault } of open) {
+  for (const { launch, vault, state } of withPot) {
     try {
-      const [state, breakdown, poolState] = await Promise.all([
-        dfs.getFeeVault(vault), dfs.getFeeBreakdown(vault), readPool(launch.pool),
-      ])
+      const poolState = pools.get(launch.pool)
+      if (!poolState) throw new Error(`pool ${launch.pool} unreadable`)
       const share = state.users.find((u) => u.share > 0 && u.address.equals(pot))
-      if (!share) continue
-      const waiting = BigInt(breakdown.userFees.find((u) => u.address.equals(pot))?.feeUnclaimed.toString() ?? '0')
+      const funded = BigInt(state.totalFundedFee.toString())
+      const waiting = (funded * BigInt(share.share)) / BigInt(state.totalShare) - BigInt(share.feeClaimed.toString())
       const inPool = BigInt(poolState.creatorQuoteFee.toString())
       // After graduation the curve stops earning and the undivided fees build up in the
       // locked position the vault owns instead.

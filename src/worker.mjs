@@ -1896,6 +1896,15 @@ async function distributeToHolders(env) {
     potAddress: FEES.holderPot,
     prices,
     readPool: async (address) => (await dbc.state.getPool(new PublicKey(address))).poolState,
+    readPools: async (addresses) => {
+      const found = new Map()
+      for (let i = 0; i < addresses.length; i += 99) {
+        const slice = addresses.slice(i, i + 99)
+        const pools = await (dbc.state.program ?? dbc.program).account.virtualPool.fetchMultiple(slice.map((a) => new PublicKey(a)))
+        pools.forEach((p, j) => { if (p) found.set(slice[j], p.poolState) })
+      }
+      return found
+    },
     // Counted in base units from the position itself: `lpPositions` rounds to display
     // figures, and a payout must not hand out a figure that was rounded to get there.
     positionOf: async (vault, launch) => {
