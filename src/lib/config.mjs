@@ -45,6 +45,8 @@ export const COIN_DECIMALS = 6
 const ALL_THEMES = [
   { id: 'ownership', label: 'Ownership coins', short: 'Ownership', pairedWith: 'ownership coins',
     blurb: 'MetaDAO ownership coins: a treasury behind every pair, run by futarchy.' },
+  { id: 'spark', label: 'Spark', short: 'Spark', pairedWith: 'Spark coins',
+    blurb: 'Ownership coins launched by Spark. Each one is also under Ownership coins.' },
   { id: 'solana', label: 'Solana Majors', short: 'Solana Majors', pairedWith: 'Solana Majors',
     blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
@@ -60,6 +62,29 @@ const ALL_THEMES = [
 export const THEMES = ALL_THEMES.filter((t) => !t.hidden)
 export const isHiddenTheme = (id) => ALL_THEMES.some((t) => t.id === id && t.hidden)
 export const themeOf = (coin) => coin?.theme ?? 'ownership'
+
+/**
+ * Coins a thematic gathers on top of their own. Spark's launches are MetaDAO ownership
+ * coins like any other, so they stay under Ownership coins and show under Spark too.
+ * Listed by mint: a ticker anyone can copy.
+ */
+export const ALSO_IN = {
+  spark: [
+    '2HPNEWcxDDnLhdSmfsNPf6TC1byJXPNj6mczqY5ymeta', // DRAWUP
+    '5Xg5fq7PgLNafbgXYfpWNmPhYpkSMEAqb7SPeHNdmeta', // KREW
+    '5FtV5gisCyCqJHsiCne4pX2r6d2YPRF9Kcfx2DKvmeta', // PREDICT
+    '31hoVYavdrwYVcbWoZtXpUvf84D5Zroqai2wSnkAmeta', // ACCRUE
+    '5gDnzAC4EEFmTjFzFjHUXS7wx5Cdvi2NTKGZT61meta', // LFOWN
+    '2rNBaMg5VAr1aMNCwAPdDZVgzzdTaNDebUnNqPFNmeta', // BASKET
+  ],
+}
+
+/** Every thematic a coin (or a coin's mint) shows under: its own, then any that gather it. */
+export function themesOf(coin) {
+  const mint = typeof coin === 'string' ? coin : coin?.mint
+  return [...(typeof coin === 'string' ? [] : [themeOf(coin)]), ...Object.keys(ALSO_IN).filter((id) => ALSO_IN[id].includes(mint))]
+}
+export const inTheme = (coin, id) => themesOf(coin).includes(id)
 
 /**
  * Ownership coins just raised on MetaDAO, pinned to the top of their tab with a "New"

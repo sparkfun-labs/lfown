@@ -4,7 +4,7 @@ import { available, connect, reconnect, forget, showIcon } from './wallet.js'
 import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { TREASURY } from './treasury.js'
-import { tokenUnit, THEMES, EXTRA_QUOTES } from '../lib/config.mjs'
+import { tokenUnit, THEMES, EXTRA_QUOTES, ALSO_IN } from '../lib/config.mjs'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
 import { mountChat } from './chat.js'
@@ -313,8 +313,10 @@ const SORTS = {
 const listState = { pair: '', key: 'new', desc: true, theme: '' }
 /** A meme's thematic is its pair's: listed by hand with its own, or an ownership coin. */
 const memeTheme = (c) => EXTRA_QUOTES.find((q) => q.mint === c.quoteMint)?.theme ?? 'ownership'
+/** A meme shows under its pair's thematic, and under any that gathers its pair (Spark). */
+const memeIn = (c, id) => memeTheme(c) === id || Boolean(ALSO_IN[id]?.includes(c.quoteMint))
 // What the headline says the memes are paired with, per tab.
-const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana Majors.', dino: 'a dinosaur.', preipo: 'pre-IPO companies.', stocks: 'stocks.' }
+const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', spark: 'Spark coins.', solana: 'Solana Majors.', dino: 'a dinosaur.', preipo: 'pre-IPO companies.', stocks: 'stocks.' }
 
 /**
  * A dropdown in the site's own clothes.
@@ -462,7 +464,7 @@ async function renderList() {
   // follow the tab: "paired with Solana Majors", and a launch that opens on that thematic.
   const tabs = $('#theme-tabs')
   const paintTabs = () => {
-    const count = (id) => coins.filter((c) => !id || memeTheme(c) === id).length
+    const count = (id) => coins.filter((c) => !id || memeIn(c, id)).length
     tabs.innerHTML = [{ id: '', short: 'All' }, ...THEMES]
       .map((t) => `<button type="button" data-theme="${t.id}" aria-pressed="${String(t.id === listState.theme)}">${esc(t.short)}<span>${count(t.id)}</span></button>`).join('')
     tabs.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
@@ -474,7 +476,7 @@ async function renderList() {
     $('#paired-with').textContent = PAIRED_WITH[listState.theme]
     $('#launch-cta').href = listState.theme ? `/launch?theme=${listState.theme}` : '/launch'
   }
-  const inTheme = () => coins.filter((c) => !listState.theme || memeTheme(c) === listState.theme)
+  const inTheme = () => coins.filter((c) => !listState.theme || memeIn(c, listState.theme))
   paintSections = () => {
     box.innerHTML = ''
     const shown = inTheme()

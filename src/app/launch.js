@@ -5,7 +5,7 @@ import { esc, safeUrl } from './escape.js'
 import { explain } from './errors.js'
 import { track } from './track.js'
 import { offerWalletApps, isPhone, toggleWalletAppsMenu } from './mobile-wallet.js'
-import { TIERS, FEES, tokenUnit, THEMES, themeOf } from '../lib/config.mjs'
+import { TIERS, FEES, tokenUnit, THEMES, themeOf, inTheme, themesOf } from '../lib/config.mjs'
 
 const state = {
   asset: null,
@@ -147,7 +147,7 @@ async function loadAssets() {
     </div>
     <p class="wild-note" id="wild-note"></p>`
   // The draw is among the coins of the tab on show, open today.
-  wild.addEventListener('click', () => drawRandom(wild, coins.filter((c) => themeOf(c) === theme && !opensLater(c))))
+  wild.addEventListener('click', () => drawRandom(wild, coins.filter((c) => inTheme(c, theme) && !opensLater(c))))
   box.appendChild(wild)
 
   for (const c of coins) {
@@ -156,7 +156,7 @@ async function loadAssets() {
     card.type = 'button'
     card.className = c.backing ? `qcard featured ${c.backing.kind}` : `qcard theme-${themeOf(c)}${c.spotlight ? ' featured spot' : ''}`
     card.setAttribute('aria-pressed', 'false')
-    card.dataset.theme = themeOf(c)
+    card.dataset.themes = themesOf(c).join(' ')
     const later = opensLater(c)
     if (later) { card.classList.add('soon'); card.setAttribute('aria-disabled', 'true') }
     card.dataset.search = `${c.symbol} ${c.name ?? ''} ${c.backing ? `${c.backing.kind} ${c.backing.label} ${c.backing.project}` : ''}`.toLowerCase()
@@ -243,7 +243,7 @@ function paintThemeTabs(coins) {
   if (quoted) theme = themeOf(quoted)
   const nav = $('#theme-tabs')
   nav.innerHTML = THEMES.map((t) => {
-    const n = coins.filter((c) => themeOf(c) === t.id).length
+    const n = coins.filter((c) => inTheme(c, t.id)).length
     return n ? `<button type="button" data-theme="${t.id}" aria-pressed="${String(t.id === theme)}">${esc(t.label)}<span>${n}</span></button>` : ''
   }).join('')
   nav.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
@@ -263,11 +263,11 @@ function filterAssets() {
   $('#theme-blurb').textContent = t?.blurb ?? ''
   let shown = 0
   document.querySelectorAll('.qcard:not(.wild)').forEach((card) => {
-    const hit = card.dataset.theme === theme && (!needle || card.dataset.search.includes(needle))
+    const hit = card.dataset.themes.split(' ').includes(theme) && (!needle || card.dataset.search.includes(needle))
     ;(card.closest('.qitem') ?? card).hidden = !hit
     if (hit) shown++
   })
-  const open = allCoins.filter((c) => themeOf(c) === theme && !opensLater(c)).length
+  const open = allCoins.filter((c) => inTheme(c, theme) && !opensLater(c)).length
   const wild = $('.qcard.wild')
   if (wild) {
     wild.hidden = open < 2 || Boolean(needle)
