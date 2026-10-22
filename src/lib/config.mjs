@@ -50,7 +50,7 @@ export const THEMES = [
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
     blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
   { id: 'stocks', label: 'Stocks', short: 'Stocks', pairedWith: 'stocks',
-    blurb: 'Tokenized shares from xStocks: SpaceX, Tesla, the S&P 500, Nvidia. Pair your meme with a stock.' },
+    blurb: 'Tokenized shares: SpaceX, Tesla, the S&P 500, Nvidia, Meta. Pair your meme with a stock.' },
 ]
 export const themeOf = (coin) => coin?.theme ?? 'ownership'
 
@@ -141,6 +141,12 @@ export const EXTRA_QUOTES = [
   { mint: 'XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W', symbol: 'SPYx', name: 'SP500 xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/SPYx.png' },
   { mint: 'XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ', symbol: 'MSTRx', name: 'MicroStrategy xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/MSTRx.png' },
   { mint: 'Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh', symbol: 'NVDAx', name: 'NVIDIA xStock', decimals: 8, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://xstocks-metadata.backed.fi/logos/tokens/NVDAx.png' },
+  // Meta Platforms, issued by Backpack Securities and live through Sunrise. Same make as an
+  // xStock (Token-2022, a permanent delegate, pausing, an empty transfer-hook slot), badged
+  // for DBC and DAMM v2, 6 decimals. Its own ticker is META, which is MetaDAO's here: every
+  // lookup by symbol (?quote=, the agent API) would find one or the other, and a meme
+  // "paired with META" would not say which. So it is listed as METAs.
+  { mint: 'METAaH6MMZZgy2CTEJq3QdNi7AFVTV3NxHFBfFgLEDd', symbol: 'METAs', name: 'Meta Platforms', decimals: 6, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://letsfuckingown.fun/assets/quotes/meta-stock.svg' },
 ]
 
 /** Decimals of a coin LFOwn deals in: listed by hand above, or the 6 everything else has. */

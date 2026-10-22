@@ -230,7 +230,20 @@ for (const coin of todo) {
   tx.feePayer = payer.publicKey
 
   try {
-    const sig = await sendAndConfirmTransaction(connection, tx, [payer, config], { commitment: 'confirmed' })
+    let sig
+    try {
+      sig = await sendAndConfirmTransaction(connection, tx, [payer, config], { commitment: 'confirmed' })
+    } catch (e) {
+      // The RPC's own preflight can fail on its side ("Internal error during preflight
+      // simulation", METAs, 22 Oct 2026) on a transaction that is fine. Then it is
+      // simulated here instead, and sent without the node's preflight only if that passes.
+      if (!/Internal error during preflight/i.test(e.message)) throw e
+      const { VersionedTransaction } = await import('@solana/web3.js')
+      const check = await connection.simulateTransaction(new VersionedTransaction(tx.compileMessage()), { sigVerify: false, replaceRecentBlockhash: true })
+      if (check.value.err) throw new Error(`simulation failed here too: ${JSON.stringify(check.value.err)}\n${(check.value.logs ?? []).slice(-6).join('\n')}`)
+      console.log('  the node\'s preflight failed on its side; simulated here, sending without it')
+      sig = await sendAndConfirmTransaction(connection, tx, [payer, config], { commitment: 'confirmed', skipPreflight: true })
+    }
     console.log('  tx    ', sig)
     console.log('  config', config.publicKey.toBase58())
 
@@ -249,7 +262,11 @@ for (const coin of todo) {
     execFileSync('npx', ['wrangler', 'kv', 'key', 'put', '--binding', 'REGISTRY', `config:${coin.mint}:${tier.id}`, value, '--remote'], { stdio: ['ignore', 'ignore', 'inherit'] })
     console.log('  published to KV')
   } catch (e) {
-    console.error('  failed:', e.message.split('\n')[0])
+    console.error('  failed:', e.message)
+    // A failed preflight says only "Simulation failed"; the program's own words are in
+    // the logs. A blockhash the node had not seen yet looks the same and just needs a rerun.
+    const logs = e.logs ?? e.transactionLogs ?? (typeof e.getLogs === 'function' ? await e.getLogs(connection).catch(() => null) : null)
+    for (const line of (logs ?? []).slice(-8)) console.error('   ', line)
   }
 }
 
