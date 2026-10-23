@@ -76,7 +76,16 @@ const connection = new Connection(RPC, 'confirmed')
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 
 const { buildRegistry } = await import('../src/lib/registry.mjs')
-let { coins } = await buildRegistry()
+// Every coin with a config already stays in, below the treasury floor or not, as the site
+// keeps it: MetaDAO's own treasury figure can read low (SOLO, LOYAL, ARL, SUPER), and a
+// --replace that could not see them left them on their old configs.
+const configured = (() => {
+  try {
+    const out = execFileSync('npx', ['wrangler', 'kv', 'key', 'list', '--binding', 'REGISTRY', '--prefix', 'config:', '--remote'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+    return new Set(JSON.parse(out).map((k) => k.name.split(':')[1]))
+  } catch { return new Set() }
+})()
+let { coins } = await buildRegistry(undefined, { keep: configured })
 
 // A tier is a dollar target, converted once at today's price. From then on the
 // threshold is a fixed number of backing coins and its dollar value floats.
