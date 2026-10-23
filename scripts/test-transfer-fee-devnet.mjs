@@ -30,9 +30,14 @@ import { readFileSync } from 'node:fs'
 import { buildLaunchTransactions } from '../src/lib/launch-builder.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
 import { FEES } from '../src/lib/config.mjs'
+import { tokenAccounts, withheldOf, collectTransactions } from '../src/lib/transfer-fees.mjs'
+import { payoutInstructions } from '../src/lib/holder-payouts.mjs'
+import { deriveDbcPoolAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { SystemProgram } from '@solana/web3.js'
 
 const KEY = readFileSync('.dev.vars', 'utf8').match(/api-key=([a-f0-9-]+)/)[1]
-const connection = new Connection(`https://devnet.helius-rpc.com/?api-key=${KEY}`, 'confirmed')
+const RPC = `https://devnet.helius-rpc.com/?api-key=${KEY}`
+const connection = new Connection(RPC, 'confirmed')
 const client = new DynamicBondingCurveClient(connection, 'confirmed')
 const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync('.keys/devnet.json', 'utf8'))))
 
@@ -165,6 +170,44 @@ await send(new Transaction()
 const collected = (await getAccount(connection, collectorCoin, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount
 assert.equal(collected, harvested, 'everything harvested was withdrawn, and the withdrawal itself is not charged')
 ok(`harvested ${Number(harvested) / unit} from the buyer and the vault into the mint, withdrew all ${Number(collected) / unit} to a wallet, uncharged`)
+
+// ── the hourly collection, through the library the Worker uses ───────────────
+// A second holder buys, the first sells some more: fees are withheld in the second's
+// account and in the pool's vault. Then: list the coin's accounts, read what they
+// withhold, harvest and withdraw it to the collector, and hand it to the holders.
+const second = Keypair.generate()
+await send(new Transaction().add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: second.publicKey, lamports: 50_000_000 })))
+const secondQuote = await getOrCreateAssociatedTokenAccount(connection, payer, quoteMint, second.publicKey)
+await mintTo(connection, payer, quoteMint, secondQuote.address, payer, 20 * unit)
+const secondBuy = await quoteOf(4 * unit, false)
+await send(await client.pool.swap2({
+  owner: second.publicKey, payer: second.publicKey, pool: poolAddress, amountIn: new BN(4 * unit), minimumAmountOut: new BN(secondBuy.minimumAmountOut.toString()),
+  swapMode: SwapMode.ExactIn, swapBaseForQuote: false, referralTokenAccount: null,
+}), [second])
+await swap(((await held(mint.publicKey, payer.publicKey)).amount / 4n).toString(), true, '0')
+const accounts = await tokenAccounts(RPC, mint.publicKey.toBase58())
+const owed = await withheldOf(connection, mint.publicKey, accounts)
+assert.ok(owed.toHarvest.length >= 2 && owed.total > 0n, 'fees are withheld in the second holder\'s account and the vault')
+const { txs: collect, destination } = collectTransactions(mint.publicKey.toBase58(), owed.toHarvest, payer.publicKey)
+const potBefore = await getAccount(connection, destination, 'confirmed', TOKEN_2022_PROGRAM_ID).then((a) => a.amount).catch(() => 0n)
+for (const tx of collect) await send(tx)
+const claimed = (await getAccount(connection, destination, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount - potBefore
+assert.equal(claimed, owed.total, 'the collection brings in exactly what was withheld')
+ok(`collected ${Number(claimed) / unit} from ${owed.toHarvest.length} accounts in ${collect.length} transaction(s)`)
+const fresh = await tokenAccounts(RPC, mint.publicKey.toBase58())
+const holders = fresh.filter((a) => a.amount > 0n).map((a) => ({ address: a.owner, amount: a.amount }))
+const plan = payoutInstructions({
+  holders, pot: payer.publicKey, payer: payer.publicKey, quoteMint: mint.publicKey.toBase58(), amount: claimed, price: 1,
+  // The wallet step 6 withdrew to holds coins too; left out with the curve and the collector.
+  exclude: [deriveDbcPoolAuthority().toBase58(), poolAddress.toBase58(), payer.publicKey.toBase58(), collector.toBase58()], tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 6,
+})
+assert.equal(plan.payouts.length, 1, 'the only holder to pay is the second one: the curve and the collector are left out')
+const secondBefore = (await held(mint.publicKey, second.publicKey)).amount
+for (const instructions of plan.batches) await send(new Transaction().add(...instructions))
+const secondGot = (await held(mint.publicKey, second.publicKey)).amount - secondBefore
+const expected = (plan.payouts[0].amount * BigInt(10_000 - TRANSFER_FEE_BPS)) / 10_000n
+assert.ok(secondGot >= expected - 1n && secondGot <= plan.payouts[0].amount, `the holder receives the payout less the 2% it pays on arrival (got ${secondGot}, sent ${plan.payouts[0].amount})`)
+ok(`paid ${Number(plan.payouts[0].amount) / unit} to the one holder, who received ${Number(secondGot) / unit} after the coin's own 2%`)
 
 // ── graduation: fill the curve, migrate, and the fee is still there ───────────
 for (let i = 0; i < 6 && !(await readyToGraduate(client, [{ pool: poolAddress.toBase58(), isMigrated: false }])).length; i++) {

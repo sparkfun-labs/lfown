@@ -166,16 +166,19 @@ export async function pendingHolderFees(dfs, connection, launches, { potAddress,
  * is safer left in the vault than moved to a pot with nobody to hand it to. `totals`
  * is what each batch sends, so a run that fails part way knows what never went out.
  */
-export function payoutInstructions({ holders, pot, payer, quoteMint, amount, price, exclude }) {
-  const dust = price > 0 ? BigInt(Math.ceil((PER_HOLDER_FLOOR_USD / price) * tokenUnit(quoteMint))) : 0n
+export function payoutInstructions({ holders, pot, payer, quoteMint, amount, price, exclude, tokenProgram = null, decimals = null }) {
+  // `tokenProgram` and `decimals` default to what the site knows of a pair; a coin's own
+  // transfer fee is paid out in the coin, which is Token-2022 and not a pair.
+  const unit = 10 ** (decimals ?? tokenDecimals(quoteMint))
+  const dust = price > 0 ? BigInt(Math.ceil((PER_HOLDER_FLOOR_USD / price) * unit)) : 0n
   const { payouts, paid, carried } = allocate(holders, amount, { exclude, dust })
   if (!payouts.length) return { batches: [], totals: [], paid: 0n, carried, payouts: [] }
 
   const mint = new PublicKey(quoteMint)
   // Token-2022 coins (PUMP) live at other account addresses and move with transfer_checked,
   // which carries the mint and its decimals; that works for classic SPL coins too.
-  const program = new PublicKey(tokenProgramOf(quoteMint))
-  const decimals = tokenDecimals(quoteMint)
+  const program = new PublicKey(tokenProgram ?? tokenProgramOf(quoteMint))
+  const places = decimals ?? tokenDecimals(quoteMint)
   const from = getAssociatedTokenAddressSync(mint, pot, true, program)
   const batches = []
   const totals = []
@@ -191,7 +194,7 @@ export function payoutInstructions({ holders, pot, payer, quoteMint, amount, pri
       // The payer rents the account, not the pot: the pot holds what is owed to other
       // people and nothing else, so it never needs a SOL balance of its own.
       instructions.push(createAssociatedTokenAccountIdempotentInstruction(payer, to, owner, mint, program))
-      instructions.push(createTransferCheckedInstruction(from, mint, to, pot, p.amount, decimals, [], program))
+      instructions.push(createTransferCheckedInstruction(from, mint, to, pot, p.amount, places, [], program))
     }
     batches.push(instructions)
   }

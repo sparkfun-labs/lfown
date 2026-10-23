@@ -228,6 +228,15 @@ export const FEES = {
   treasury: 'A1XGC7uJtLcBb7oa7Q6DJtkBFriPrBGLDtSMiD2gNUHm',
 
   /**
+   * The transfer fee every coin launched on a current config charges, in basis points:
+   * Token-2022's TransferFeeConfig, withheld on every transfer, the curve's included. It
+   * is fixed for good (no fee authority, before or after graduation), and what it
+   * withholds is collected by `recipient` and handed to the coin's holders. Configs
+   * opened before this (SDK 1.x) mint SPL coins with no fee; their coins keep trading.
+   */
+  transferFeeBps: 200,
+
+  /**
    * Where a creator's holders' share waits before it is handed out.
    *
    * A creator can give part of their own half to the people holding the coin. That

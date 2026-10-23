@@ -8,6 +8,7 @@
 //   LFOWN_ARM=yes node scripts/create-config.mjs all starter              # sends
 //   LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --wait    # waits for a new coin to list
 //   LFOWN_ARM=yes node scripts/create-config.mjs <mint> starter --price 0.014   # a price you set
+//   LFOWN_ARM=yes node scripts/create-config.mjs all starter --replace   # current configs everywhere, older ones retired
 //
 // `--wait` is for a raise that has not closed yet: the coin has no market and no price,
 // so there is nothing to convert the tier's dollar target with. It checks MetaDAO's
@@ -33,8 +34,8 @@ import { Connection, Keypair, PublicKey, sendAndConfirmTransaction } from '@sola
 import {
   DynamicBondingCurveClient, buildCurve,
   TokenType, TokenDecimal, ActivationType, CollectFeeMode,
-  MigrationOption, MigrationFeeOption, BaseFeeMode, TokenAuthorityOption,
-  DEFAULT_MIGRATED_POOL_FEE_PARAMS, deriveTokenBadgeAddress,
+  MigrationOption, MigrationFeeOption, MigratedCollectFeeMode, BaseFeeMode, TokenAuthorityOption,
+  deriveTokenBadgeAddress,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { readFileSync, existsSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
@@ -50,6 +51,9 @@ const flag = (name) => {
 const PRICE = flag('price') === undefined ? null : Number(flag('price'))
 if (PRICE !== null && !(PRICE > 0)) { console.error('--price must be a positive USD price, e.g. --price 0.014'); process.exit(1) }
 const WAIT = argv.includes('--wait') && PRICE === null
+// Open a current config even where an older one is live: the older one is moved to
+// retired:<mint>:<tier>:<address>, where its coins stay listed, swept and graduated.
+const REPLACE = argv.includes('--replace')
 // Positional arguments: whatever is neither a flag nor a flag's value.
 const args = argv.filter((a, i) => !a.startsWith('--') && !(argv[i - 1] === '--price'))
 const target = args[0]
@@ -112,6 +116,7 @@ console.log('payer      :', payer.publicKey.toBase58(), `(${KEYPAIR_PATH})`)
 console.log('fee claimer:', FEES.recipient)
 if (FEES.treasury !== FEES.recipient) console.log('fees land on:', FEES.treasury)
 console.log('trading fee:', `${FEES.totalBps / 100}% — ${FEES.creatorSharePct}% creator / ${100 - FEES.creatorSharePct}% DAO`)
+console.log('coins      :', `Token-2022, ${FEES.transferFeeBps / 100}% transfer fee, fixed for good, collected for holders`)
 
 // A config is one 1048-byte account: rent-exempt reserve plus the signature fee.
 // Checking here turns an unreadable "no record of a prior credit" simulation
@@ -120,13 +125,17 @@ const CONFIG_ACCOUNT_BYTES = 1048
 const rent = await connection.getMinimumBalanceForRentExemption(CONFIG_ACCOUNT_BYTES)
 const each = rent + 10_000
 
-/** Already open? KV is the record, so ask it rather than guessing. */
-function openedAlready(mint) {
+/** The live config for this coin and tier, from KV, or null. KV is the record. */
+function liveConfig(mint) {
   try {
     const out = execFileSync('npx', ['wrangler', 'kv', 'key', 'get', '--binding', 'REGISTRY', `config:${mint}:${tier.id}`, '--remote'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
-    return out.trim().startsWith('{')
-  } catch { return false }
+    return out.trim().startsWith('{') ? JSON.parse(out) : null
+  } catch { return null }
 }
+/** A config of the current make: Token-2022 coins charging FEES.transferFeeBps. */
+const current = (live) => live?.transferFeeBps === FEES.transferFeeBps
+/** Already open? With --replace, only a current config counts. */
+const openedAlready = (mint) => { const live = liveConfig(mint); return REPLACE ? current(live) : Boolean(live) }
 
 // The SDK's enum stops at 6, but the curve maths take any count and the program reads the
 // quote's decimals from its mint: BONK's 5 ran end to end on devnet.
@@ -170,9 +179,13 @@ if (balance < each * todo.length) {
 for (const coin of todo) {
   console.log(`\n${coin.symbol} — ${coin.threshold.toLocaleString('en-US')} ${coin.symbol} ($${tier.usd.toLocaleString('en-US')} at $${coin.usdPrice.toFixed(4)})`)
 
+  // Every coin is Token-2022 with FEES.transferFeeBps on every transfer. What that fee
+  // requires of the config: a constant supply (buildCurve's, with no leftover), no
+  // vesting, a Customizable migration fee option, and a Compounding migrated pool — at
+  // 0 compounding basis points, which keeps collecting the trading fee in the quote coin.
   const curve = buildCurve({
     token: {
-      tokenType: TokenType.SPL,
+      tokenType: TokenType.Token2022,
       tokenBaseDecimal: TokenDecimal.SIX,
       tokenQuoteDecimal: DECIMAL[coin.decimals], // ownership coins are 6; hand-listed ones say
       tokenAuthorityOption: TokenAuthorityOption.Immutable,
@@ -195,9 +208,10 @@ for (const coin of todo) {
     },
     migration: {
       migrationOption: MigrationOption.MET_DAMM_V2,
-      migrationFeeOption: MigrationFeeOption.FixedBps100,
+      migrationFeeOption: MigrationFeeOption.Customizable,
       migrationFee: { feePercentage: 0, creatorFeePercentage: 0 },
-      migratedPoolFee: DEFAULT_MIGRATED_POOL_FEE_PARAMS,
+      // The 1% pool fee the FixedBps100 configs had, with the dynamic fee on top.
+      migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.Compounding, compoundingFeeBps: 0, dynamicFee: 1, poolFeeBps: 100 },
     },
     liquidityDistribution: {
       partnerPermanentLockedLiquidityPercentage: 50,
@@ -217,8 +231,9 @@ for (const coin of todo) {
   const config = Keypair.generate()
   if (!ARMED) { console.log('  would create', config.publicKey.toBase58()); continue }
 
-  const tx = await client.partner.createConfig({
-    // A Token-2022 quote (PUMP) is accepted only with the badge Meteora issued for it.
+  const tx = await client.partner.createConfig2({
+    // A Token-2022 quote (PUMP, a stock, a PreStock) is accepted only with the badge
+    // Meteora issued for it.
     ...(coin.token2022 && await connection.getAccountInfo(deriveTokenBadgeAddress(new PublicKey(coin.mint))) ? { tokenBadge: deriveTokenBadgeAddress(new PublicKey(coin.mint)) } : {}),
     config: config.publicKey,
     feeClaimer: new PublicKey(FEES.recipient),
@@ -226,6 +241,9 @@ for (const coin of todo) {
     quoteMint: new PublicKey(coin.mint),
     payer: payer.publicKey,
     ...curve,
+    // Withheld for the partner (FEES.recipient) to collect for holders; Immutable: no
+    // authority over the fee during the curve or after graduation.
+    transferFeeParameters: { transferFeeBasisPoints: FEES.transferFeeBps, withheldAuthority: 0, migratedTransferFeeAuthorityOption: 0 },
   })
   tx.feePayer = payer.publicKey
 
@@ -255,10 +273,17 @@ for (const coin of todo) {
       threshold: coin.threshold,
       feeBps: FEES.totalBps,
       creatorSharePct: FEES.creatorSharePct,
+      transferFeeBps: FEES.transferFeeBps,
       feeClaimer: FEES.recipient,
       treasury: FEES.treasury,
       openedAt: new Date().toISOString(),
     })
+    // The config this replaces keeps its coins: moved, not forgotten.
+    const previous = liveConfig(coin.mint)
+    if (previous && previous.config !== config.publicKey.toBase58()) {
+      execFileSync('npx', ['wrangler', 'kv', 'key', 'put', '--binding', 'REGISTRY', `retired:${coin.mint}:${tier.id}:${previous.config}`, JSON.stringify(previous), '--remote'], { stdio: ['ignore', 'ignore', 'inherit'] })
+      console.log(`  retired ${previous.config}`)
+    }
     execFileSync('npx', ['wrangler', 'kv', 'key', 'put', '--binding', 'REGISTRY', `config:${coin.mint}:${tier.id}`, value, '--remote'], { stdio: ['ignore', 'ignore', 'inherit'] })
     console.log('  published to KV')
   } catch (e) {
