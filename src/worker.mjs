@@ -1116,8 +1116,8 @@ async function ourConfigs(env) {
     const [, mint, tier] = name.split(':')
     const coin = byMint.get(mint)
     if (!values[i] || !tiers.has(tier) || !coin) return
-    const { config, threshold } = JSON.parse(values[i])
-    configs.push({ config, threshold, mint, symbol: coin.symbol, usdPrice: coin.usdPrice, tier })
+    const { config, threshold, transferFeeBps = 0 } = JSON.parse(values[i])
+    configs.push({ config, threshold, mint, symbol: coin.symbol, usdPrice: coin.usdPrice, tier, transferFeeBps })
   })
   return configs
 }
@@ -1842,6 +1842,105 @@ async function sweepFees(env) {
  * where it keeps accruing and where only its shareholders can reach it. So this key
  * is empty between runs by construction, not by luck.
  */
+/**
+ * Hands each coin's own transfer fee to its holders.
+ *
+ * Every coin on a current config withholds FEES.transferFeeBps of each transfer, and
+ * only the fee claimer — the collector — can withdraw it (src/lib/transfer-fees.mjs).
+ * Per coin: list its accounts, read what they withhold, and if that is worth paying out
+ * (FLOOR_USD at Jupiter's price), harvest it into the mint, withdraw it to the
+ * collector, and share it among the holders in the coin, by the same allocation and
+ * per-holder floor as the creator-shared fees. Whoever holds on behalf of a pool, and
+ * the collector itself, are left out. A coin with nobody over the floor is not
+ * collected: its fee stays withheld, where only the collector can reach it, and keeps
+ * growing until it is worth handing out.
+ *
+ * At most PER_RUN coins an hour, the ones not looked at for longest first, so the run's
+ * reads stay bounded however many coins there are.
+ */
+async function collectTransferFees(env) {
+  const PER_RUN = 25
+  const collector = await loadCollector(env)
+  if (!collector || collector.publicKey.toBase58() !== FEES.recipient) {
+    console.log('transfer fee payouts skipped: FEE_COLLECTOR_KEY is not the fee claimer')
+    return { skipped: true }
+  }
+  const charging = new Set((await ourConfigs(env)).filter((c) => c.transferFeeBps > 0).map((c) => c.config))
+  if (!charging.size) return { coins: 0 }
+  const { launches } = await readLaunches(env)
+  const due = launches.filter((l) => charging.has(l.config))
+  if (!due.length) return { coins: 0 }
+
+  // Oldest look first: a rotating cursor, kept in KV, of when each coin was last read.
+  const seen = (await env.REGISTRY?.get('transfer-fees:seen', 'json').catch(() => null)) ?? {}
+  due.sort((a, b) => (seen[a.baseMint] ?? 0) - (seen[b.baseMint] ?? 0))
+  const batch = due.slice(0, PER_RUN)
+
+  const [{ Connection, PublicKey, Transaction }, { deriveDbcPoolAuthority }, { derivePoolAuthority }, { TOKEN_2022_PROGRAM_ID, getAccount }] = await Promise.all([
+    import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk'), import('@meteora-ag/cp-amm-sdk'), import('@solana/spl-token'),
+  ])
+  const { tokenAccounts, withheldOf, collectTransactions } = await import('./lib/transfer-fees.mjs')
+  const { payoutInstructions, FLOOR_USD } = await import('./lib/holder-payouts.mjs')
+  const connection = new Connection(env.HELIUS_RPC, 'confirmed')
+  const custodians = [deriveDbcPoolAuthority().toBase58(), derivePoolAuthority().toBase58(), collector.publicKey.toBase58(), FEES.holderPot].filter(Boolean)
+
+  // Each coin's price, in one Jupiter call: what decides whether its fee is worth a run.
+  const prices = await fetch(`${JUP.price}?ids=${batch.map((l) => l.baseMint).join(',')}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
+  const done = []
+  for (const l of batch) {
+    seen[l.baseMint] = Date.now()
+    const price = Number(prices?.[l.baseMint]?.usdPrice) || 0
+    if (!price) continue
+    let claimed = 0n
+    let sent = 0n
+    try {
+      const accounts = await tokenAccounts(env.HELIUS_RPC, l.baseMint)
+      const owed = await withheldOf(connection, l.baseMint, accounts)
+      if ((Number(owed.total) / 1e6) * price < FLOOR_USD) continue
+      const holders = accounts.filter((a) => a.amount > 0n).map((a) => ({ address: a.owner, amount: a.amount }))
+      const plan = { holders, pot: collector.publicKey, payer: collector.publicKey, quoteMint: l.baseMint, price,
+        exclude: [...custodians, l.pool], tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 6 }
+      // Who would be paid is decided before anything is collected, as for the shared fees.
+      if (!payoutInstructions({ ...plan, amount: owed.total }).batches.length) continue
+
+      const { txs, destination } = collectTransactions(l.baseMint, owed.toHarvest, collector.publicKey)
+      const balance = () => getAccount(connection, destination, 'confirmed', TOKEN_2022_PROGRAM_ID).then((a) => a.amount).catch(() => 0n)
+      const before = await balance()
+      for (const tx of txs) {
+        tx.feePayer = collector.publicKey
+        await sendAndConfirm(connection, tx, [collector])
+      }
+      claimed = (await balance()) - before
+      const { batches, payouts, totals } = payoutInstructions({ ...plan, amount: claimed })
+      for (const [i, instructions] of batches.entries()) {
+        const tx = new Transaction().add(...instructions)
+        tx.feePayer = collector.publicKey
+        await sendAndConfirm(connection, tx, [collector])
+        sent += totals[i]
+      }
+      done.push({ symbol: l.symbol, baseMint: l.baseMint, holders: payouts.length, coins: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * price })
+    } catch (e) {
+      console.error(`transfer fee payouts failed on ${l.symbol ?? l.baseMint}: ${e.message}`)
+      // Before the withdrawal nothing moved: the fee is still withheld and the next run
+      // tries again. After it, what did not go out sits on the collector in the coin, and
+      // the next run pays only what it collects itself — so it is written down for a
+      // person, with enough to send it on by hand.
+      const stranded = claimed - sent
+      if (stranded > 0n && env.REGISTRY) {
+        const list = (await env.REGISTRY.get('transfer-fees:stranded', 'json').catch(() => null)) ?? []
+        list.push({ at: new Date().toISOString(), symbol: l.symbol, baseMint: l.baseMint, amount: stranded.toString(), error: e.message })
+        await env.REGISTRY.put('transfer-fees:stranded', JSON.stringify(list.slice(-200)))
+      }
+    }
+  }
+  if (env.REGISTRY) {
+    await env.REGISTRY.put('transfer-fees:seen', JSON.stringify(seen))
+    if (done.length) await env.REGISTRY.put('transfer-fees:last', JSON.stringify({ at: new Date().toISOString(), done }))
+  }
+  if (done.length) console.log(`transfer fee payouts: ${done.length} coin(s), ≈$${done.reduce((t, d) => t + d.usd, 0).toFixed(2)}`)
+  return { paid: done.length }
+}
+
 async function distributeToHolders(env) {
   if (!FEES.holderPot) return { skipped: true }
   const pot = await loadHolderPot(env)
@@ -2182,6 +2281,7 @@ export default {
       ctx.waitUntil((async () => {
         await sweepFees(env).catch((e) => console.error(`fee sweep failed: ${e.message}`))
         await distributeToHolders(env).catch((e) => console.error(`holder payouts failed: ${e.message}`))
+        await collectTransferFees(env).catch((e) => console.error(`transfer fee payouts failed: ${e.message}`))
       })())
       return
     }
