@@ -245,14 +245,21 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
   const mints = [...daos.map((d) => d.mint), ...EXTRA_QUOTES.map((q) => q.mint)]
   for (let i = 0; i < mints.length; i += 20) {
     try {
-      const found = await jup(JUP.tokens, { query: mints.slice(i, i + 20).join(',') })
+      // Tried twice: one failed batch used to leave twenty coins priced at zero, and a
+      // config opened from that catalogue would have had an infinite threshold.
+      const query = { query: mints.slice(i, i + 20).join(',') }
+      const found = await jup(JUP.tokens, query).catch(async () => { await pause(1_000); return jup(JUP.tokens, query) })
       for (const t of found) {
         extra.set(t.id, {
           icon: t.icon, holders: t.holderCount ?? 0, mcap: t.mcap ?? 0,
           decimals: t.decimals, usdPrice: Number(t.usdPrice) || 0, liquidity: Number(t.liquidity) || 0,
         })
       }
-    } catch { /* the catalogue is still usable without decoration */ }
+    } catch (e) {
+      // The catalogue is still usable without decoration — but a coin listed by hand
+      // takes its price from here, so saying why it has none matters.
+      console.error(`registry: Jupiter decoration failed for ${Math.min(20, mints.length - i)} coins: ${e.message}`)
+    }
   }
 
   const coins = []

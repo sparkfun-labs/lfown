@@ -653,6 +653,7 @@ function backedBy(quoteMint) {
   return extra.backing
     ? `a coin backed by ${extra.backing.label.replace(/^A /, 'a ')} on ${extra.backing.project}`
     : extra.theme === 'stocks' ? `${extra.name}, a tokenized share`
+    : extra.theme === 'preipo' ? `${extra.name}, a tokenized share of a company before it lists`
     : `${extra.name}, one of the Solana Majors`
 }
 

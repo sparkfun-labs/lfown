@@ -40,8 +40,8 @@ const price = (n) => '$' + (n < 1 ? n.toFixed(4) : n.toFixed(2))
  * What stands behind a backing coin, as a short label and a figure. An ownership coin
  * has a treasury; a coin listed by hand says what it has instead — a dinosaur, so far.
  */
-/** Thematics whose pairs are judged by their market, not a treasury: majors and stocks. */
-const MARKET_PRICED = new Set(['solana', 'stocks'])
+/** Thematics whose pairs are judged by their market, not a treasury: majors, stocks, pre-IPO shares. */
+const MARKET_PRICED = new Set(['solana', 'stocks', 'preipo'])
 const big = (n) => (n >= 1e9 ? `$${(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `$${(n / 1e6).toFixed(1)}M` : usd(n))
 const backing = (a) => a.backing
   ? { label: 'Backed by', value: a.backing.label.replace(/^A /, ''), usd: a.backing.usd }

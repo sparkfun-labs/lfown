@@ -156,6 +156,11 @@ for (const coin of queue) {
     console.error(`  skip ${coin.symbol.padEnd(9)} has ${decimals} decimals; list it in EXTRA_QUOTES (src/lib/config.mjs) first`)
     continue
   }
+  // No price, no threshold: dividing by zero gives a curve nobody could ever fill.
+  if (!(coin.usdPrice > 0)) {
+    console.error(`  skip ${coin.symbol.padEnd(9)} has no price right now; try again, or pass --price`)
+    continue
+  }
   // Whole tokens are fine for a cheap coin, and badly off for a dear one: at $772 a
   // token, rounding $5,000 to 6 SPYx graduates at $4,632. Under a thousand tokens, two
   // decimals keep the target within a cent or so of the tier.

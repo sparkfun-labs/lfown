@@ -314,7 +314,7 @@ const listState = { pair: '', key: 'new', desc: true, theme: '' }
 /** A meme's thematic is its pair's: listed by hand with its own, or an ownership coin. */
 const memeTheme = (c) => EXTRA_QUOTES.find((q) => q.mint === c.quoteMint)?.theme ?? 'ownership'
 // What the headline says the memes are paired with, per tab.
-const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana Majors.', dino: 'a dinosaur.', stocks: 'stocks.' }
+const PAIRED_WITH = { '': 'what you own.', ownership: 'ownership coins.', solana: 'Solana Majors.', dino: 'a dinosaur.', preipo: 'pre-IPO companies.', stocks: 'stocks.' }
 
 /**
  * A dropdown in the site's own clothes.

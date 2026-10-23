@@ -49,6 +49,8 @@ export const THEMES = [
     blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
     blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
+  { id: 'preipo', label: 'Pre-IPO', short: 'Pre-IPO', pairedWith: 'pre-IPO companies',
+    blurb: 'Shares of companies before they list, from PreStocks: Anthropic, OpenAI, Anduril, Neuralink, Polymarket.' },
   { id: 'stocks', label: 'Stocks', short: 'Stocks', pairedWith: 'stocks',
     blurb: 'Tokenized shares: SpaceX, Tesla, the S&P 500, Nvidia, Meta. Pair your meme with a stock.' },
 ]
@@ -147,6 +149,17 @@ export const EXTRA_QUOTES = [
   // lookup by symbol (?quote=, the agent API) would find one or the other, and a meme
   // "paired with META" would not say which. So it is listed as METAs.
   { mint: 'METAaH6MMZZgy2CTEJq3QdNi7AFVTV3NxHFBfFgLEDd', symbol: 'METAs', name: 'Meta Platforms', decimals: 6, theme: 'stocks', token2022: true, holderShare: false, icon: 'https://letsfuckingown.fun/assets/quotes/meta-stock.svg' },
+  // Pre-IPO: the five most liquid PreStocks, Oct 2026. Token-2022, 9 decimals, badged for
+  // DBC and DAMM v2, and each charges a 1% transfer fee with a live fee authority — which
+  // the first configs refused as a quote and create_config2 takes. Their other extensions
+  // (a permanent delegate, pausing, confidential transfers) keep them out of the
+  // fee-sharing program, as the stocks are: no holder share of the trading fee, though
+  // the coins' own transfer fee still goes to holders.
+  { mint: 'Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw', symbol: 'ANTHROPIC', name: 'Anthropic', decimals: 9, theme: 'preipo', token2022: true, holderShare: false, icon: 'https://www.prestocks.com/logos/anthropic.png' },
+  { mint: 'PreweJYECqtQwBtpxHL171nL2K6umo692gTm7Q3rpgF', symbol: 'OPENAI', name: 'OpenAI', decimals: 9, theme: 'preipo', token2022: true, holderShare: false, icon: 'https://www.prestocks.com/logos/openai.png' },
+  { mint: 'PresTj4Yc2bAR197Er7wz4UUKSfqt6FryBEdAriBoQB', symbol: 'ANDURIL', name: 'Anduril', decimals: 9, theme: 'preipo', token2022: true, holderShare: false, icon: 'https://www.prestocks.com/logos/anduril.png' },
+  { mint: 'PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S', symbol: 'NEURALINK', name: 'Neuralink', decimals: 9, theme: 'preipo', token2022: true, holderShare: false, icon: 'https://www.prestocks.com/logos/neuralink.png' },
+  { mint: 'Pre8AREmFPtoJFT8mQSXQLh56cwJmM7CFDRuoGBZiUP', symbol: 'POLYMARKET', name: 'Polymarket', decimals: 9, theme: 'preipo', token2022: true, holderShare: false, icon: 'https://www.prestocks.com/logos/polymarket.png' },
 ]
 
 /** Decimals of a coin LFOwn deals in: listed by hand above, or the 6 everything else has. */
