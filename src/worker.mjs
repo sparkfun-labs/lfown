@@ -48,7 +48,8 @@ const FEES_FRESH = 5 * 60_000
 // v3: one descriptor became a list of legs, so a graduated coin keeps a chart. The
 // entry holds a shape, not just a value, so changing what is in it means changing
 // the key — a stale descriptor silently produced empty charts the last time.
-const CHART_KEY = (mint) => `chart:v3:${mint}`
+// v4: each point names its trader, for the growth feed (src/lib/growth.mjs).
+const CHART_KEY = (mint) => `chart:v4:${mint}`
 // A chart nobody has opened for a month is built again the next time someone does.
 // Without an expiry, every mint ever asked about stayed in KV for good.
 const CHART_TTL = 30 * 86_400
@@ -316,6 +317,16 @@ async function handleApi(url, request, env, ctx) {
 
   // The catalogue of ownership coins usable as a quote asset. Nothing is filtered
   // out for being thin — the exit cost is published instead.
+  // LFOWN's operating figures in 01Resolved's growth-feed format (src/lib/growth.mjs).
+  // Fetched by them every hour; the days in it change once a day.
+  if (path === '/api/growth/lfown.json') {
+    const { feed } = await import('./lib/growth.mjs')
+    const record = (await env.REGISTRY?.get(GROWTH_KEY, 'json')) ?? {}
+    const body = feed(record)
+    if (!body) return json({ error: 'the first day has not been computed yet' }, { status: 503, headers: { 'retry-after': '3600' } })
+    return json(body, { headers: { 'cache-control': 'public, max-age=600', 'access-control-allow-origin': '*' } })
+  }
+
   if (path === '/api/quote-assets') {
     const catalogue = await readCatalogue(env)
     return json(catalogue, {
@@ -1381,10 +1392,11 @@ async function denyChart(env, mint, error) {
   return { points: [], error, denied: true }
 }
 
-async function chartFor(env, mint) {
+async function chartFor(env, mint, { fresh = false } = {}) {
   const cached = env.REGISTRY ? JSON.parse((await env.REGISTRY.get(CHART_KEY(mint))) ?? 'null') : null
   if (cached?.denied) return { points: [], error: cached.error, denied: true }
-  if (cached && Date.now() - (cached.at ?? 0) < CHART_COOLDOWN) return { points: cached.points, cached: true }
+  // `fresh`: the growth feed needs every trade up to now, cooldown or not.
+  if (!fresh && cached && Date.now() - (cached.at ?? 0) < CHART_COOLDOWN) return { points: cached.points, cached: true }
 
   const [{ Connection, PublicKey }, { DynamicBondingCurveClient }] =
     await Promise.all([import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk')])
@@ -1843,6 +1855,52 @@ async function sweepFees(env) {
  * where it keeps accruing and where only its shareholders can reach it. So this key
  * is empty between runs by construction, not by luck.
  */
+/** LFOWN's growth figures for 01Resolved (src/lib/growth.mjs), one record kept for good. */
+const GROWTH_KEY = 'growth:lfown:v1'
+
+/**
+ * Adds every completed UTC day not yet in the growth record. Does nothing until a day
+ * has ended since the last run, so the hourly job reads the chain for it once a day.
+ *
+ * Each coin's trade history is the chart's (chartFor), extended to now; the days after
+ * the record's last one are then counted from it and frozen. A run in which some coin's
+ * history could not be read writes nothing and the next hour tries again — a day
+ * counted short would be wrong for good — unless it has failed all day, when the day
+ * is counted from what could be read and the gap logged.
+ */
+async function refreshGrowth(env) {
+  if (!env.REGISTRY) return { skipped: true }
+  const { extend, dayOf } = await import('./lib/growth.mjs')
+  const yesterday = dayOf(Date.now() / 1000 - 86_400)
+  const record = (await env.REGISTRY.get(GROWTH_KEY, 'json')) ?? {}
+  if (record.through && record.through >= yesterday) return { upToDate: true }
+
+  const { launches } = await readLaunches(env)
+  const { coins } = await readCatalogue(env)
+  const prices = new Map(coins.map((c) => [c.mint, c.usdPrice]))
+  for (const l of launches) if (!prices.get(l.quoteMint) && l.quoteUsdPrice) prices.set(l.quoteMint, l.quoteUsdPrice)
+
+  const trades = []
+  const failed = []
+  for (const l of launches) {
+    const chart = await chartFor(env, l.baseMint, { fresh: true }).catch((e) => ({ points: [], error: e.message }))
+    // Refused (no pool for that mint) is an answer, not a failure to read.
+    if ((chart.error && !chart.denied) || chart.stale) failed.push(l.symbol ?? l.baseMint)
+    for (const p of chart.points ?? []) trades.push({ t: p.t, quote: p.quote, quoteMint: l.quoteMint, trader: p.trader })
+  }
+  const lateInDay = new Date().getUTCHours() >= 20
+  if (failed.length && !lateInDay) {
+    console.error(`growth feed: ${failed.length} coin(s) unreadable, retrying next hour: ${failed.slice(0, 5).join(', ')}`)
+    return { retry: failed.length }
+  }
+  if (failed.length) console.error(`growth feed: counted without ${failed.length} unreadable coin(s): ${failed.join(', ')}`)
+
+  extend(record, trades, prices, yesterday)
+  await env.REGISTRY.put(GROWTH_KEY, JSON.stringify(record))
+  console.log(`growth feed: through ${record.through}, ${Object.keys(record.days ?? {}).length} days, ${trades.length} trades`)
+  return { through: record.through }
+}
+
 /**
  * Hands each coin's own transfer fee to its holders.
  *
@@ -2283,6 +2341,7 @@ export default {
         await sweepFees(env).catch((e) => console.error(`fee sweep failed: ${e.message}`))
         await distributeToHolders(env).catch((e) => console.error(`holder payouts failed: ${e.message}`))
         await collectTransferFees(env).catch((e) => console.error(`transfer fee payouts failed: ${e.message}`))
+        await refreshGrowth(env).catch((e) => console.error(`growth feed failed: ${e.message}`))
       })())
       return
     }

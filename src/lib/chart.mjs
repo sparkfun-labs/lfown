@@ -56,6 +56,17 @@ function pricePoints(parsed, { kind, baseMint, baseVault, quoteVault, baseDecima
   const points = []
   for (const tx of parsed) {
     const accounts = tx.accountData ?? []
+    // Who traded: the wallet whose holding of the coin moved most, outside the pool's
+    // vault. Not the fee payer, which is LFOWN's sponsor on a free launch's first buy
+    // and a router's or a bot's account often enough. Kept for the growth figures.
+    const trader = accounts
+      .filter((a) => a.account !== baseVault)
+      .flatMap((a) => a.tokenBalanceChanges ?? [])
+      .filter((c) => c.mint === baseMint && c.userAccount)
+      .reduce((best, c) => {
+        const v = Math.abs(Number(c.rawTokenAmount?.tokenAmount ?? 0))
+        return v > best.v ? { v, who: c.userAccount } : best
+      }, { v: 0, who: tx.feePayer ?? null }).who
     const delta = (vault, decimals) => {
       const change = accounts.find((a) => a.account === vault)?.tokenBalanceChanges?.[0]
       if (!change) return 0
@@ -80,7 +91,7 @@ function pricePoints(parsed, { kind, baseMint, baseVault, quoteVault, baseDecima
           return v > max ? v : max
         }, 0)
       if (!received) continue
-      points.push({ t: tx.timestamp, price: quote / received, quote, base: received, buy: true, sig: tx.signature })
+      points.push({ t: tx.timestamp, price: quote / received, quote, base: received, buy: true, sig: tx.signature, trader })
       continue
     }
 
@@ -96,6 +107,7 @@ function pricePoints(parsed, { kind, baseMint, baseVault, quoteVault, baseDecima
       base: Math.abs(base),
       buy: quote > 0,
       sig: tx.signature,
+      trader,
     })
   }
   return points

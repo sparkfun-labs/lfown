@@ -695,6 +695,51 @@ await test('chat: only a real wallet signature signs in, and a message is plain 
   assert.equal(chat.cleanText('x'.repeat(900)).length, 500)
 })
 
+await test('growth: days are counted once and kept, new users once ever, and the feed meets schema v1.1', async () => {
+  const { extend, feed } = await import(new URL('../src/lib/growth.mjs', import.meta.url).href)
+  const at = (day, h = 12) => Date.parse(`${day}T${String(h).padStart(2, '0')}:00:00Z`) / 1000
+  const prices = new Map([['Q', 2]])
+  const trades = [
+    { t: at('2026-10-01'), quote: 10, quoteMint: 'Q', trader: 'alice' },
+    { t: at('2026-10-01', 13), quote: 5, quoteMint: 'Q', trader: 'alice' },
+    { t: at('2026-10-03'), quote: 1.005, quoteMint: 'Q', trader: 'bob' },
+    { t: at('2026-10-03', 14), quote: 2, quoteMint: 'Q', trader: 'alice' },
+    { t: at('2026-10-04'), quote: 7, quoteMint: 'Q', trader: 'carol' }, // after the last day: not counted yet
+  ]
+  const record = extend({}, trades, prices, '2026-10-03')
+  assert.deepEqual(Object.keys(record.days), ['2026-10-01', '2026-10-02', '2026-10-03'], 'a day with no trade between two that have one is a real zero')
+  assert.deepEqual(record.days['2026-10-01'], { transactions: 2, volumeUsd: 30, activeUsers: 1, newUsers: 1 })
+  assert.deepEqual(record.days['2026-10-02'], { transactions: 0, volumeUsd: 0, activeUsers: 0, newUsers: 0 })
+  assert.deepEqual(record.days['2026-10-03'], { transactions: 2, volumeUsd: 6.01, activeUsers: 2, newUsers: 1 }, 'alice is active, not new; dollars to the cent')
+  // The next day, with prices moved: the days already counted do not change.
+  const later = extend(JSON.parse(JSON.stringify(record)), trades, new Map([['Q', 100]]), '2026-10-04')
+  assert.deepEqual(later.days['2026-10-01'], record.days['2026-10-01'], 'a day 01Resolved has read never changes')
+  assert.deepEqual(later.days['2026-10-04'], { transactions: 1, volumeUsd: 700, activeUsers: 1, newUsers: 1 })
+  assert.equal(extend(later, trades, prices, '2026-10-04'), later, 'nothing to add is a no-op')
+
+  assert.equal(feed({}), null, 'no day yet: no feed, since the schema wants at least one observation')
+  const body = feed(later, new Date('2026-10-05T01:05:00.123Z'))
+  // The rules of https://01resolved.com/schemas/growth-metrics/v1.1.json, every one.
+  const only = (o, keys) => assert.deepEqual(Object.keys(o).sort(), [...keys].sort(), 'no property the schema does not allow')
+  only(body, ['schema_version', 'project_id', 'generated_at', 'metrics'])
+  assert.equal(body.schema_version, '1.1')
+  assert.match(body.project_id, /^[a-z0-9][a-z0-9-]{0,62}$/)
+  assert.equal(body.generated_at, '2026-10-05T01:05:00Z')
+  assert.ok(body.metrics.length >= 1)
+  for (const m of body.metrics) {
+    only(m, ['metric_id', 'observations'])
+    assert.match(m.metric_id, /^[a-z][a-z0-9_]{0,63}$/)
+    assert.ok(['transactions', 'protocol_volume_usd', 'daily_active_users', 'new_users'].includes(m.metric_id), 'from the catalog')
+    assert.ok(m.observations.length >= 1)
+    for (const o of m.observations) {
+      only(o, ['date', 'value', 'methodology_version'])
+      assert.match(o.date, /^\d{4}-\d{2}-\d{2}$/)
+      assert.equal(typeof o.value, 'number')
+      assert.match(o.methodology_version, /^[0-9]+\.[0-9]+$/)
+    }
+  }
+})
+
 console.log(`\n${passed} passed`)
 console.log('rpc calls seen:', JSON.stringify(rpcCalls))
 rpc.close()
