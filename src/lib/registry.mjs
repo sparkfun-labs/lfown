@@ -12,7 +12,7 @@
 // coin, its treasury is the one shown. MetaDAO still decides which coins are listed at
 // all, so a 01Resolved outage changes some numbers and nothing else.
 
-import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD, COIN_DECIMALS, EXTRA_QUOTES, SPOTLIGHT, tokenUnit } from './config.mjs'
+import { JUP, USDC, EXIT_SIZES, MIN_TREASURY_USD, COIN_DECIMALS, EXTRA_QUOTES, SPOTLIGHT, tokenUnit, isHiddenTheme } from './config.mjs'
 
 // The market API rejects requests without a browser-shaped User-Agent.
 const UA = 'Mozilla/5.0 (compatible; LFOwn/1.0; +https://letsfuckingown.fun)'
@@ -281,7 +281,8 @@ export async function buildRegistry(_endpoint, { withExits = false, resolvedKey,
     })
   }
 
-  for (const q of EXTRA_QUOTES) coins.push(extraCoin(q, extra.get(q.mint)))
+  // A coin of a hidden thematic is not offered anywhere until the thematic opens.
+  for (const q of EXTRA_QUOTES) if (!isHiddenTheme(q.theme)) coins.push(extraCoin(q, extra.get(q.mint)))
 
   let listed = coins
   if (resolvedKey) {

@@ -42,18 +42,23 @@ export const COIN_DECIMALS = 6
  * The thematics a meme can be paired in. Every MetaDAO ownership coin is in `ownership`;
  * a coin listed by hand below names its own. The first is the default tab.
  */
-export const THEMES = [
+const ALL_THEMES = [
   { id: 'ownership', label: 'Ownership coins', short: 'Ownership', pairedWith: 'ownership coins',
     blurb: 'MetaDAO ownership coins: a treasury behind every pair, run by futarchy.' },
   { id: 'solana', label: 'Solana Majors', short: 'Solana Majors', pairedWith: 'Solana Majors',
     blurb: 'The coins Solana grew up on. Pair your meme with the ones you already hold.' },
   { id: 'dino', label: 'Dinosaurs', short: 'Dino', pairedWith: 'a dinosaur',
     blurb: 'Coins backed by a real fossil. One Triceratops so far.' },
-  { id: 'preipo', label: 'Pre-IPO', short: 'Pre-IPO', pairedWith: 'pre-IPO companies',
+  // Hidden until it goes live: no tab, and its coins stay out of the catalogue — so out of
+  // the agent API and of create-config too. Delete the flag to open it.
+  { id: 'preipo', hidden: true, label: 'Pre-IPO', short: 'Pre-IPO', pairedWith: 'pre-IPO companies',
     blurb: 'Shares of companies before they list, from PreStocks: Anthropic, OpenAI, Anduril, Neuralink, Polymarket.' },
   { id: 'stocks', label: 'Stocks', short: 'Stocks', pairedWith: 'stocks',
     blurb: 'Tokenized shares: SpaceX, Tesla, the S&P 500, Nvidia, Meta. Pair your meme with a stock.' },
 ]
+/** The thematics on show; one marked `hidden` is kept out of every page and listing. */
+export const THEMES = ALL_THEMES.filter((t) => !t.hidden)
+export const isHiddenTheme = (id) => ALL_THEMES.some((t) => t.id === id && t.hidden)
 export const themeOf = (coin) => coin?.theme ?? 'ownership'
 
 /**
