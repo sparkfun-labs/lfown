@@ -68,6 +68,47 @@ function decodeMetadata(bytes) {
 }
 
 /**
+ * The same three fields from a Token-2022 mint's TokenMetadata extension. A coin minted
+ * as Token-2022 (every config with a transfer fee) keeps its metadata in the mint itself
+ * and has no Metaplex account. The extensions follow the 165-byte base and a one-byte
+ * account type, as type (u16) · length (u16) · value; TokenMetadata is type 19, and its
+ * value is update authority (32) · mint (32) · name · symbol · uri, borsh strings.
+ */
+export function decodeTokenMetadata(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (let o = 166; o + 4 <= bytes.length;) {
+    const type = view.getUint16(o, true)
+    const length = view.getUint16(o + 2, true)
+    // decodeMetadata skips Metaplex's one-byte key before the two 32-byte keys; the
+    // extension has no key, so its slice starts one byte early.
+    if (type === 19) return decodeMetadata(bytes.subarray(o + 4 - 1, o + 4 + length))
+    if (type === 0 && length === 0) break
+    o += 4 + length
+  }
+  return null
+}
+
+/**
+ * Each entry's on-chain name, symbol and uri, in batches: the Metaplex account first, and
+ * for the coins that have none, the Token-2022 mint itself. A coin whose metadata cannot
+ * be read keeps trading under whatever the entry already says.
+ */
+async function readMetadata(connection, PublicKey, entries) {
+  const batched = async (keys, apply) => {
+    for (let i = 0; i < keys.length; i += 100) {
+      const accounts = await connection.getMultipleAccountsInfo(keys.slice(i, i + 100))
+      accounts.forEach((account, j) => { if (account) try { apply(i + j, new Uint8Array(account.data)) } catch { /* unreadable: left as it is */ } })
+    }
+  }
+  await batched(entries.map((e) => metadataPda(e.baseMint, PublicKey)), (n, bytes) => Object.assign(entries[n], decodeMetadata(bytes)))
+  const missing = entries.filter((e) => !e.name && !e.symbol)
+  await batched(missing.map((e) => new PublicKey(e.baseMint)), (n, bytes) => {
+    const found = decodeTokenMetadata(bytes)
+    if (found) Object.assign(missing[n], found)
+  })
+}
+
+/**
  * One launch, resolved straight from chain.
  *
  * The catalogue is a cache and a fresh launch is not in it yet; a coin's own page
@@ -100,10 +141,7 @@ export async function describeLaunch(client, connection, PublicKey, baseMint, co
     console.error(`describeLaunch: vault creator for ${baseMint} unresolved: ${e.message}`)
   })
 
-  const account = await connection.getAccountInfo(metadataPda(baseMint, PublicKey))
-  if (account) {
-    try { Object.assign(launch, decodeMetadata(new Uint8Array(account.data))) } catch {}
-  }
+  await readMetadata(connection, PublicKey, [launch])
   return launch
 }
 
@@ -141,10 +179,7 @@ export async function launchEntry(connection, PublicKey, publicKey, poolState, c
   await resolveVaultCreators(connection, PublicKey, [entry]).catch((e) => {
     console.error(`launchEntry: vault creator for ${entry.baseMint} unresolved: ${e.message}`)
   })
-  const account = await connection.getAccountInfo(metadataPda(entry.baseMint, PublicKey))
-  if (account) {
-    try { Object.assign(entry, decodeMetadata(new Uint8Array(account.data))) } catch {}
-  }
+  await readMetadata(connection, PublicKey, [entry])
   return entry
 }
 
@@ -199,19 +234,8 @@ export async function listLaunches(client, connection, PublicKey, configs) {
     console.error(`listLaunches: vault creators unresolved: ${e.message}`)
   })
 
-  // One batched read for every token's on-chain name, symbol and image.
-  const pdas = pools.map((p) => metadataPda(p.baseMint, PublicKey))
-  for (let i = 0; i < pdas.length; i += 100) {
-    const slice = pdas.slice(i, i + 100)
-    const accounts = await connection.getMultipleAccountsInfo(slice)
-    accounts.forEach((account, j) => {
-      const target = pools[i + j]
-      if (!account) return
-      try {
-        Object.assign(target, decodeMetadata(new Uint8Array(account.data)))
-      } catch { /* a token without readable metadata still trades */ }
-    })
-  }
+  // Batched reads for every token's on-chain name, symbol and image.
+  await readMetadata(connection, PublicKey, pools)
 
   pools.sort((a, b) => b.activationPoint - a.activationPoint)
   return pools

@@ -115,11 +115,16 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
   }
 
   const allowed = new Set([COMPUTE_BUDGET, ASSOCIATED_TOKEN, SYSTEM, TOKEN, dbc.programId.toBase58(), dfs.programId.toBase58()])
-  const POOL_PAYER = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'payer')
-  const POOL_CREATOR = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'creator')
-  const POOL_CONFIG = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'config')
-  const POOL_MINT = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'baseMint')
-  const POOL_QUOTE = accountIndex(dbc, 'initializeVirtualPoolWithSplToken', 'quoteMint')
+  // A pool is opened by one of two instructions: an SPL coin, or a Token-2022 one (every
+  // config charging a transfer fee mints those). Their accounts sit in different places,
+  // so each is read by its own layout.
+  const POOL_OPENERS = new Map(['initializeVirtualPoolWithSplToken', 'initializeVirtualPoolWithToken2022'].map((ix) => [norm(ix), {
+    payer: accountIndex(dbc, ix, 'payer'),
+    creator: accountIndex(dbc, ix, 'creator'),
+    config: accountIndex(dbc, ix, 'config'),
+    mint: accountIndex(dbc, ix, 'baseMint'),
+    quote: accountIndex(dbc, ix, 'quoteMint'),
+  }]))
   const HANDOVER_CREATOR = accountIndex(dbc, 'transferPoolCreator', 'creator')
   const HANDOVER_TO = accountIndex(dbc, 'transferPoolCreator', 'newCreator')
   const VAULT_PAYER = accountIndex(dfs, 'initializeFeeVaultPda', 'payer')
@@ -163,9 +168,10 @@ export function checkSponsored(transactions, { sponsor, programs, configs }) {
       if (program === dbc.programId.toBase58()) name = decode(dbc, ix)
       if (program === dfs.programId.toBase58()) name = decode(dfs, ix)
 
-      if (name === norm('initializeVirtualPoolWithSplToken') && program === dbc.programId.toBase58()) {
-        if (sponsorAt.some((n) => n !== POOL_PAYER)) refuse(`instruction ${t}.${i} uses the sponsor as more than the payer`)
-        found.pools.push({ t, creator: at(POOL_CREATOR), config: at(POOL_CONFIG), mint: at(POOL_MINT), quote: at(POOL_QUOTE) })
+      const opener = program === dbc.programId.toBase58() && POOL_OPENERS.get(name)
+      if (opener) {
+        if (sponsorAt.some((n) => n !== opener.payer)) refuse(`instruction ${t}.${i} uses the sponsor as more than the payer`)
+        found.pools.push({ t, creator: at(opener.creator), config: at(opener.config), mint: at(opener.mint), quote: at(opener.quote) })
         continue
       }
       if (name === norm('initializeFeeVaultPda') && program === dfs.programId.toBase58()) {
