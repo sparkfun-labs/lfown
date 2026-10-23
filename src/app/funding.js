@@ -21,8 +21,7 @@
 // and nothing else.
 
 import { PublicKey, VersionedTransaction } from '@solana/web3.js'
-import { getAssociatedTokenAddressSync } from '@solana/spl-token'
-import { COIN_DECIMALS, tokenDecimals, tokenProgramOf } from '../lib/config.mjs'
+import { COIN_DECIMALS, tokenDecimals } from '../lib/config.mjs'
 
 export const NATIVE_SOL = 'So11111111111111111111111111111111111111112'
 
@@ -78,11 +77,14 @@ const ceilTo = (n, decimals) => Math.ceil(n * 10 ** decimals) / 10 ** decimals
 export async function balanceOf(connection, owner, mint, { native = false } = {}) {
   const pubkey = new PublicKey(owner)
   if (native) return (await connection.getBalance(pubkey)) / 1e9
-  // The account address depends on the token program: PUMP lives under Token-2022.
-  const ata = getAssociatedTokenAddressSync(new PublicKey(mint), pubkey, true, new PublicKey(tokenProgramOf(mint)))
+  // Asked by mint rather than by derived address: the address depends on the token
+  // program, and a coin may be under either — PUMP and every coin from a transfer-fee
+  // config are Token-2022, which a list of pairs cannot know about a meme. The node finds
+  // the program from the mint. A fee withheld on the account is not counted: it is not
+  // the holder's to spend.
   try {
-    const { value } = await connection.getTokenAccountBalance(ata)
-    return Number(value.uiAmount ?? 0)
+    const { value } = await connection.getParsedTokenAccountsByOwner(pubkey, { mint: new PublicKey(mint) })
+    return value.reduce((sum, a) => sum + Number(a.account.data.parsed.info.tokenAmount.uiAmount ?? 0), 0)
   } catch {
     return 0
   }

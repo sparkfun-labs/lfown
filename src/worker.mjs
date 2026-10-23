@@ -4,7 +4,7 @@
 // to Helius directly, so the key is never shipped in client code.
 
 import { buildRegistry, exitCost } from './lib/registry.mjs'
-import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, tokenProgramOf, USDC as USDC_MINT } from './lib/config.mjs'
+import { EXIT_SIZES, JUP, TIERS, MIN_TREASURY_USD, FEES, EXTRA_QUOTES, tokenDecimals, tokenUnit, tokenProgramOf, TOKEN_PROGRAM, TOKEN_2022_PROGRAM, USDC as USDC_MINT } from './lib/config.mjs'
 import { listLaunches, describeLaunch, launchEntry, refreshLaunches } from './lib/launches.mjs'
 import { pendingPartnerFees } from './lib/fees.mjs'
 import { lpPositions, buildLpClaim } from './lib/lp-fees.mjs'
@@ -1312,10 +1312,12 @@ async function buildLfown(env) {
   prices.set(USDC_MINT, 1)
   symbols.set(USDC_MINT, 'USDC')
 
-  // What the DAO treasury holds: every token account it owns, priced where we can.
+  // What the DAO treasury holds: every token account it owns, under either token program
+  // (fees in PUMP, a stock or a PreStock are Token-2022), priced where we can.
   const owner = new PublicKey(FEES.treasury)
+  const byProgram = (program) => connection.getParsedTokenAccountsByOwner(owner, { programId: new PublicKey(program) })
   const [accounts, lamports, supply] = await Promise.all([
-    connection.getParsedTokenAccountsByOwner(owner, { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }),
+    Promise.all([byProgram(TOKEN_PROGRAM), byProgram(TOKEN_2022_PROGRAM)]).then(([a, b]) => ({ value: [...a.value, ...b.value] })),
     connection.getBalance(owner),
     connection.getTokenSupply(new PublicKey(LFOWN_MINT)).then((r) => Number(r.value.uiAmount) || 0).catch(() => 0),
   ])
