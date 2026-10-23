@@ -10,11 +10,11 @@ import { TIERS, FEES, tokenUnit, THEMES, themeOf, inTheme, themesOf } from '../l
 const state = {
   asset: null,
   token: {},
-  // The LFOwn DAO takes half of every fee; of the other half, holders take three
-  // quarters and the creator one — 37.5 and 12.5 of the 50. It used to be a slider, and
+  // The LFOwn DAO takes half of every fee; of the other half, holders take four fifths
+  // and the creator one — FEES.holderPct, 40 and 10 of the 50. It used to be a slider, and
   // a choice nobody arriving from a tweet has an opinion on is a reason to leave.
   // Without a pot address there is nowhere to collect their part, so the creator keeps it all.
-  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: FEES.holderPot ? 37.5 : 0 },
+  curve: { tier: null, threshold: 0, devBuy: 0, devBuyQuote: 0, holders: FEES.holderPot ? FEES.holderPct : 0 },
   // The ground mint seed, once the search has found one. See startVanity.
   vanity: null,
   seed: null,
@@ -691,6 +691,28 @@ async function paintFunding() {
 }
 
 // ── 03 · review ──────────────────────────────────────────────────────────────
+/**
+ * What the fees pay, as the review shows it. A current config (one charging a transfer
+ * fee) splits every fee the same way — FEES.transferFeeSplit, which the trading fee's
+ * 50/40/10 matches — so it is shown as one split; an older config keeps the old lines.
+ */
+function feeLines({ cfg, holders, holdersPart, yours, noHolders, symbol, who }) {
+  const line = (k, v, cls = '') => `<div class="line ${cls}"><span>${k}</span><span>${v}</span></div>`
+  if (cfg.transferFeeBps) {
+    const split = FEES.transferFeeSplit
+    const fees = `<b>${(cfg.feeBps ?? FEES.totalBps) / 100}%</b> per trade · <b>${cfg.transferFeeBps / 100}%</b> per transfer`
+    return line('Fees', fees) + (noHolders
+      // No vault: the trading fee's creator half stays the creator's; the transfer fee is split as usual.
+      ? line('Trading fee', `<b>${split.dao}%</b> LFOWN DAO · <b>${100 - split.dao}%</b> ${who}`, 'earn') +
+        line('Transfer fee', `<b>${split.dao}%</b> LFOWN DAO · <b>${split.holders}%</b> holders · <b>${split.creator}%</b> ${who}`, 'earn')
+      : line('Every fee', `<b>${split.dao}%</b> LFOWN DAO · <b>${split.holders}%</b> holders · <b>${split.creator}%</b> ${who}`, 'earn')) +
+      line('Holders', `paid hourly, pro rata${noHolders ? `, from the transfer fee only: ${esc(symbol)} cannot share trading fees` : ''}`)
+  }
+  return (who === 'you' ? line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn') : line(`${who} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')) +
+    (holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '') +
+    (noHolders ? line('Holders earn', `Nothing: ${esc(symbol)} memes cannot share fees with holders`) : '')
+}
+
 function paintReview() {
   const { asset: a, token: t, curve: c } = state
   if (!a) return
@@ -714,7 +736,7 @@ function paintReview() {
   }
 
   // What trading pays the person about to sign, as parts of the half that is not the
-  // DAO's: 12.5 and 37.5 of 50 read as 25% and 75%.
+  // DAO's (older configs, shown as such): 10 and 40 of 50 read as 20% and 80%.
   const half = creatorShare || 50
   // A pair that cannot hold a fee vault (PUMP) leaves holders out: the creator keeps it all.
   const noHolders = !state.blind && a?.holderShare === false
@@ -730,14 +752,7 @@ function paintReview() {
     // blind launch simply does without it rather than printing a lookup key.
     (state.blind ? '' : line(backing(a).label, a.backing ? `${esc(a.backing.label)} (${usd(a.backing.usd)})` : esc(backing(a).value))) +
     line('Graduation target', target ?? '—') +
-    (state.feeWallet.address
-      ? line(`${esc(short(state.feeWallet.address))} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')
-      : line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn')) +
-    (holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '') +
-    // Every coin on a current config charges a transfer fee that goes to its holders —
-    // which is also how a pair that cannot share its trading fees (PUMP, a stock) still pays them.
-    (cfg.transferFeeBps ? line('Transfer fee', `<b>${cfg.transferFeeBps / 100}%</b> of every transfer, paid to holders hourly`, 'earn') : '') +
-    (noHolders && !cfg.transferFeeBps ? line('Holders earn', `Nothing: ${esc(a.symbol)} memes cannot share fees with holders`) : '')
+    feeLines({ cfg, holders, holdersPart, yours, noHolders, symbol: a.symbol, who: state.feeWallet.address ? esc(short(state.feeWallet.address)) : 'you' })
 
   $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
 }

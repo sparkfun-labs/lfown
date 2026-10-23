@@ -317,7 +317,7 @@ await test('agent: options list the open coin, its tier priced in usd, and the f
   assert.equal(r.body.coins.length, 1)
   assert.equal(r.body.coins[0].symbol, 'TEST')
   assert.deepEqual(r.body.coins[0].tiers.map((t) => [t.id, t.thresholdUsd]), [['starter', 5000]])
-  assert.equal(r.body.holders.default, 37.5)
+  assert.equal(r.body.holders.default, 40)
 })
 
 await test('agent: a launch with no creator is kept as a draft and answered with a link', async () => {
@@ -325,8 +325,9 @@ await test('agent: a launch with no creator is kept as a draft and answered with
   assert.equal(r.status, 200, JSON.stringify(r.body))
   assert.equal(r.body.mode, 'link')
   assert.match(r.body.launchUrl, /^https:\/\/example\.test\/launch\?draft=[0-9a-f-]{36}$/)
-  assert.deepEqual([r.body.feeShares.creator, r.body.feeShares.holders, r.body.feeShares.lfownDao], [0, 50, 50])
-  assert.deepEqual(r.body.feeShares.perTradeBps, { fee: 250, meteora: 50, creator: 0, holders: 100, lfownDao: 100 })
+  // holderPct is fixed at 40 for everyone: the 99 asked for is ignored.
+  assert.deepEqual([r.body.feeShares.creator, r.body.feeShares.holders, r.body.feeShares.lfownDao], [10, 40, 50])
+  assert.deepEqual(r.body.feeShares.perTradeBps, { fee: 250, meteora: 50, creator: 20, holders: 80, lfownDao: 100 })
   const meta = JSON.parse(r2.get(r.body.token.uri.split('/i/')[1]))
   assert.equal(meta.symbol, 'AGNT')
   assert.equal(meta.external_url, '')
@@ -334,7 +335,7 @@ await test('agent: a launch with no creator is kept as a draft and answered with
   assert.equal(d.status, 200)
   assert.equal(d.body.quoteMint, COIN)
   assert.equal(d.body.tier, 'starter')
-  assert.equal(d.body.holderPct, 50)
+  assert.equal(d.body.holderPct, 40)
 
   // A retry with the id reuses the draft: same id, not one new file in the bucket.
   const files = r2.size
@@ -352,7 +353,8 @@ await test('agent: validate stores nothing and turns bad input into problems', a
   assert.equal(good.status, 200)
   assert.equal(good.body.ok, true)
   assert.deepEqual(good.body.problems, [])
-  assert.equal(good.body.feeShares.holders, 10)
+  assert.equal(good.body.feeShares.holders, 40, 'fixed for every launch, whatever is asked')
+  assert.ok(good.body.warnings.some((w) => /fixed at 40/.test(w)), 'and the agent is told so')
   const bad = await post('/api/agent/validate', { name: 'Fine', symbol: 'WAYTOOLONGSYM', quote: 'TEST' })
   assert.equal(bad.status, 200)
   assert.equal(bad.body.ok, false)
@@ -490,10 +492,12 @@ await test('dinosaurs: TRCH1 is 9 decimals everywhere, priced by its raise until
   assert.match(tele.graduatedMessage({ symbol: 'RAWR', quoteSymbol: 'TRCH1', quoteMint: TRCH1, quoteReserve: '7197000000000', baseMint: 'X' }, 'https://x.test'), /raised 7,197 TRCH1/)
 })
 
-await test('fee split: holders take three quarters of the creator half, as whole vault shares', async () => {
+await test('fee split: holders take four fifths of the creator half, as whole vault shares', async () => {
   const { clampHolderPct, vaultShares, splitFor } = await import(new URL('../src/lib/fee-split.mjs', import.meta.url).href)
   const { DEFAULT_HOLDER_PCT } = await import(new URL('../src/agent.mjs', import.meta.url).href)
-  assert.equal(DEFAULT_HOLDER_PCT, 37.5)
+  assert.equal(DEFAULT_HOLDER_PCT, 40)
+  assert.deepEqual(vaultShares(40, { creator: 'So11111111111111111111111111111111111111112', holders: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' }).map((s) => s.share), [20, 80])
+  assert.deepEqual(splitFor(40), { holderPct: 40, creator: 10, holders: 40, partner: 50 })
   assert.equal(clampHolderPct(37.5), 37.5)
   assert.equal(clampHolderPct(37.3), 37.5)
   assert.equal(clampHolderPct(99), 50)

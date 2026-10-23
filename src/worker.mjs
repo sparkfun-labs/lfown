@@ -1906,6 +1906,8 @@ async function refreshGrowth(env) {
  *
  * Every coin on a current config withholds FEES.transferFeeBps of each transfer, and
  * only the fee claimer — the collector — can withdraw it (src/lib/transfer-fees.mjs).
+ * What it collects is split by FEES.transferFeeSplit: the DAO's part to the treasury,
+ * the creator's to the creator (or their fee wallet), the holders' among the holders.
  * Per coin: list its accounts, read what they withhold, and if that is worth paying out
  * (FLOOR_USD at Jupiter's price), harvest it into the mint, withdraw it to the
  * collector, and share it among the holders in the coin, by the same allocation and
@@ -1938,10 +1940,11 @@ async function collectTransferFees(env) {
   const [{ Connection, PublicKey, Transaction }, { deriveDbcPoolAuthority }, { derivePoolAuthority }, { TOKEN_2022_PROGRAM_ID, getAccount }] = await Promise.all([
     import('@solana/web3.js'), import('@meteora-ag/dynamic-bonding-curve-sdk'), import('@meteora-ag/cp-amm-sdk'), import('@solana/spl-token'),
   ])
-  const { tokenAccounts, withheldOf, collectTransactions } = await import('./lib/transfer-fees.mjs')
+  const { tokenAccounts, withheldOf, collectTransactions, splitCollected, sendInstructions } = await import('./lib/transfer-fees.mjs')
   const { payoutInstructions, FLOOR_USD } = await import('./lib/holder-payouts.mjs')
   const connection = new Connection(env.HELIUS_RPC, 'confirmed')
-  const custodians = [deriveDbcPoolAuthority().toBase58(), derivePoolAuthority().toBase58(), collector.publicKey.toBase58(), FEES.holderPot].filter(Boolean)
+  // The treasury holds the DAO's part of every coin from here on: not a holder to pay.
+  const custodians = [deriveDbcPoolAuthority().toBase58(), derivePoolAuthority().toBase58(), collector.publicKey.toBase58(), FEES.holderPot, FEES.treasury].filter(Boolean)
 
   // Each coin's price, in one Jupiter call: what decides whether its fee is worth a run.
   const prices = await fetch(`${JUP.price}?ids=${batch.map((l) => l.baseMint).join(',')}`).then((r) => (r.ok ? r.json() : {})).catch(() => ({}))
@@ -1959,8 +1962,9 @@ async function collectTransferFees(env) {
       const holders = accounts.filter((a) => a.amount > 0n).map((a) => ({ address: a.owner, amount: a.amount }))
       const plan = { holders, pot: collector.publicKey, payer: collector.publicKey, quoteMint: l.baseMint, price,
         exclude: [...custodians, l.pool], tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 6 }
-      // Who would be paid is decided before anything is collected, as for the shared fees.
-      if (!payoutInstructions({ ...plan, amount: owed.total }).batches.length) continue
+      // Who would be paid is decided before anything is collected, as for the shared fees:
+      // the holders' part of what is withheld has to clear somebody's floor.
+      if (!payoutInstructions({ ...plan, amount: splitCollected(owed.total, FEES.transferFeeSplit).holders }).batches.length) continue
 
       const { txs, destination } = collectTransactions(l.baseMint, owed.toHarvest, collector.publicKey)
       const balance = () => getAccount(connection, destination, 'confirmed', TOKEN_2022_PROGRAM_ID).then((a) => a.amount).catch(() => 0n)
@@ -1970,14 +1974,27 @@ async function collectTransferFees(env) {
         await sendAndConfirm(connection, tx, [collector])
       }
       claimed = (await balance()) - before
-      const { batches, payouts, totals } = payoutInstructions({ ...plan, amount: claimed })
+      // 50 / 40 / 10 (FEES.transferFeeSplit): the DAO's and the creator's parts in one
+      // transaction, then the holders'. The creator is whoever is paid the creator's fees.
+      const parts = splitCollected(claimed, FEES.transferFeeSplit)
+      const creatorWallet = l.feeWallet ?? l.creator
+      const direct = new Transaction()
+      if (parts.dao > 0n) direct.add(...sendInstructions(l.baseMint, collector.publicKey, FEES.treasury, parts.dao, collector.publicKey))
+      if (parts.creator > 0n && creatorWallet) direct.add(...sendInstructions(l.baseMint, collector.publicKey, creatorWallet, parts.creator, collector.publicKey))
+      if (direct.instructions.length) {
+        direct.feePayer = collector.publicKey
+        await sendAndConfirm(connection, direct, [collector])
+        sent += parts.dao + (creatorWallet ? parts.creator : 0n)
+      }
+      const { batches, payouts, totals } = payoutInstructions({ ...plan, amount: parts.holders + (creatorWallet ? 0n : parts.creator) })
       for (const [i, instructions] of batches.entries()) {
         const tx = new Transaction().add(...instructions)
         tx.feePayer = collector.publicKey
         await sendAndConfirm(connection, tx, [collector])
         sent += totals[i]
       }
-      done.push({ symbol: l.symbol, baseMint: l.baseMint, holders: payouts.length, coins: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * price })
+      done.push({ symbol: l.symbol, baseMint: l.baseMint, holders: payouts.length, coins: Number(claimed) / 1e6, usd: (Number(claimed) / 1e6) * price,
+        dao: Number(parts.dao) / 1e6, creator: Number(parts.creator) / 1e6 })
     } catch (e) {
       console.error(`transfer fee payouts failed on ${l.symbol ?? l.baseMint}: ${e.message}`)
       // Before the withdrawal nothing moved: the fee is still withheld and the next run

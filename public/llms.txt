@@ -27,7 +27,7 @@ Nothing is ever signed for the creator. The wallet that signs a launch is the wa
    - `description` (optional, up to 500 characters)
    - `imageUrl` (optional, http(s)) or `imageData` (optional, base64 data URL); png, jpeg, webp or gif, under 2 MB
    - `website`, `twitter` (optional)
-   - `holderPct` (optional, 0 to 50 in steps of 0.5, default 37.5): the holders' share — see *Fee shares* below
+   - `holderPct` (fixed at 40 for every launch; any other value is ignored and a warning says so) — see *Fee shares* below
    - `devBuyPercent` (optional, 0 to 50, default 0): percent of supply the creator buys at launch, paid in the ownership coin
    - `creator` (optional): the Solana wallet that signs and earns the fees
    - `id` (optional): a draft id from an earlier call — see *Retrying*
@@ -51,14 +51,12 @@ If the draft was already launched, `launch` answers **409** with the coin's page
 
 ## Fee shares
 
-Every trade pays 2.5%. Meteora takes 0.5% of the trade first. **Every share in this API — `holderPct` and `feeShares` alike — is a percent of what is left after Meteora's cut:**
+Every fee a coin charges is shared the same way: **50% to the LFOWN DAO, 40% to the coin's holders, 10% to its creator.**
 
-- the LFOWN DAO always takes 50
-- the creator and the holders split the other 50: holders get `holderPct`, the creator keeps `50 - holderPct`
+- **Trading fee: 0.5%** of every trade, on the bonding curve and on the graduated pool. Meteora takes a fifth of it first (0.1% of the trade); the rest is split 50 / 40 / 10. **Every share in this API — `holderPct` and `feeShares` — is a percent of what is left after Meteora's cut**: the DAO 50, holders 40 (`holderPct`, fixed), the creator 10. `feeShares.perTradeBps` gives the same split in basis points of each trade. Holders' part is paid hourly, pro rata, in the pair coin.
+- **Transfer fee: 2%** of every transfer of the coin (Token-2022), fixed for good: nobody can change or remove it, before or after graduation. What it withholds is collected hourly and split 50 / 40 / 10 too — the DAO's part to its treasury, the holders' pro rata, the creator's to the creator — in the coin itself. Each tier in the options says so as `transferFeeBps` (200); amounts quoted for a trade already account for it.
 
-With the default `holderPct: 37.5`: creator 12.5, holders 37.5, DAO 50 — of the half that is not the DAO's, holders get three quarters and the creator one. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 25, holders 75, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.
-
-On top of that, coins launched on current configs are Token-2022 with a **2% transfer fee** on every transfer, fixed for good: nobody can change or remove it, before or after graduation. What it withholds is collected hourly and paid to the coin's holders, pro rata, in the coin itself. Each tier in the options says so as `transferFeeBps` (200; 0 on older configs). Amounts quoted for a trade already account for it.
+A pair that cannot share trading fees with holders (PUMP, the stocks: their extensions keep them out of Meteora's fee-sharing program) leaves the creator the whole creator half of the trading fee; its transfer fee is split as usual. Coins launched on older configs keep the fees they were launched with.
 
 ## Costs
 

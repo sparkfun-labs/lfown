@@ -5,13 +5,15 @@
 // Nobody can spend a withheld amount but the withdraw authority, which the config made
 // LFOWN's fee claimer. Collecting is two steps — harvest every account's withheld amount
 // into the mint (permissionless), then withdraw the mint's to the collector — and the
-// hourly run then shares it out, in the coin, among the coin's holders, through the same
-// allocation as the creator-shared fees (`payoutInstructions`).
+// hourly run then shares it out in the coin, by FEES.transferFeeSplit: the DAO's part to
+// the treasury, the creator's to the creator, and the holders' among the holders through
+// the same allocation as the creator-shared fees (`payoutInstructions`).
 
 import { PublicKey, Transaction } from '@solana/web3.js'
 import {
   createHarvestWithheldTokensToMintInstruction, createWithdrawWithheldTokensFromMintInstruction,
-  createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, TOKEN_2022_PROGRAM_ID,
+  createAssociatedTokenAccountIdempotentInstruction, getAssociatedTokenAddressSync, createTransferCheckedInstruction,
+  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token'
 
 /** Token-2022 extensions sit after the 165-byte base and a one-byte account type. */
@@ -111,4 +113,29 @@ export function collectTransactions(mint, toHarvest, collector) {
     .add(createAssociatedTokenAccountIdempotentInstruction(owner, destination, owner, mintKey, TOKEN_2022_PROGRAM_ID))
     .add(createWithdrawWithheldTokensFromMintInstruction(mintKey, destination, owner, [], TOKEN_2022_PROGRAM_ID)))
   return { txs, destination }
+}
+
+/**
+ * A collected amount cut by `split` (percents): the DAO's and the creator's parts rounded
+ * down, the holders' whatever is left, so the three always add up to the whole.
+ */
+export function splitCollected(amount, split) {
+  const dao = (amount * BigInt(split.dao)) / 100n
+  const creator = (amount * BigInt(split.creator)) / 100n
+  return { dao, creator, holders: amount - dao - creator }
+}
+
+/**
+ * Sends `amount` of the coin from `owner`'s account to `recipient`'s, opening the
+ * recipient's account if it is missing (an off-curve owner, such as the DAO treasury, is
+ * allowed). `payer` rents it. The coin charges its own transfer fee on the way.
+ */
+export function sendInstructions(mint, owner, recipient, amount, payer, decimals = 6) {
+  const mintKey = new PublicKey(mint)
+  const from = getAssociatedTokenAddressSync(mintKey, new PublicKey(owner), true, TOKEN_2022_PROGRAM_ID)
+  const to = getAssociatedTokenAddressSync(mintKey, new PublicKey(recipient), true, TOKEN_2022_PROGRAM_ID)
+  return [
+    createAssociatedTokenAccountIdempotentInstruction(new PublicKey(payer), to, new PublicKey(recipient), mintKey, TOKEN_2022_PROGRAM_ID),
+    createTransferCheckedInstruction(from, mintKey, to, new PublicKey(owner), amount, decimals, [], TOKEN_2022_PROGRAM_ID),
+  ]
 }

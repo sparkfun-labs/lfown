@@ -30,7 +30,7 @@ import { readFileSync } from 'node:fs'
 import { buildLaunchTransactions } from '../src/lib/launch-builder.mjs'
 import { readyToGraduate, graduate } from '../src/lib/graduate.mjs'
 import { FEES } from '../src/lib/config.mjs'
-import { tokenAccounts, withheldOf, collectTransactions } from '../src/lib/transfer-fees.mjs'
+import { tokenAccounts, withheldOf, collectTransactions, splitCollected, sendInstructions } from '../src/lib/transfer-fees.mjs'
 import { payoutInstructions } from '../src/lib/holder-payouts.mjs'
 import { deriveDbcPoolAuthority } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { SystemProgram } from '@solana/web3.js'
@@ -87,7 +87,7 @@ const curve = buildCurve({
   migration: {
     migrationOption: MigrationOption.MET_DAMM_V2, migrationFeeOption: MigrationFeeOption.Customizable,
     migrationFee: { feePercentage: 0, creatorFeePercentage: 0 },
-    migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.Compounding, compoundingFeeBps: 0, dynamicFee: 1, poolFeeBps: 100 },
+    migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.Compounding, compoundingFeeBps: 0, dynamicFee: 1, poolFeeBps: FEES.migratedPoolFeeBps },
   },
   liquidityDistribution: { partnerPermanentLockedLiquidityPercentage: 50, partnerLiquidityPercentage: 0, creatorPermanentLockedLiquidityPercentage: 50, creatorLiquidityPercentage: 0 },
   lockedVesting: { totalLockedVestingAmount: 0, numberOfVestingPeriod: 0, cliffUnlockAmount: 0, totalVestingDuration: 0, cliffDurationFromMigrationTime: 0 },
@@ -194,12 +194,28 @@ for (const tx of collect) await send(tx)
 const claimed = (await getAccount(connection, destination, 'confirmed', TOKEN_2022_PROGRAM_ID)).amount - potBefore
 assert.equal(claimed, owed.total, 'the collection brings in exactly what was withheld')
 ok(`collected ${Number(claimed) / unit} from ${owed.toHarvest.length} accounts in ${collect.length} transaction(s)`)
+// Split 50 / 40 / 10 as the hourly run does: the DAO's part to a treasury that is off the
+// curve like the real one (a PDA), the creator's to a creator wallet, the holders' below.
+const parts = splitCollected(claimed, FEES.transferFeeSplit)
+assert.equal(parts.dao + parts.holders + parts.creator, claimed, 'the three parts add up to the whole')
+const treasury = PublicKey.findProgramAddressSync([Buffer.from('treasury-standin'), mint.publicKey.toBuffer()], payer.publicKey)[0]
+const creatorWallet = Keypair.generate().publicKey
+await send(new Transaction()
+  .add(...sendInstructions(mint.publicKey.toBase58(), payer.publicKey, treasury, parts.dao, payer.publicKey))
+  .add(...sendInstructions(mint.publicKey.toBase58(), payer.publicKey, creatorWallet, parts.creator, payer.publicKey)))
+const net = (x) => (x * BigInt(10_000 - TRANSFER_FEE_BPS)) / 10_000n
+const daoGot = (await held(mint.publicKey, treasury)).amount
+const creatorGot = (await held(mint.publicKey, creatorWallet)).amount
+assert.ok(daoGot >= net(parts.dao) - 1n && daoGot <= parts.dao, `the off-curve treasury receives the DAO's 50% less the coin's 2% (got ${daoGot} of ${parts.dao})`)
+assert.ok(creatorGot >= net(parts.creator) - 1n && creatorGot <= parts.creator, `the creator receives 10% less 2% (got ${creatorGot} of ${parts.creator})`)
+ok(`split ${Number(claimed) / unit}: ${Number(parts.dao) / unit} to an off-curve treasury, ${Number(parts.creator) / unit} to the creator, ${Number(parts.holders) / unit} for holders`)
 const fresh = await tokenAccounts(RPC, mint.publicKey.toBase58())
 const holders = fresh.filter((a) => a.amount > 0n).map((a) => ({ address: a.owner, amount: a.amount }))
 const plan = payoutInstructions({
-  holders, pot: payer.publicKey, payer: payer.publicKey, quoteMint: mint.publicKey.toBase58(), amount: claimed, price: 1,
+  holders, pot: payer.publicKey, payer: payer.publicKey, quoteMint: mint.publicKey.toBase58(), amount: parts.holders, price: 1,
   // The wallet step 6 withdrew to holds coins too; left out with the curve and the collector.
-  exclude: [deriveDbcPoolAuthority().toBase58(), poolAddress.toBase58(), payer.publicKey.toBase58(), collector.toBase58()], tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 6,
+  // The treasury and the creator were paid their parts above and are not holders here.
+  exclude: [deriveDbcPoolAuthority().toBase58(), poolAddress.toBase58(), payer.publicKey.toBase58(), collector.toBase58(), treasury.toBase58(), creatorWallet.toBase58()], tokenProgram: TOKEN_2022_PROGRAM_ID, decimals: 6,
 })
 assert.equal(plan.payouts.length, 1, 'the only holder to pay is the second one: the curve and the collector are left out')
 const secondBefore = (await held(mint.publicKey, second.publicKey)).amount

@@ -240,8 +240,17 @@ export const TIERS = [
 ]
 
 /**
- * 2.5% on every trade, split down the middle: half to the coin's creator, half to
- * the LFOwn DAO treasury.
+ * Every fee a coin charges is shared the same way: 50% to the LFOWN DAO, 40% to the
+ * coin's holders, 10% to its creator — after Meteora's cut of the trading fee.
+ *
+ *   trading fee   0.5% on the curve and 0.5% on the graduated pool. The config gives the
+ *                 DAO half (creatorSharePct 50) and the creator half goes to the coin's
+ *                 fee vault, which splits it 40 holders / 10 creator (holderPct 40).
+ *   transfer fee  2% of every transfer (Token-2022), withheld for `recipient`, which the
+ *                 hourly run splits 50/40/10 itself (transferFeeSplit).
+ *
+ * A pair the fee-sharing program refuses (PUMP, the stocks) has no vault: its creator
+ * keeps the whole creator half of the trading fee.
  *
  * Both the rate and the recipient live inside each DBC config, which is immutable.
  * Changing either means creating new configs — see `scripts/create-config.mjs`.
@@ -274,7 +283,7 @@ export const FEES = {
    * The transfer fee every coin launched on a current config charges, in basis points:
    * Token-2022's TransferFeeConfig, withheld on every transfer, the curve's included. It
    * is fixed for good (no fee authority, before or after graduation), and what it
-   * withholds is collected by `recipient` and handed to the coin's holders. Configs
+   * withholds is collected by `recipient` and shared out by `transferFeeSplit`. Configs
    * opened before this (SDK 1.x) mint SPL coins with no fee; their coins keep trading.
    */
   transferFeeBps: 200,
@@ -298,8 +307,15 @@ export const FEES = {
    */
   holderPot: '4m1faNte7icFoFeALXdqvZ9njGRAHGMm37QL7SoFGHcU',
 
-  totalBps: 250,
+  /** The curve's trading fee, in basis points, and the graduated DAMM v2 pool's. */
+  totalBps: 50,
+  migratedPoolFeeBps: 50,
+  /** The creator's half of the trading fee; the DAO takes the rest. */
   creatorSharePct: 50,
+  /** Of the 50 shares after the DAO's, the holders' — fixed for every launch: 40 + 10 creator. */
+  holderPct: 40,
+  /** How the hourly run hands out what the transfer fee collected, in percent. */
+  transferFeeSplit: { dao: 50, holders: 40, creator: 10 },
 }
 
 /**

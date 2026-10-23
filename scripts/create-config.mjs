@@ -124,8 +124,8 @@ console.log('tier       :', `${tier.label} — $${tier.usd.toLocaleString('en-US
 console.log('payer      :', payer.publicKey.toBase58(), `(${KEYPAIR_PATH})`)
 console.log('fee claimer:', FEES.recipient)
 if (FEES.treasury !== FEES.recipient) console.log('fees land on:', FEES.treasury)
-console.log('trading fee:', `${FEES.totalBps / 100}% — ${FEES.creatorSharePct}% creator / ${100 - FEES.creatorSharePct}% DAO`)
-console.log('coins      :', `Token-2022, ${FEES.transferFeeBps / 100}% transfer fee, fixed for good, collected for holders`)
+console.log('trading fee:', `${FEES.totalBps / 100}% on the curve, ${FEES.migratedPoolFeeBps / 100}% graduated — ${FEES.creatorSharePct}% creator / ${100 - FEES.creatorSharePct}% DAO`)
+console.log('coins      :', `Token-2022, ${FEES.transferFeeBps / 100}% transfer fee, fixed for good, split ${FEES.transferFeeSplit.dao}/${FEES.transferFeeSplit.holders}/${FEES.transferFeeSplit.creator} DAO/holders/creator`)
 
 // A config is one 1048-byte account: rent-exempt reserve plus the signature fee.
 // Checking here turns an unreadable "no record of a prior credit" simulation
@@ -141,8 +141,9 @@ function liveConfig(mint) {
     return out.trim().startsWith('{') ? JSON.parse(out) : null
   } catch { return null }
 }
-/** A config of the current make: Token-2022 coins charging FEES.transferFeeBps. */
-const current = (live) => live?.transferFeeBps === FEES.transferFeeBps
+/** A config of the current make: FEES' trading fee on the curve and the graduated pool, and its transfer fee. */
+const current = (live) => live?.transferFeeBps === FEES.transferFeeBps && live?.feeBps === FEES.totalBps
+  && live?.migratedPoolFeeBps === FEES.migratedPoolFeeBps
 /** Already open? With --replace, only a current config counts. */
 const openedAlready = (mint) => { const live = liveConfig(mint); return REPLACE ? current(live) : Boolean(live) }
 
@@ -224,8 +225,8 @@ for (const coin of todo) {
       migrationOption: MigrationOption.MET_DAMM_V2,
       migrationFeeOption: MigrationFeeOption.Customizable,
       migrationFee: { feePercentage: 0, creatorFeePercentage: 0 },
-      // The 1% pool fee the FixedBps100 configs had, with the dynamic fee on top.
-      migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.Compounding, compoundingFeeBps: 0, dynamicFee: 1, poolFeeBps: 100 },
+      // The graduated pool's fee, FEES.migratedPoolFeeBps, with the dynamic fee on top.
+      migratedPoolFee: { collectFeeMode: MigratedCollectFeeMode.Compounding, compoundingFeeBps: 0, dynamicFee: 1, poolFeeBps: FEES.migratedPoolFeeBps },
     },
     liquidityDistribution: {
       partnerPermanentLockedLiquidityPercentage: 50,
@@ -286,6 +287,7 @@ for (const coin of todo) {
       config: config.publicKey.toBase58(),
       threshold: coin.threshold,
       feeBps: FEES.totalBps,
+      migratedPoolFeeBps: FEES.migratedPoolFeeBps,
       creatorSharePct: FEES.creatorSharePct,
       transferFeeBps: FEES.transferFeeBps,
       feeClaimer: FEES.recipient,

@@ -27,9 +27,12 @@
 import { FEES, TIERS, feeBreakdown, tokenUnit, tokenProgramOf, holdersCanShare } from './lib/config.mjs'
 import { HOLDER_MAX_PCT, clampHolderPct, splitFor } from './lib/fee-split.mjs'
 
-/** What a launch shares with holders when the agent does not say. Same as the page. */
-// Holders take three quarters of the creator's half: 37.5 of the 50, the creator 12.5.
-export const DEFAULT_HOLDER_PCT = 37.5
+/**
+ * What every launch shares with holders: FEES.holderPct, 40 of the 50 after the DAO's,
+ * the creator 10. Fixed for everyone, page and agents alike; a different holderPct asked
+ * for is ignored, and the response says so.
+ */
+export const DEFAULT_HOLDER_PCT = FEES.holderPct
 
 const LIMITS = {
   name: 32,
@@ -155,13 +158,18 @@ export async function agentOptions(env, { readCatalogue }) {
     tradingFee: {
       bps: FEES.totalBps,
       meteoraBps: cut.protocol,
-      note: `Every trade pays ${FEES.totalBps / 100}%. Meteora takes ${cut.protocol / 100}% of the trade first; every share in this API is a ${SHARE_UNIT}.`,
+      note: `Every trade pays ${FEES.totalBps / 100}% (on the curve and on the graduated pool). Meteora takes ${cut.protocol / 100}% of the trade first; every share in this API is a ${SHARE_UNIT}.`,
+    },
+    transferFee: {
+      bps: FEES.transferFeeBps,
+      split: FEES.transferFeeSplit,
+      note: `Coins on current configs (tiers with transferFeeBps) also charge ${FEES.transferFeeBps / 100}% of every transfer, fixed for good, shared hourly ${FEES.transferFeeSplit.dao}% LFOWN DAO / ${FEES.transferFeeSplit.holders}% holders / ${FEES.transferFeeSplit.creator}% creator.`,
     },
     holders: {
       default: DEFAULT_HOLDER_PCT,
       max: HOLDER_MAX_PCT,
       unit: SHARE_UNIT,
-      note: `The LFOWN DAO always takes 50. The creator splits the other 50 with holders: holderPct is the holders' part (0-${HOLDER_MAX_PCT}), the creator keeps the rest. Paid hourly, pro rata, in the ownership coin. Fixed at launch.`,
+      note: `The LFOWN DAO always takes 50. Of the other 50, holders take ${DEFAULT_HOLDER_PCT} and the creator ${50 - DEFAULT_HOLDER_PCT}, on every launch: holderPct is fixed and any other value is ignored. Paid hourly, pro rata, in the pair coin.`,
       example: feeShares(DEFAULT_HOLDER_PCT),
     },
     limits: LIMITS,
@@ -187,8 +195,8 @@ async function readRequest(env, input, deps) {
   const tier = input?.tier ? coin.tiers.find((t) => t.id === String(input.tier)) : coin.tiers[0]
   if (!tier) throw new AgentError(400, `tier "${input.tier}" is not open for ${coin.symbol}`, { open: coin.tiers.map((t) => t.id) })
 
-  // A pair whose memes cannot share with holders (PUMP) launches at 0, whatever was asked.
-  const holderPct = !holdersCanShare(coin.mint) ? 0 : input?.holderPct === undefined ? DEFAULT_HOLDER_PCT : clampHolderPct(input.holderPct)
+  // Fixed for every launch; a pair whose memes cannot share with holders (PUMP) launches at 0.
+  const holderPct = !holdersCanShare(coin.mint) ? 0 : DEFAULT_HOLDER_PCT
   const devBuyPercent = Math.max(0, Math.min(LIMITS.devBuyMaxPercent, Number(input?.devBuyPercent ?? 0) || 0))
   const creator = input?.creator ? String(input.creator).trim() : null
   if (creator && !BASE58.test(creator)) throw new AgentError(400, 'creator must be a Solana wallet address')
@@ -205,6 +213,8 @@ async function readRequest(env, input, deps) {
     coin,
     tier,
     holderPct,
+    // Said back as a warning: an agent that asked for another share should know it was not used.
+    holderPctIgnored: input?.holderPct !== undefined && Number(input.holderPct) !== DEFAULT_HOLDER_PCT,
     devBuyPercent,
     creator,
     token: {
@@ -248,6 +258,7 @@ async function requestFrom(env, input, deps) {
  */
 async function chainChecks(env, request) {
   const out = { problems: [], warnings: [], devBuy: null, devBuyQuote: 0 }
+  if (request.holderPctIgnored) out.warnings.push(`holderPct is fixed at ${DEFAULT_HOLDER_PCT} for every launch; the value sent was ignored`)
   if (!holdersCanShare(request.coin.mint)) out.warnings.push(`memes paired with ${request.coin.symbol} cannot share fees with holders: holderPct is 0 and the creator keeps the whole creator half`)
   if (!request.creator && !(request.devBuyPercent > 0)) return out
 
@@ -593,7 +604,7 @@ const LAUNCH_PROPERTIES = {
   imageData: { type: 'string', description: 'base64 data URL; png, jpeg, webp or gif, under 2 MB' },
   website: { type: 'string', format: 'uri' },
   twitter: { type: 'string' },
-  holderPct: { type: 'number', multipleOf: 0.5, minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Holders' share, as a ${SHARE_UNIT}. The DAO always takes 50; the creator keeps 50 minus this.` },
+  holderPct: { type: 'number', multipleOf: 0.5, minimum: 0, maximum: HOLDER_MAX_PCT, default: DEFAULT_HOLDER_PCT, description: `Fixed at ${DEFAULT_HOLDER_PCT} for every launch (the DAO 50, holders ${DEFAULT_HOLDER_PCT}, the creator ${50 - DEFAULT_HOLDER_PCT}); any other value is ignored.` },
   devBuyPercent: { type: 'number', minimum: 0, maximum: LIMITS.devBuyMaxPercent, default: 0, description: 'Percent of supply bought at launch, paid in the ownership coin by the creator' },
   creator: { type: 'string', description: 'The Solana wallet that signs and earns the fees. Omit to get a link for a person to sign.' },
 }
