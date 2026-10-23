@@ -6,7 +6,7 @@
 import { Connection, PublicKey, Transaction } from '@solana/web3.js'
 import { rpcFetch } from './rpc.js'
 import {
-  DynamicBondingCurveClient, SwapMode, getPriceFromSqrtPrice,
+  DynamicBondingCurveClient, SwapMode, getPriceFromSqrtPrice, getSwapQuoteTransferFees,
   deriveDammV2PoolAddress, DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption,
 } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import BN from 'bn.js'
@@ -77,9 +77,25 @@ export async function loadPool(poolAddress) {
   }
 }
 
+/**
+ * The Token-2022 transfer fees a quote on this pool must account for: the pair's (PUMP,
+ * a stock, a PreStock) and the coin's own. SDK 2.0 refuses to quote a Token-2022 pair
+ * without them, and with them `outputAmount` is what actually lands. Read once per pool
+ * and page: they change at most once an epoch.
+ */
+const transferFees = new Map()
+function transferFeesFor(pool, config) {
+  const key = pool.baseMint.toBase58()
+  if (!transferFees.has(key)) {
+    transferFees.set(key, getSwapQuoteTransferFees(connection, config, { baseMint: pool.baseMint })
+      .catch((e) => { transferFees.delete(key); throw e }))
+  }
+  return transferFees.get(key)
+}
+
 /** What this trade would return, priced on the curve as it stands right now. */
 export async function quote({ pool, config }, { amountIn, sellingBase, slippageBps = 100 }) {
-  const currentPoint = new BN(await connection.getSlot())
+  const [currentPoint, fees] = await Promise.all([connection.getSlot().then((s) => new BN(s)), transferFeesFor(pool, config)])
   const { inUnit, outUnit } = units(config.quoteMint, sellingBase)
   const result = await client.pool.swapQuote2({
     // The quote helpers read `virtualPool.poolState`, so they want the account
@@ -92,6 +108,7 @@ export async function quote({ pool, config }, { amountIn, sellingBase, slippageB
     slippageBps,
     hasReferral: false,
     currentPoint,
+    ...fees,
   })
   return {
     out: Number(result.outputAmount ?? result.amountOut ?? 0) / outUnit,

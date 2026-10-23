@@ -12,7 +12,7 @@
 // opens a pool on the config that already exists for the coin they picked.
 
 import { PublicKey, Transaction } from '@solana/web3.js'
-import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveTokenBadgeAddress } from '@meteora-ag/dynamic-bonding-curve-sdk'
+import { deriveDbcPoolAddress, deriveDbcEventAuthority, deriveTokenBadgeAddress, getSwapQuoteTransferFees } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { DynamicFeeSharingClient } from '@meteora-ag/dynamic-fee-sharing-sdk'
 import BN from 'bn.js'
 import { FEES, tokenUnit, tokenProgramOf, holdersCanShare, TOKEN_2022_PROGRAM } from './config.mjs'
@@ -30,11 +30,17 @@ export async function devBuyCost(client, { config, percent }) {
   if (!supply) throw new Error('this config does not declare a supply')
 
   const baseOut = Math.floor((supply * percent) / 100)
-  const quote = await client.pool.getQuoteFromOutputAmount({
+  // A pair with a transfer fee (a PreStock) costs that fee on the way in, and a coin with
+  // one (every config since SDK 2.0) delivers less than the curve sends: both come from
+  // here. The coin's own fee is read off the config, since the coin does not exist yet.
+  const fees = await getSwapQuoteTransferFees(client.connection, state)
+  const quote = client.pool.getQuoteFromOutputAmount({
     config: state,
     swapBaseForQuote: false,
     amountOut: new BN(baseOut.toString()),
     slippageBps: 0,
+    quoteTokenFlag: state.quoteTokenFlag,
+    ...fees,
   })
   // The exact-out quote reports what goes in fee-inclusive; that is what the buyer
   // actually parts with.

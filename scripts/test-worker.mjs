@@ -552,7 +552,10 @@ await test('fee wallet: only an address that can sign a claim, read back from th
 await test('sponsor: signs a real launch, and nothing that spends its SOL any other way', async () => {
   const web3 = await import('@solana/web3.js')
   const { Keypair, PublicKey, Transaction, SystemProgram, ComputeBudgetProgram } = web3
-  const { DynamicBondingCurveClient, deriveDbcPoolAddress, deriveDbcTokenVaultAddress, deriveMintMetadata, deriveDbcPoolAuthority, deriveDbcEventAuthority } = await import('@meteora-ag/dynamic-bonding-curve-sdk')
+  const { DynamicBondingCurveClient, deriveDbcPoolAddress, deriveDbcTokenVaultAddress, deriveDbcPoolAuthority, deriveDbcEventAuthority } = await import('@meteora-ag/dynamic-bonding-curve-sdk')
+  // SDK 2.0 stopped exporting it: the Metaplex metadata PDA, by hand.
+  const METAPLEX = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
+  const deriveMintMetadata = (mint) => PublicKey.findProgramAddressSync([Buffer.from('metadata'), METAPLEX.toBuffer(), mint.toBuffer()], METAPLEX)[0]
   const { DynamicFeeSharingClient, deriveFeeVaultPdaAddress } = await import('@meteora-ag/dynamic-fee-sharing-sdk')
   const { createAssociatedTokenAccountIdempotentInstruction, TOKEN_PROGRAM_ID } = await import('@solana/spl-token')
   const { checkSponsored } = await import(new URL('../src/lib/sponsor.mjs', import.meta.url).href)

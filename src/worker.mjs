@@ -1858,9 +1858,9 @@ async function distributeToHolders(env) {
   }
 
   const [{ Connection, PublicKey, Transaction }, { DynamicFeeSharingClient },
-    { DynamicBondingCurveClient, deriveDbcPoolAuthority, deriveDammV2PoolAuthority },
+    { DynamicBondingCurveClient, deriveDbcPoolAuthority },
     { getAssociatedTokenAddressSync, createAssociatedTokenAccountIdempotentInstruction },
-    { getUnClaimLpFee, derivePositionNftAccount }] = await Promise.all([
+    { getUnClaimLpFee, derivePositionNftAccount, derivePoolAuthority: deriveDammV2PoolAuthority }] = await Promise.all([
     import('@solana/web3.js'),
     import('@meteora-ag/dynamic-fee-sharing-sdk'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'),
