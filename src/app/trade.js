@@ -202,8 +202,9 @@ export async function vaultFees({ pool }, { vault, creator, lp = null }) {
  */
 export async function graduatedFees({ pool, config }, owner) {
   const { lpPositions } = await import('../lib/lp-fees.mjs')
+  // Which DAMM v2 config the pool migrated into follows its DBC config's fee option.
   const dammPool = deriveDammV2PoolAddress(
-    DAMM_V2_MIGRATION_FEE_ADDRESS[MigrationFeeOption.FixedBps100],
+    DAMM_V2_MIGRATION_FEE_ADDRESS[Number(config.migrationFeeOption ?? MigrationFeeOption.FixedBps100)],
     pool.baseMint,
     config.quoteMint,
   ).toBase58()

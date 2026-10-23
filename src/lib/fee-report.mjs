@@ -69,7 +69,7 @@ export async function feeReport(client, connection, launches, { prices = new Map
     const graduated = { creator: 0, partner: 0, pending: 0, inCoin: 0 }
     if (poolState.isMigrated) {
       const dammPool = deriveDammV2PoolAddress(
-        DAMM_V2_MIGRATION_FEE_ADDRESS[MigrationFeeOption.FixedBps100],
+        DAMM_V2_MIGRATION_FEE_ADDRESS[Number(config.migrationFeeOption ?? MigrationFeeOption.FixedBps100)],
         new PublicKey(l.baseMint),
         new PublicKey(l.quoteMint),
       )

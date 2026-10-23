@@ -9,6 +9,10 @@ import { PublicKey } from '@solana/web3.js'
 import { DAMM_V2_MIGRATION_FEE_ADDRESS, MigrationFeeOption } from '@meteora-ag/dynamic-bonding-curve-sdk'
 import { sendAndConfirm } from './confirm.mjs'
 
+/** The DAMM v2 config a pool on this DBC config migrates into, from its migrationFeeOption. */
+export const dammConfigOf = (config) =>
+  DAMM_V2_MIGRATION_FEE_ADDRESS[Number(config?.migrationFeeOption ?? MigrationFeeOption.FixedBps100)]
+
 /**
  * Pools whose curve is full and which have not migrated yet.
  *
@@ -55,12 +59,16 @@ export async function readyToGraduate(client, launches) {
  * their keypairs are generated here and signed alongside the payer.
  */
 export async function graduate(client, connection, pool, payer) {
+  // The DAMM v2 config must match the migrationFeeOption the pool's config was opened
+  // with: FixedBps100 for the first configs, Customizable for those charging a transfer
+  // fee, which require it.
+  const { poolState } = await client.state.getPool(new PublicKey(pool))
+  const config = await client.state.getPoolConfig(poolState.config)
   const { transaction, firstPositionNftKeypair, secondPositionNftKeypair } =
     await client.migration.migrateToDammV2({
       pool: new PublicKey(pool),
       payer: payer.publicKey,
-      // Must match the migrationFeeOption the config was opened with.
-      dammConfig: DAMM_V2_MIGRATION_FEE_ADDRESS[MigrationFeeOption.FixedBps100],
+      dammConfig: dammConfigOf(config),
     })
 
   transaction.feePayer = payer.publicKey

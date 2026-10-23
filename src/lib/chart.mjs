@@ -142,12 +142,14 @@ export async function ammLeg(connection, PublicKey, baseMint, quoteMint) {
     import('@meteora-ag/cp-amm-sdk'),
     import('@meteora-ag/dynamic-bonding-curve-sdk'),
   ])
-  const address = dbc.deriveDammV2PoolAddress(
-    dbc.DAMM_V2_MIGRATION_FEE_ADDRESS[dbc.MigrationFeeOption.FixedBps100],
-    new PublicKey(baseMint),
-    new PublicKey(quoteMint),
-  )
-  if (!(await connection.getAccountInfo(address))) return null // not graduated yet
+  // The pool's address depends on its DBC config's fee option, which this does not know:
+  // FixedBps100 for the first configs, Customizable for those with a transfer fee. Both
+  // are looked up in one read, and whichever exists is the coin's.
+  const candidates = [dbc.MigrationFeeOption.FixedBps100, dbc.MigrationFeeOption.Customizable].map((option) =>
+    dbc.deriveDammV2PoolAddress(dbc.DAMM_V2_MIGRATION_FEE_ADDRESS[option], new PublicKey(baseMint), new PublicKey(quoteMint)))
+  const found = await connection.getMultipleAccountsInfo(candidates)
+  const address = candidates[found.findIndex(Boolean)]
+  if (!address) return null // not graduated yet
 
   const state = await new CpAmm(connection).fetchPoolState(address)
   const baseIsA = state.tokenAMint.toBase58() === baseMint
