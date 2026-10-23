@@ -734,7 +734,10 @@ function paintReview() {
       ? line(`${esc(short(state.feeWallet.address))} earns`, `<b>${yours}%</b> of every trading fee`, 'earn')
       : line('You earn', `<b>${yours}%</b> of every trading fee`, 'earn')) +
     (holders ? line('Holders earn', `<b>${holdersPart}%</b>, paid out hourly`, 'earn') : '') +
-    (noHolders ? line('Holders earn', `Nothing: ${esc(a.symbol)} memes cannot share fees with holders`) : '')
+    // Every coin on a current config charges a transfer fee that goes to its holders —
+    // which is also how a pair that cannot share its trading fees (PUMP, a stock) still pays them.
+    (cfg.transferFeeBps ? line('Transfer fee', `<b>${cfg.transferFeeBps / 100}%</b> of every transfer, paid to holders hourly`, 'earn') : '') +
+    (noHolders && !cfg.transferFeeBps ? line('Holders earn', `Nothing: ${esc(a.symbol)} memes cannot share fees with holders`) : '')
 
   $('#review').querySelectorAll('.tier-pick button').forEach((b) => b.addEventListener('click', () => pickTier(b.dataset.tier)))
 }

@@ -131,6 +131,8 @@ export async function agentOptions(env, { readCatalogue }) {
         threshold: cfg.threshold,
         thresholdUsd: Math.round(cfg.threshold * (coin.usdPrice ?? 0)),
         feeBps: cfg.feeBps ?? FEES.totalBps,
+        // The coin's own Token-2022 transfer fee, paid to its holders; 0 on older configs.
+        transferFeeBps: cfg.transferFeeBps ?? 0,
         config: cfg.config,
       })
     }

@@ -58,6 +58,8 @@ Every trade pays 2.5%. Meteora takes 0.5% of the trade first. **Every share in t
 
 With the default `holderPct: 37.5`: creator 12.5, holders 37.5, DAO 50 — of the half that is not the DAO's, holders get three quarters and the creator one. Responses also give `feeShares.perTradeBps`, the same split in basis points of each trade: creator 25, holders 75, DAO 100, Meteora 50 (of 250). Holders are paid hourly, pro rata, in the ownership coin. The split is fixed at launch.
 
+On top of that, coins launched on current configs are Token-2022 with a **2% transfer fee** on every transfer, fixed for good: nobody can change or remove it, before or after graduation. What it withholds is collected hourly and paid to the coin's holders, pro rata, in the coin itself. Each tier in the options says so as `transferFeeBps` (200; 0 on older configs). Amounts quoted for a trade already account for it.
+
 ## Costs
 
 The creator pays roughly 0.03 SOL in rent and network fees to launch, plus the dev buy if any.
