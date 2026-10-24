@@ -121,6 +121,15 @@ export const SPOTLIGHT = [
     opens: '2026-10-20T13:15:00Z',
     until: '2026-11-03',
   },
+  {
+    mint: 'GYYCX5q47qDU7ctwCjZv7KKgW2L3788f4vtdR3Kjmeta',
+    symbol: 'POKER',
+    name: 'The Inner Table',
+    icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/2ea7f24b-3211-46e6-f65a-f1de3a647400/public',
+    // The raise closed 24 Oct 2026 at 22:30 UTC+5; $150k for 38.8% of 25.8M: $0.015 a token.
+    opens: '2026-10-24T17:30:00Z',
+    until: '2026-11-07',
+  },
 ]
 
 export const EXTRA_QUOTES = [
