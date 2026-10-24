@@ -265,7 +265,19 @@ for (const coin of todo) {
   try {
     let sig
     try {
-      sig = await sendAndConfirmTransaction(connection, tx, [payer, config], { commitment: 'confirmed' })
+      // A blockhash the node has not seen yet ("Blockhash not found", P2P on 24 Oct 2026)
+      // is a moment's lag, not a bad transaction: tried again, up to three times, each
+      // with a fresh blockhash (sendAndConfirmTransaction fetches its own).
+      for (let attempt = 1; ; attempt++) {
+        try {
+          sig = await sendAndConfirmTransaction(connection, tx, [payer, config], { commitment: 'confirmed' })
+          break
+        } catch (e) {
+          if (!/Blockhash not found|block height exceeded/i.test(e.message) || attempt >= 3) throw e
+          console.log(`  blockhash not seen by the node yet, trying again (${attempt}/3)`)
+          tx.signatures = []
+        }
+      }
     } catch (e) {
       // The RPC's own preflight can fail on its side ("Internal error during preflight
       // simulation", METAs, 22 Oct 2026) on a transaction that is fine. Then it is
