@@ -130,6 +130,15 @@ export const SPOTLIGHT = [
     opens: '2026-10-24T17:30:00Z',
     until: '2026-11-07',
   },
+  {
+    mint: '95XVMy1tQcn4gsxu88JiCCw6k5oLJ74xhbAa7Gr3meta',
+    symbol: 'ORENDAL',
+    name: 'Orendal',
+    icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/ef07a3cd-617d-455a-3d86-f7cd36c8b500/public',
+    // The raise closes 24 Oct 2026 at 21:58 UTC; $20k for 38.8% of 25.8M: $0.002 a token.
+    opens: '2026-10-24T21:58:00Z',
+    until: '2026-11-07',
+  },
 ]
 
 export const EXTRA_QUOTES = [
