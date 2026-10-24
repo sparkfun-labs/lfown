@@ -135,8 +135,8 @@ export const SPOTLIGHT = [
     symbol: 'ORENDAL',
     name: 'Orendal',
     icon: 'https://imagedelivery.net/HYEnlujCFMCgj6yA728xIw/ef07a3cd-617d-455a-3d86-f7cd36c8b500/public',
-    // The raise closes 24 Oct 2026 at 21:58 UTC; $20k for 38.8% of 25.8M: $0.002 a token.
-    opens: '2026-10-24T21:58:00Z',
+    // Trading opens 24 Oct 2026 at 22:00 UTC; $20k for 38.8% of 25.8M: $0.002 a token.
+    opens: '2026-10-24T22:00:00Z',
     until: '2026-11-07',
   },
 ]
